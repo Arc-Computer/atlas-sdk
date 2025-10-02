@@ -92,7 +92,7 @@ agent:
 
 ```
 1. core.run()                 # load config, adapter, context
-2. Student.create_plan()      # NeMo-derived planning graph via BYOA bridge
+2. Student.create_plan()      # ATLAS-derived planning graph via BYOA bridge
 3. Teacher.review_plan()      # validates dependencies and tools
 4. Orchestrator.arun()        # sequential execution, retries, telemetry
 5. Evaluator.ajudge()         # process/helpfulness judges aggregate scores
