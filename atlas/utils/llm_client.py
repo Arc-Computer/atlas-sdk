@@ -36,9 +36,10 @@ class LLMClient:
         self,
         messages: Sequence[Dict[str, Any]],
         response_format: Dict[str, Any] | None = None,
+        overrides: Dict[str, Any] | None = None,
     ) -> LLMResponse:
         self._ensure_client()
-        kwargs = self._prepare_kwargs(messages, response_format)
+        kwargs = self._prepare_kwargs(messages, response_format, overrides)
         result = await acompletion(**kwargs)
         return LLMResponse(content=self._extract_content(result), raw=result)
 
@@ -46,9 +47,10 @@ class LLMClient:
         self,
         messages: Sequence[Dict[str, Any]],
         response_format: Dict[str, Any] | None = None,
+        overrides: Dict[str, Any] | None = None,
     ) -> LLMResponse:
         self._ensure_client()
-        kwargs = self._prepare_kwargs(messages, response_format)
+        kwargs = self._prepare_kwargs(messages, response_format, overrides)
         result = completion(**kwargs)
         return LLMResponse(content=self._extract_content(result), raw=result)
 
@@ -56,6 +58,7 @@ class LLMClient:
         self,
         messages: Sequence[Dict[str, Any]],
         response_format: Dict[str, Any] | None,
+        overrides: Dict[str, Any] | None,
     ) -> Dict[str, Any]:
         params = self._params
         api_key = os.getenv(params.api_key_env)
@@ -80,6 +83,10 @@ class LLMClient:
             kwargs["extra_headers"] = params.additional_headers
         if response_format:
             kwargs["response_format"] = response_format
+        if overrides:
+            for key, value in overrides.items():
+                if value is not None:
+                    kwargs[key] = value
         return kwargs
 
     def _ensure_client(self) -> None:

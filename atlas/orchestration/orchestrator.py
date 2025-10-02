@@ -149,6 +149,7 @@ class Orchestrator:
                 raise
             self._emit_tool_events(execution_context, student_result.messages)
             validation = await self._teacher.avalidate_step(step, student_result.trace, student_result.output)
+            step_meta = execution_context.metadata.get("steps", {}).get(step.id, {})
             judge_context = JudgeContext(
                 task=task,
                 step=step,
@@ -156,6 +157,7 @@ class Orchestrator:
                 output=student_result.output,
                 attempt=attempts,
                 prior_results=context_outputs,
+                guidance=list(step_meta.get("guidance", [])),
             )
             reward = await self._evaluator.ajudge(judge_context)
             evaluation = {"validation": validation, "reward": reward}

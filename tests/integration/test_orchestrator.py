@@ -59,6 +59,10 @@ def build_orchestrator():
         judges=[
             JudgeConfig(identifier="process", kind=JudgeKind.PROCESS, llm=LLMParameters(model="stub"))
         ],
+        temperatures=[0.0],
+        variance_threshold=1.0,
+        uncertainty_threshold=1.0,
+        arbiter=LLMParameters(model="arbiter"),
         success_threshold=0.7,
         retry_threshold=0.6,
         aggregation_strategy="weighted_mean",

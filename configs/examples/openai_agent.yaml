@@ -73,6 +73,15 @@ rim:
         api_key_env: OPENAI_API_KEY
         temperature: 0.0
         max_output_tokens: 512
+  temperatures: [0.0, 0.3]
+  variance_threshold: 0.15
+  uncertainty_threshold: 0.3
+  arbiter:
+    provider: openai
+    model: gpt-4o
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.1
+    max_output_tokens: 768
   success_threshold: 0.7
   retry_threshold: 0.6
   aggregation_strategy: weighted_mean

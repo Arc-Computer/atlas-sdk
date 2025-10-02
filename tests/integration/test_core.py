@@ -52,6 +52,10 @@ async def test_core_run_assembles_pipeline(monkeypatch):
             "orchestration": OrchestrationConfig(max_retries=0, step_timeout_seconds=10, rim_guidance_tag="tag", emit_intermediate_steps=True),
             "rim": RIMConfig(
                 judges=[JudgeConfig(identifier="process", kind=JudgeKind.PROCESS, llm=LLMParameters(model="stub"))],
+                temperatures=[0.0],
+                variance_threshold=1.0,
+                uncertainty_threshold=1.0,
+                arbiter=LLMParameters(model="arbiter"),
                 success_threshold=0.7,
                 retry_threshold=0.6,
                 aggregation_strategy="weighted_mean",

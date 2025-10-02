@@ -190,6 +190,7 @@ class JudgeConfig(BaseModel):
     weight: float = Field(default=1.0, ge=0.0)
     principles: List[str] = Field(default_factory=list)
     max_tokens: int = Field(default=1024, ge=1)
+    enabled: bool = True
 
 class RIMConfig(BaseModel):
     """Aggregate reward model configuration."""
@@ -204,6 +205,10 @@ class RIMConfig(BaseModel):
         if not value:
             raise ValueError("at least one judge must be configured")
         return value
+    temperatures: List[float] = Field(default_factory=lambda: [0.0, 0.3])
+    variance_threshold: float = Field(default=0.15, ge=0.0)
+    uncertainty_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
+    arbiter: LLMParameters
     success_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
     retry_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
     aggregation_strategy: Literal["weighted_mean", "minimum"] = "weighted_mean"
