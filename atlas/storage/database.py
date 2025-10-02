@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 from typing import Dict
 from typing import Iterable
+from typing import List
 
 try:
     import asyncpg
@@ -133,6 +134,88 @@ class Database:
                 final_answer,
                 session_id,
             )
+
+    async def fetch_sessions(self, limit: int = 50, offset: int = 0) -> List[dict[str, Any]]:
+        pool = self._require_pool()
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(
+                "SELECT id, task, status, metadata, final_answer, created_at, completed_at"
+                " FROM sessions ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+                limit,
+                offset,
+            )
+        return [dict(row) for row in rows]
+
+    async def fetch_session(self, session_id: int) -> dict[str, Any] | None:
+        pool = self._require_pool()
+        async with pool.acquire() as connection:
+            row = await connection.fetchrow(
+                "SELECT id, task, status, metadata, final_answer, created_at, completed_at"
+                " FROM sessions WHERE id = $1",
+                session_id,
+            )
+            if row is None:
+                return None
+            plan_row = await connection.fetchrow(
+                "SELECT plan FROM plans WHERE session_id = $1",
+                session_id,
+            )
+        session = dict(row)
+        session["plan"] = plan_row["plan"] if plan_row else None
+        return session
+
+    async def fetch_session_steps(self, session_id: int) -> List[dict[str, Any]]:
+        pool = self._require_pool()
+        async with pool.acquire() as connection:
+            step_rows = await connection.fetch(
+                "SELECT step_id, trace, output, evaluation, attempts"
+                " FROM step_results WHERE session_id = $1 ORDER BY step_id",
+                session_id,
+            )
+            attempt_rows = await connection.fetch(
+                "SELECT step_id, attempt, evaluation"
+                " FROM step_attempts WHERE session_id = $1 ORDER BY step_id, attempt",
+                session_id,
+            )
+            guidance_rows = await connection.fetch(
+                "SELECT step_id, sequence, note"
+                " FROM guidance_notes WHERE session_id = $1 ORDER BY step_id, sequence",
+                session_id,
+            )
+        attempts_by_step: dict[int, list[dict[str, Any]]] = {}
+        for row in attempt_rows:
+            attempts_by_step.setdefault(row["step_id"], []).append(
+                {"attempt": row["attempt"], "evaluation": row["evaluation"]}
+            )
+        guidance_by_step: dict[int, list[str]] = {}
+        for row in guidance_rows:
+            guidance_by_step.setdefault(row["step_id"], []).append(row["note"])
+        results: list[dict[str, Any]] = []
+        for row in step_rows:
+            step_id = row["step_id"]
+            results.append(
+                {
+                    "step_id": step_id,
+                    "trace": row["trace"],
+                    "output": row["output"],
+                    "evaluation": row["evaluation"],
+                    "attempts": row["attempts"],
+                    "attempt_details": attempts_by_step.get(step_id, []),
+                    "guidance_notes": guidance_by_step.get(step_id, []),
+                }
+            )
+        return results
+
+    async def fetch_trajectory_events(self, session_id: int, limit: int = 200) -> List[dict[str, Any]]:
+        pool = self._require_pool()
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(
+                "SELECT id, event, created_at FROM trajectory_events"
+                " WHERE session_id = $1 ORDER BY id DESC LIMIT $2",
+                session_id,
+                limit,
+            )
+        return [dict(row) for row in rows]
 
     def _require_pool(self) -> asyncpg.Pool:
         if self._pool is None:

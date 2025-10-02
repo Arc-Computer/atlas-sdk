@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import List
+from typing import TYPE_CHECKING
 
 from atlas.agent.factory import create_from_atlas_config
 from atlas.config.loader import load_config
@@ -21,13 +22,18 @@ from atlas.transition.rewriter import (
 )
 from atlas.types import Result
 
+if TYPE_CHECKING:
+    from atlas.dashboard import TelemetryPublisher
 
-async def arun(task: str, config_path: str) -> Result:
+
+async def arun(task: str, config_path: str, publisher: "TelemetryPublisher | None" = None) -> Result:
     config = load_config(config_path)
     execution_context = ExecutionContext.get()
     execution_context.reset()
     events: List = []
     subscription = execution_context.event_stream.subscribe(events.append)
+    if publisher is not None:
+        publisher.attach(execution_context.intermediate_step_manager)
     adapter = create_from_atlas_config(config)
     adapter_config = config.agent
     rewrite_engine = PromptRewriteEngine(config.prompt_rewrite, getattr(adapter_config, "llm", None))
@@ -57,29 +63,50 @@ async def arun(task: str, config_path: str) -> Result:
         if database:
             await database.connect()
             session_id = await database.create_session(task)
+            if publisher is not None and session_id is not None:
+                publisher.publish_control_event(
+                    "session-started",
+                    {"session_id": session_id, "task": task},
+                )
         result = await orchestrator.arun(task)
         if database and session_id is not None:
             await _persist_results(database, session_id, execution_context, result, events)
             await database.finalize_session(session_id, result.final_answer, "succeeded")
+            if publisher is not None:
+                publisher.publish_control_event(
+                    "session-completed",
+                    {
+                        "session_id": session_id,
+                        "status": "succeeded",
+                        "final_answer": result.final_answer,
+                    },
+                )
         return result
     except Exception:
         if database and session_id is not None:
             await _persist_events(database, session_id, events)
             await database.finalize_session(session_id, "", "failed")
+            if publisher is not None:
+                publisher.publish_control_event(
+                    "session-completed",
+                    {"session_id": session_id, "status": "failed"},
+                )
         raise
     finally:
         subscription.unsubscribe()
+        if publisher is not None:
+            publisher.detach()
         if database:
             await database.disconnect()
 
 
 
 
-def run(task: str, config_path: str) -> Result:
+def run(task: str, config_path: str, publisher: "TelemetryPublisher | None" = None) -> Result:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(arun(task, config_path))
+        return asyncio.run(arun(task, config_path, publisher=publisher))
     raise RuntimeError("atlas.run cannot be invoked inside an existing event loop")
 
 

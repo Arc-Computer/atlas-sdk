@@ -26,6 +26,14 @@ class FakeConnection:
     async def executemany(self, sql, records):
         self.commands.append((sql, tuple(records)))
 
+    async def fetch(self, sql, *args):
+        self.commands.append((sql, args))
+        return []
+
+    async def fetchrow(self, sql, *args):
+        self.commands.append((sql, args))
+        return None
+
 
 class FakeAcquire:
     def __init__(self, connection):

@@ -20,7 +20,7 @@ Atlas SDK lets you wrap any Bring-Your-Own-Agent (BYOA) into a guided Teacher â†
 python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
-pip install -e .[dev]
+pip install -e .[dev,dashboard]
 ```
 
 Run an example configuration:
@@ -109,10 +109,45 @@ Trajectory events stream through `ExecutionContext.event_stream`, enabling live 
 
 ---
 
+## Telemetry Dashboard
+
+The dashboard runs as an optional FastAPI service that renders live telemetry and stored runs.
+
+1. Provision PostgreSQL:
+
+   ```bash
+   docker compose -f docker-compose.dashboard.yml up -d
+   export ATLAS_DATABASE_URL="postgresql://atlas:atlas@localhost:5432/atlas"
+   psql "$ATLAS_DATABASE_URL" -f atlas/storage/schema.sql
+   ```
+
+2. Start the dashboard service:
+
+   ```bash
+   python -m atlas.dashboard --database-url "$ATLAS_DATABASE_URL"
+   ```
+
+3. In another terminal, execute the sample agent with telemetry enabled:
+
+   ```bash
+   python examples/telemetry_dashboard_demo.py --database-url "$ATLAS_DATABASE_URL" \
+     --task "Summarize the Atlas SDK architecture"
+   ```
+
+4. Visit `http://127.0.0.1:8000` to browse sessions, timelines, evaluations, and live events.
+
+Tear down the compose stack when finished:
+
+```bash
+docker compose -f docker-compose.dashboard.yml down
+```
+
+---
+
 ## Testing
 
 ```bash
-PYTHONPATH=. pytest tests/atlas --disable-warnings
+PYTHONPATH=. pytest tests --disable-warnings
 ```
 
 The suite covers dependency parsing, prompt rewriting, student/teacher orchestration, RIM aggregation, adapter bridges, and database logging. Most tests rely on locally mocked adapters, so no external network calls occur.
@@ -122,7 +157,7 @@ The suite covers dependency parsing, prompt rewriting, student/teacher orchestra
 ## Requirements & Notes
 
 - Python 3.10+ (project is developed and validated with 3.13).
-- Optional dependencies (installed via `pip install -e .[dev]`) include `litellm`, `langchain-core`, `langgraph`, and `asyncpg`.
+- Optional dependencies (installed via `pip install -e .[dev,dashboard]`) include `litellm`, `langchain-core`, `langgraph`, `asyncpg`, and the FastAPI dashboard stack.
 - Vendored NeMo components live under `atlas/roles/` and `atlas/utils/reactive/`; SPDX headers are retained and must remain intact.
 - Codebase avoids inline comments; preference is for expressive naming and docstrings.
 
