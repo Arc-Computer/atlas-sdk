@@ -1,1 +1,102 @@
-# Example: HTTP API Agent Configuration
+agent:
+  type: http_api
+  name: example-http-agent
+  system_prompt: |
+    You are an HTTP-based agent that can call external services to gather information.
+  tools:
+    - name: web_search
+      description: Search the web for relevant documents.
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+            description: Query string to search for.
+        required:
+          - query
+        additionalProperties: false
+      outputSchema: null
+  transport:
+    base_url: http://localhost:8080/agent
+    headers: {}
+    timeout_seconds: 60
+    retry:
+      attempts: 3
+      backoff_seconds: 1.0
+  payload_template:
+    mode: inference
+  result_path:
+    - data
+    - output
+
+student:
+  prompts:
+    planner: |
+      {base_prompt}
+
+      You are the Atlas Student. Produce a step-by-step plan that solves the user's task.
+      Respond with JSON using fields "steps" and "total_estimated_time".
+    executor: |
+      {base_prompt}
+
+      Follow the plan step exactly. Use provided context and produce detailed operations.
+    synthesizer: |
+      {base_prompt}
+
+      Combine the outcomes of every step into a final, user-ready answer.
+  max_plan_tokens: 2048
+  max_step_tokens: 2048
+  max_synthesis_tokens: 2048
+  tool_choice: auto
+
+teacher:
+  llm:
+    provider: openai
+    model: gpt-4o-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.2
+    max_output_tokens: 1024
+  max_review_tokens: 2048
+  plan_cache_seconds: 300
+  guidance_max_tokens: 512
+  validation_max_tokens: 512
+
+orchestration:
+  max_retries: 1
+  step_timeout_seconds: 900
+  rim_guidance_tag: rim_feedback
+  emit_intermediate_steps: true
+
+rim:
+  judges:
+    - identifier: process
+      kind: process
+      weight: 0.5
+      principles:
+        - Procedural accuracy
+      llm:
+        provider: openai
+        model: gpt-4o-mini
+        api_key_env: OPENAI_API_KEY
+        temperature: 0.0
+        max_output_tokens: 512
+    - identifier: helpfulness
+      kind: helpfulness
+      weight: 0.5
+      principles:
+        - Helpfulness to the end user
+      llm:
+        provider: openai
+        model: gpt-4o-mini
+        api_key_env: OPENAI_API_KEY
+        temperature: 0.0
+        max_output_tokens: 512
+  success_threshold: 0.7
+  retry_threshold: 0.6
+  aggregation_strategy: weighted_mean
+
+storage:
+  database_url: postgresql://localhost:5432/atlas
+  min_connections: 1
+  max_connections: 5
+  statement_timeout_seconds: 30
