@@ -29,8 +29,7 @@ from atlas.roles.student_bridge import BYOABridgeLLM
 from atlas.roles.student_bridge import build_bridge
 from atlas.roles.student_core import ToolCallAgentGraph
 from atlas.roles.student_core import ToolCallAgentGraphState
-from atlas.transition.rewriter import PromptRewriter
-from atlas.transition.rewriter import RewrittenPrompts
+from atlas.transition.rewriter import RewrittenStudentPrompts
 from atlas.types import Plan
 from atlas.types import Step
 
@@ -51,11 +50,11 @@ class Student:
         adapter: AgentAdapter,
         adapter_config: AdapterConfig,
         student_config: StudentConfig,
-        prompt_rewriter: PromptRewriter,
+        student_prompts: RewrittenStudentPrompts,
     ) -> None:
         self._adapter = adapter
         self._student_config = student_config
-        self._prompts: RewrittenPrompts = prompt_rewriter.rewrite(adapter_config.system_prompt, student_config.prompts)
+        self._prompts: RewrittenStudentPrompts = student_prompts
         self._bridge_llm, self._tools = build_bridge(adapter, adapter_config.tools)
         self._graph: Any | None = None
         self._graph_builder = ToolCallAgentGraph(

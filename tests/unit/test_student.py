@@ -16,7 +16,7 @@ from atlas.config.models import ToolParameterSchema
 from atlas.config.models import AdapterConfig
 from atlas.config.models import RetryPolicy
 from atlas.roles.student import Student
-from atlas.transition.rewriter import PromptRewriter
+from atlas.transition.rewriter import RewrittenStudentPrompts
 from atlas.types import Plan, Step
 
 
@@ -63,11 +63,18 @@ def adapter_config() -> AdapterConfig:
 async def test_student_plan_execute_and_synthesize():
     ExecutionContext.get().reset()
     adapter = StubAdapter()
+    adapter_cfg = adapter_config()
+    config = student_config()
+    rewrites = RewrittenStudentPrompts(
+        planner="planner",
+        executor="executor",
+        synthesizer="synth",
+    )
     student = Student(
         adapter=adapter,
-        adapter_config=adapter_config(),
-        student_config=student_config(),
-        prompt_rewriter=PromptRewriter(),
+        adapter_config=adapter_cfg,
+        student_config=config,
+        student_prompts=rewrites,
     )
     plan = await student.acreate_plan("Do something")
     assert isinstance(plan, Plan)
