@@ -124,7 +124,7 @@ The suite covers dependency parsing, prompt rewriting, student/teacher orchestra
 - Python 3.10+ (project is developed and validated with 3.13).
 - Optional dependencies (installed via `pip install -e .[dev]`) include `litellm`, `langchain-core`, `langgraph`, and `asyncpg`.
 - Vendored NeMo components live under `atlas/roles/` and `atlas/utils/reactive/`; SPDX headers are retained and must remain intact.
-- Codebase avoids inline comments; preference is for expressive naming and docstrings.
+- Aim for descriptive naming and concise docstrings so the intent is evident without extra commentary.
 
 ---
 
@@ -132,7 +132,7 @@ The suite covers dependency parsing, prompt rewriting, student/teacher orchestra
 
 1. Fork and clone the repository.
 2. Use the provided `pyproject.toml` extras to install development dependencies.
-3. Follow `RULES.md` for coding conventions (read files before editing, no inline comments, sequential small commits).
+3. Review existing modules before coding and keep commits focused and incremental to match the current style.
 4. Add or update unit tests alongside feature changes.
 
 Pull requests should include updated documentation or examples when behaviour changes.
