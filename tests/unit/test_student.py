@@ -63,11 +63,14 @@ def adapter_config() -> AdapterConfig:
 async def test_student_plan_execute_and_synthesize():
     ExecutionContext.get().reset()
     adapter = StubAdapter()
+    adapter_cfg = adapter_config()
+    config = student_config()
+    rewrites = PromptRewriter().rewrite_student(adapter_cfg.system_prompt, config.prompts)
     student = Student(
         adapter=adapter,
-        adapter_config=adapter_config(),
-        student_config=student_config(),
-        prompt_rewriter=PromptRewriter(),
+        adapter_config=adapter_cfg,
+        student_config=config,
+        student_prompts=rewrites,
     )
     plan = await student.acreate_plan("Do something")
     assert isinstance(plan, Plan)

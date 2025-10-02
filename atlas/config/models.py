@@ -150,6 +150,25 @@ class StudentPrompts(BaseModel):
     executor: str
     synthesizer: str
 
+class TeacherPrompts(BaseModel):
+    """Prompt templates used to derive teacher personas."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    plan_review: str = (
+        "{base_prompt}\n\nYou are now the Teacher reviewing the student's proposed plan. Ensure it is"
+        " complete, respects the user's constraints, and schedules steps with correct dependencies."
+        " Provide a corrected plan as JSON with fields 'steps' and 'total_estimated_time'."
+    )
+    validation: str = (
+        "{base_prompt}\n\nYou are the Teacher validating whether the latest execution trace satisfied the"
+        " step objectives. Respond with JSON: {\"valid\": bool, \"rationale\": str}."
+    )
+    guidance: str = (
+        "{base_prompt}\n\nYou are the Teacher giving concise, actionable guidance to improve the next"
+        " attempt. Focus on corrections grounded in the user's goals and available tools."
+    )
+
 class StudentConfig(BaseModel):
     """Configuration for the Student wrapper."""
 
@@ -171,6 +190,7 @@ class TeacherConfig(BaseModel):
     plan_cache_seconds: int = Field(default=300, ge=0)
     guidance_max_tokens: int = Field(default=512, ge=1)
     validation_max_tokens: int = Field(default=512, ge=1)
+    prompts: "TeacherPrompts" = Field(default_factory=lambda: TeacherPrompts())
 
 class JudgeKind(str, Enum):
     """Judge families aggregated within RIM."""

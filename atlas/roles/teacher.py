@@ -11,16 +11,20 @@ from typing import List
 from typing import Tuple
 
 from atlas.config.models import TeacherConfig
+from atlas.transition.rewriter import RewrittenTeacherPrompts
 from atlas.types import Plan
 from atlas.types import Step
 from atlas.utils.llm_client import LLMClient
 
 
 class Teacher:
-    def __init__(self, config: TeacherConfig) -> None:
+    def __init__(self, config: TeacherConfig, prompts: RewrittenTeacherPrompts) -> None:
         self._config = config
         self._client = LLMClient(config.llm)
         self._plan_cache: Dict[str, Tuple[float, Plan]] = {}
+        self._plan_prompt = prompts.plan_review
+        self._validation_prompt = prompts.validation
+        self._guidance_prompt = prompts.guidance
 
     async def areview_plan(self, task: str, plan: Plan) -> Plan:
         cache_key = self._cache_key(task, plan)
@@ -29,7 +33,7 @@ class Teacher:
         if cached and now - cached[0] <= self._config.plan_cache_seconds:
             return cached[1]
         messages = [
-            {"role": "system", "content": self._plan_review_system_prompt()},
+            {"role": "system", "content": self._plan_prompt},
             {"role": "user", "content": json.dumps({"task": task, "plan": plan.model_dump()}, ensure_ascii=False)},
         ]
         response = await self._client.acomplete(messages, response_format={"type": "json_object"})
@@ -39,7 +43,7 @@ class Teacher:
 
     async def avalidate_step(self, step: Step, trace: str, output: str) -> Dict[str, Any]:
         messages = [
-            {"role": "system", "content": self._validation_system_prompt()},
+            {"role": "system", "content": self._validation_prompt},
             {"role": "user", "content": json.dumps(self._build_validation_payload(step, trace, output), ensure_ascii=False)},
         ]
         response = await self._client.acomplete(messages, response_format={"type": "json_object"})
@@ -51,7 +55,7 @@ class Teacher:
 
     async def agenerate_guidance(self, step: Step, evaluation: Dict[str, Any]) -> str:
         messages = [
-            {"role": "system", "content": self._guidance_system_prompt()},
+            {"role": "system", "content": self._guidance_prompt},
             {"role": "user", "content": json.dumps(self._build_guidance_payload(step, evaluation), ensure_ascii=False)},
         ]
         response = await self._client.acomplete(messages)
@@ -68,25 +72,6 @@ class Teacher:
 
     def collect_results(self, step_outputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return sorted(step_outputs, key=lambda item: item.get("step_id", 0))
-
-    def _plan_review_system_prompt(self) -> str:
-        return (
-            "You are the Atlas Teacher. Review the student's execution plan for completeness, sequential integrity, and"
-            " tool usage. Return a corrected plan in JSON matching the original schema with fields 'steps' and"
-            " 'total_estimated_time'."
-        )
-
-    def _validation_system_prompt(self) -> str:
-        return (
-            "You are the Atlas Teacher verifying whether a student's execution trace satisfies a step description."
-            " Respond with a JSON object containing boolean field 'valid' and a string field 'rationale'."
-        )
-
-    def _guidance_system_prompt(self) -> str:
-        return (
-            "You are the Atlas Teacher providing actionable guidance after evaluating a student's attempt."
-            " Offer concise instructions focused on remediation."
-        )
 
     def _build_validation_payload(self, step: Step, trace: str, output: str) -> Dict[str, Any]:
         return {

@@ -7,6 +7,7 @@ from atlas.config.models import TeacherConfig
 from atlas.roles.teacher import Teacher
 from atlas.types import Plan, Step
 from atlas.utils.llm_client import LLMResponse
+from atlas.transition.rewriter import PromptRewriter
 
 
 class StubLLMClient:
@@ -31,7 +32,8 @@ async def test_teacher_plan_review_uses_cache(monkeypatch):
     )
     stub_client = StubLLMClient()
     monkeypatch.setattr("atlas.roles.teacher.LLMClient", lambda *_: stub_client)
-    teacher = Teacher(config)
+    prompts = PromptRewriter().rewrite_teacher("Base prompt", config.prompts)
+    teacher = Teacher(config, prompts)
     plan = Plan(steps=[], total_estimated_time="0m")
     reviewed_first = await teacher.areview_plan("task", plan)
     reviewed_second = await teacher.areview_plan("task", plan)
@@ -50,7 +52,8 @@ async def test_teacher_validation_and_guidance(monkeypatch):
     )
     stub_client = StubLLMClient()
     monkeypatch.setattr("atlas.roles.teacher.LLMClient", lambda *_: stub_client)
-    teacher = Teacher(config)
+    prompts = PromptRewriter().rewrite_teacher("Base prompt", config.prompts)
+    teacher = Teacher(config, prompts)
     step = Step(id=1, description="do it", depends_on=[], estimated_time="1m")
     validation = await teacher.avalidate_step(step, "trace", "output")
     assert set(validation.keys()) == {"valid", "rationale"}
