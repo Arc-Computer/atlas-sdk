@@ -40,23 +40,33 @@ class ProcessJudge(Judge):
     def build_meta_prompt(self, context: JudgeContext, samples, escalation_reason: str | None) -> str:
         if samples:
             sample_text = "\n\n".join(
-                f"Sample {i+1}:\nPrinciples: {json.dumps(sample.principles)}\n"
-                f"Score: {sample.score:.2f}\nUncertainty: {sample.uncertainty:.2f}\n"
+                f"Evaluation {i+1}:\n"
+                f"Principles: {json.dumps(sample.principles)}\n"
+                f"Score: {sample.score:.2f}\n"
+                f"Uncertainty: {sample.uncertainty:.2f}\n"
                 f"Rationale: {sample.rationale}"
                 for i, sample in enumerate(samples)
             )
         else:
-            sample_text = "No valid tier-1 samples were produced."
+            sample_text = "Tier-1 judges did not produce usable outputs."
 
-        reason_text = f"Reason for escalation: {escalation_reason}\n" if escalation_reason else ""
+        reason_text = f"Escalation reason: {escalation_reason}\n" if escalation_reason else "Escalation triggered by high variance / uncertainty.\n"
 
         return (
-            "You are the escalation arbiter for process quality. Review the student execution and prior judge"
-            " samples to issue a final decision.\n\n"
-            f"Step Description: {context.step.description}\n"
+            "You are the escalation arbiter for process quality. Tier-1 judges disagreed or were uncertain about this"
+            " step. Review their outputs and issue a final judgment.\n\n"
+            f"{reason_text}Step Description: {context.step.description}\n"
             f"Execution Trace: {context.trace}\n"
             f"Final Output: {context.output}\n\n"
-            f"{reason_text}Tier-1 Samples:\n{sample_text}\n\n"
+            "Tier-1 evaluations (principles, score, uncertainty, rationale):\n"
+            f"{sample_text}\n\n"
+            "Instructions:\n"
+            "1. Compare the tier-1 principles and rationales. Identify conflicts or gaps.\n"
+            "2. Decide which principles remain valid; create new principles if conflicts cannot be resolved.\n"
+            "3. Using the best set of principles, reassess the execution trace in light of the teacher guidance and"
+            " final output.\n"
+            "4. Produce a final score in [0,1] with a detailed rationale referencing each selected principle.\n"
+            "5. Report an uncertainty value in [0,1].\n\n"
             "Return JSON {{\"principles\": [{{\"name\": str, \"weight\": float, \"description\": str}}],"
             " \"score\": float, \"rationale\": str, \"uncertainty\": float}}."
         )
