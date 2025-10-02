@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from atlas.config.models import AdapterConfig, AdapterType, JudgeConfig, JudgeKind, LLMParameters, OrchestrationConfig, RIMConfig, StudentConfig, StudentPrompts, TeacherConfig
+from atlas.transition.rewriter import RewrittenStudentPrompts, RewrittenTeacherPrompts
 from atlas.types import Plan, Result, StepResult
 
 
@@ -61,6 +62,7 @@ async def test_core_run_assembles_pipeline(monkeypatch):
                 aggregation_strategy="weighted_mean",
             ),
             "storage": None,
+            "prompt_rewrite": None,
         },
     )()
     monkeypatch.setattr(core, "load_config", lambda path: atlas_config)
@@ -69,5 +71,16 @@ async def test_core_run_assembles_pipeline(monkeypatch):
     monkeypatch.setattr(core, "Teacher", StubTeacher)
     monkeypatch.setattr(core, "Evaluator", StubEvaluator)
     monkeypatch.setattr(core, "Orchestrator", lambda *args, **kwargs: StubOrchestrator())
+    class StubRewriteEngine:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        async def generate(self, *args, **kwargs):
+            return (
+                RewrittenStudentPrompts("planner", "executor", "synth"),
+                RewrittenTeacherPrompts("plan", "validate", "guide"),
+            )
+
+    monkeypatch.setattr(core, "PromptRewriteEngine", StubRewriteEngine)
     result = await core.arun("task", "config.yaml")
     assert result.final_answer == "answer"

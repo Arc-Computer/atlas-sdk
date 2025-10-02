@@ -169,6 +169,16 @@ class TeacherPrompts(BaseModel):
         " attempt. Focus on corrections grounded in the user's goals and available tools."
     )
 
+
+class PromptRewriteConfig(BaseModel):
+    """Controls how persona prompts are derived via LLM."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    llm: LLMParameters | None = None
+    max_tokens: int = Field(default=1024, ge=64)
+    temperature: float = Field(default=0.1, ge=0.0, le=2.0)
+
 class StudentConfig(BaseModel):
     """Configuration for the Student wrapper."""
 
@@ -270,4 +280,5 @@ class AtlasConfig(BaseModel):
     orchestration: OrchestrationConfig
     rim: RIMConfig
     storage: StorageConfig | None = None
+    prompt_rewrite: PromptRewriteConfig | None = None
     metadata: Dict[str, Any] = Field(default_factory=dict)

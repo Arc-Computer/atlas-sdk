@@ -52,6 +52,16 @@ Configuration files live in `configs/examples/`. Each YAML document is validated
 | `orchestration` | Retry policy, per-step timeout, and trajectory emission flags |
 | `rim` | Judge definitions, weights, aggregation strategy, thresholds |
 | `storage` | Optional PostgreSQL connection info for persistence |
+| `prompt_rewrite` | LLM used to derive planner / executor / teacher personas from the user prompt |
+
+During startup Atlas calls the rewrite LLM once to transform the BYOA system prompt into three personas:
+
+1. **Planner Student** – drafts a dependency-aware plan
+2. **Executor Student** – runs each step and returns a trace
+3. **Teacher** – reviews plans, validates execution, and issues retries/guidance
+
+By default the rewrite call reuses the same API credentials as your agent. Provide an explicit `prompt_rewrite` block if
+you need a dedicated model or different limits.
 
 ### Example: HTTP Adapter (excerpt)
 
@@ -91,6 +101,12 @@ agent:
 
 Trajectory events stream through `ExecutionContext.event_stream`, enabling live dashboards or durable storage via `atlas/storage/database.py` and `atlas/storage/schema.sql`.
 
+**RIM Model Guidance**
+
+- Tier-1 judges (process/helpfulness): Gemini 2.5 Flash or Grok-4 Fast provide fast, low-cost scores.
+- Tier-2 arbiter: Gemini 2.5 Pro reconciles disagreements with high fidelity.
+- Supplied examples show how to point `rim.judges[].llm` and `rim.arbiter` at different providers if desired.
+
 ---
 
 ## Testing
@@ -126,4 +142,3 @@ Pull requests should include updated documentation or examples when behaviour ch
 ## License
 
 Atlas SDK is released under the Apache 2.0 license. See `LICENSE` for full details. Vendored NeMo components retain their original licensing notices.
-

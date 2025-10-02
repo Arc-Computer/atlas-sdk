@@ -28,6 +28,16 @@ student:
   max_synthesis_tokens: 2048
   tool_choice: auto
 
+prompt_rewrite:
+  llm:
+    provider: openai
+    model: gpt-4o-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.1
+    max_output_tokens: 1024
+  max_tokens: 1024
+  temperature: 0.1
+
 teacher:
   llm:
     provider: openai

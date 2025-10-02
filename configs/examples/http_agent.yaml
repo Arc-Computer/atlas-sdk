@@ -36,11 +36,11 @@ student:
 
       You are the Atlas Student. Produce a step-by-step plan that solves the user's task.
       Respond with JSON using fields "steps" and "total_estimated_time".
-    executor: |
+  executor: |
       {base_prompt}
 
       Follow the plan step exactly. Use provided context and produce detailed operations.
-    synthesizer: |
+  synthesizer: |
       {base_prompt}
 
       Combine the outcomes of every step into a final, user-ready answer.
@@ -48,6 +48,16 @@ student:
   max_step_tokens: 2048
   max_synthesis_tokens: 2048
   tool_choice: auto
+
+prompt_rewrite:
+  llm:
+    provider: openai
+    model: gpt-4o-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.1
+    max_output_tokens: 1024
+  max_tokens: 1024
+  temperature: 0.1
 
 teacher:
   llm:

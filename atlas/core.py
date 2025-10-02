@@ -14,7 +14,11 @@ from atlas.reward.evaluator import Evaluator
 from atlas.roles.student import Student
 from atlas.roles.teacher import Teacher
 from atlas.storage.database import Database
-from atlas.transition.rewriter import PromptRewriter
+from atlas.transition.rewriter import (
+    PromptRewriteEngine,
+    RewrittenStudentPrompts,
+    RewrittenTeacherPrompts,
+)
 from atlas.types import Result
 
 
@@ -26,9 +30,17 @@ async def arun(task: str, config_path: str) -> Result:
     subscription = execution_context.event_stream.subscribe(events.append)
     adapter = create_from_atlas_config(config)
     adapter_config = config.agent
-    rewriter = PromptRewriter()
-    student_prompts = rewriter.rewrite_student(adapter_config.system_prompt, config.student.prompts)
-    teacher_prompts = rewriter.rewrite_teacher(adapter_config.system_prompt, config.teacher.prompts)
+    rewrite_engine = PromptRewriteEngine(config.prompt_rewrite, getattr(adapter_config, "llm", None))
+    student_prompts, teacher_prompts = await rewrite_engine.generate(
+        base_prompt=getattr(adapter_config, "system_prompt", ""),
+        adapter_config=adapter_config,
+        student_config=config.student,
+        teacher_config=config.teacher,
+    )
+    execution_context.metadata["prompt_rewrite"] = {
+        "student": student_prompts.__dict__,
+        "teacher": teacher_prompts.__dict__,
+    }
     student = _build_student(adapter, config, student_prompts)
     teacher = Teacher(config.teacher, teacher_prompts)
     evaluator = Evaluator(config.rim)
