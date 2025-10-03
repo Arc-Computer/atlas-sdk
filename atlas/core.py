@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 from typing import List
 from typing import TYPE_CHECKING
 
@@ -26,10 +27,17 @@ if TYPE_CHECKING:
     from atlas.dashboard import TelemetryPublisher
 
 
-async def arun(task: str, config_path: str, publisher: "TelemetryPublisher | None" = None) -> Result:
+async def arun(
+    task: str,
+    config_path: str,
+    publisher: "TelemetryPublisher | None" = None,
+    session_metadata: dict[str, Any] | None = None,
+) -> Result:
     config = load_config(config_path)
     execution_context = ExecutionContext.get()
     execution_context.reset()
+    if session_metadata:
+        execution_context.metadata["session_metadata"] = session_metadata
     events: List = []
     subscription = execution_context.event_stream.subscribe(events.append)
     if publisher is not None:
@@ -62,7 +70,8 @@ async def arun(task: str, config_path: str, publisher: "TelemetryPublisher | Non
     try:
         if database:
             await database.connect()
-            session_id = await database.create_session(task)
+            metadata = execution_context.metadata.get("session_metadata")
+            session_id = await database.create_session(task, metadata=metadata)
             if publisher is not None and session_id is not None:
                 publisher.publish_control_event(
                     "session-started",
@@ -102,11 +111,23 @@ async def arun(task: str, config_path: str, publisher: "TelemetryPublisher | Non
 
 
 
-def run(task: str, config_path: str, publisher: "TelemetryPublisher | None" = None) -> Result:
+def run(
+    task: str,
+    config_path: str,
+    publisher: "TelemetryPublisher | None" = None,
+    session_metadata: dict[str, Any] | None = None,
+) -> Result:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        return asyncio.run(arun(task, config_path, publisher=publisher))
+        return asyncio.run(
+            arun(
+                task,
+                config_path,
+                publisher=publisher,
+                session_metadata=session_metadata,
+            )
+        )
     raise RuntimeError("atlas.run cannot be invoked inside an existing event loop")
 
 

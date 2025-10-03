@@ -144,6 +144,40 @@ docker compose -f docker-compose.dashboard.yml down
 
 ---
 
+## GDPval Demo
+
+GDPval is a validation benchmark that pairs GDP growth tasks with curated reference documents.
+
+1. Install extras and export credentials:
+
+   ```bash
+   pip install -e .[dev,dashboard,gdpval]
+   export OPENAI_API_KEY=...
+   # Optional: export HUGGINGFACEHUB_API_TOKEN if your datasets auth is restricted
+   ```
+
+2. Start PostgreSQL and the telemetry dashboard (see the Telemetry Dashboard section above).
+
+3. Run a single GDPval task:
+
+   ```bash
+   python examples/gdpval/run_gdpval.py --task-id gdpval_task_001 --config configs/examples/gdpval_python.yaml
+   ```
+
+   Cached references are stored in `.atlas/gdpval/<task-id>/` and surface in the dashboard metadata panel.
+
+4. Stream the full split (cap execution with `--max` when needed):
+
+   ```bash
+   python examples/gdpval/run_gdpval.py --all --max 10 --config configs/examples/gdpval_python.yaml
+   ```
+
+   Summaries accumulate at `examples/gdpval/gdpval_runs/` as `runs.csv` and `runs.jsonl`.
+
+5. Open `http://127.0.0.1:8000` to filter sessions by sector or occupation, inspect cached references, and observe live telemetry while tasks execute.
+
+---
+
 ## Testing
 
 ```bash
@@ -157,7 +191,7 @@ The suite covers dependency parsing, prompt rewriting, student/teacher orchestra
 ## Requirements & Notes
 
 - Python 3.10+ (project is developed and validated with 3.13).
-- Optional dependencies (installed via `pip install -e .[dev,dashboard]`) include `litellm`, `langchain-core`, `langgraph`, `asyncpg`, and the FastAPI dashboard stack.
+- Optional dependencies (installed via `pip install -e .[dev,dashboard,gdpval]`) include `litellm`, `langchain-core`, `langgraph`, `asyncpg`, the FastAPI dashboard stack, and GDPval helpers (`datasets`, `pypdf`, `python-docx`).
 - Vendored NeMo components live under `atlas/roles/` and `atlas/utils/reactive/`; SPDX headers are retained and must remain intact.
 - Codebase avoids inline comments; preference is for expressive naming and docstrings.
 

@@ -84,10 +84,11 @@ class Student:
         try:
             response = await self._adapter.ainvoke(prompt, metadata={"mode": "planning", "task": task})
             if isinstance(response, (dict, list)):
-                response_text = json.dumps(response)
+                payload = response
             else:
-                response_text = response
-            plan = Plan.model_validate_json(response_text)
+                payload = json.loads(response)
+            normalised = self._normalise_plan_payload(payload)
+            plan = Plan.model_validate(normalised)
         except Exception as exc:
             manager.push_intermediate_step(
                 IntermediateStepPayload(
@@ -239,3 +240,34 @@ class Student:
         except RuntimeError:
             return asyncio.run(coroutine)
         raise RuntimeError("Student synchronous methods cannot be used inside an active event loop")
+
+    def _normalise_plan_payload(self, payload):
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+
+        if isinstance(payload, list):
+            payload = {"steps": payload}
+
+        if not isinstance(payload, dict):
+            return payload
+
+        payload.pop("total_estimated_time", None)
+        steps = payload.get("steps")
+        if isinstance(steps, list):
+            for step in steps:
+                if isinstance(step, dict):
+                    step.pop("estimated_time", None)
+                    step.setdefault("depends_on", [])
+                    if "tool" not in step:
+                        step["tool"] = None
+                    if "tool_params" not in step:
+                        step["tool_params"] = None
+                    if "id" in step and isinstance(step["id"], str):
+                        try:
+                            step["id"] = int(step["id"].lstrip("s"))
+                        except (ValueError, AttributeError):
+                            try:
+                                step["id"] = int(step["id"])
+                            except (ValueError, TypeError):
+                                pass
+        return payload

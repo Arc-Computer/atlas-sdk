@@ -34,7 +34,10 @@ class ProcessJudge(Judge):
         }
         return [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            {
+                "role": "user",
+                "content": json.dumps(payload, ensure_ascii=False) + "\nReturn json.",
+            },
         ]
 
     def build_meta_prompt(self, context: JudgeContext, samples, escalation_reason: str | None) -> str:

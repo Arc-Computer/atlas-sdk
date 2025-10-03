@@ -22,7 +22,17 @@ class FakeRepository:
             "created_at": "2025-01-01T00:00:00Z",
             "completed_at": "2025-01-01T00:00:01Z",
             "plan": {"steps": []},
-            "metadata": {},
+            "metadata": {
+                "sector": "agriculture",
+                "occupation": "farm manager",
+                "references": [
+                    {
+                        "filename": "ref1.pdf",
+                        "source_url": "https://example.com/ref1.pdf",
+                        "cached_path": "/tmp/ref1.pdf",
+                    }
+                ],
+            },
         }
         self._sessions = [self._session]
         self._steps = [
@@ -74,7 +84,9 @@ def test_list_sessions_returns_repository_data():
             async with AsyncClient(transport=transport, base_url="http://testserver") as client:
                 response = await client.get("/api/sessions")
         assert response.status_code == 200
-        assert response.json()["sessions"][0]["id"] == 7
+        sessions = response.json()["sessions"]
+        assert sessions[0]["id"] == 7
+        assert sessions[0]["metadata"]["sector"] == "agriculture"
         assert repository.connected is True
         assert repository.disconnected is True
 
@@ -92,6 +104,7 @@ def test_session_detail_includes_plan():
         assert response.status_code == 200
         body = response.json()
         assert body["session"]["plan"] == {"steps": []}
+        assert body["session"]["metadata"]["references"][0]["filename"] == "ref1.pdf"
 
     asyncio.run(runner())
 

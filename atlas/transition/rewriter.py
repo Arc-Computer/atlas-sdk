@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, Sequence
 
@@ -67,7 +68,22 @@ class PromptRewriteEngine:
                 "content": (
                     "You rewrite system prompts for a multi-agent architecture. Preserve the user's intent and domain"
                     " instructions exactly, while producing specialised prompts for a planner Student, an executor"
-                    " Student, and a Teacher reviewer. Always respond with JSON matching the requested schema."
+                    " Student, and a Teacher reviewer.\n\n"
+                    "CRITICAL: You MUST return a JSON object with this EXACT structure:\n"
+                    "{\n"
+                    '  "student": {\n'
+                    '    "planner": "<planner prompt>",\n'
+                    '    "executor": "<executor prompt>",\n'
+                    '    "synthesizer": "<synthesizer prompt>"\n'
+                    "  },\n"
+                    '  "teacher": {\n'
+                    '    "plan_review": "<plan review prompt>",\n'
+                    '    "validation": "<validation prompt>",\n'
+                    '    "guidance": "<guidance prompt>"\n'
+                    "  }\n"
+                    "}\n\n"
+                    "Use ONLY these keys: 'student', 'teacher', 'planner', 'executor', 'synthesizer', "
+                    "'plan_review', 'validation', 'guidance'. Do NOT use alternative key names."
                 ),
             },
             {
@@ -81,6 +97,12 @@ class PromptRewriteEngine:
             response_format={"type": "json_object"},
             overrides={"max_tokens": self._max_tokens, "temperature": self._temperature},
         )
+
+        if not response.content or not response.content.strip():
+            raise ValueError(
+                f"Prompt rewrite LLM returned empty response. "
+                f"Raw response object: {response.raw}"
+            )
 
         prompts = self._parse_response(response.content)
         self._cache[cache_key] = prompts
@@ -116,27 +138,80 @@ class PromptRewriteEngine:
                 "teacher": ["plan_review", "validation", "guidance"],
             },
             "notes": (
-                "Generate concise, fully-specified system prompts. Planner should focus on drafting dependency-aware"
-                " plans; executor should follow plans with precise instructions for tool usage; teacher should review,"
-                " validate, and provide remediation guidance. Maintain the tone and constraints of the base agent"
-                " prompt."
+                "Generate concise, fully-specified system prompts. Planner must emit JSON where each step entry includes"
+                " the keys id (integer), description (string), depends_on (list of integers), tool (string or null),"
+                " and tool_params (object or null) only. Steps must form a strictly sequential chain: step 1 has no"
+                " dependencies, step 2 depends on [1], step 3 depends on [2], etc. No parallel execution is allowed."
+                " Executor should follow plans with precise instructions for tool usage; teacher should review, validate,"
+                " and provide remediation guidance. Maintain the tone and constraints of the base agent prompt."
             ),
         }
+
+    def _extract_json(self, content: str) -> dict | None:
+        """Extract JSON from LLM response, handling markdown code fences and extra text."""
+        content_stripped = content.strip()
+
+        try:
+            return json.loads(content_stripped)
+        except json.JSONDecodeError:
+            pass
+
+        patterns = [
+            r'```json\s*\n(.*?)\n```',
+            r'```\s*\n(.*?)\n```',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, content, re.DOTALL)
+            if match:
+                json_str = match.group(1).strip()
+                try:
+                    return json.loads(json_str)
+                except json.JSONDecodeError:
+                    continue
+
+        first_brace = content.find('{')
+        if first_brace != -1:
+            try:
+                return json.loads(content[first_brace:])
+            except json.JSONDecodeError:
+                pass
+
+            depth = 0
+            for i in range(first_brace, len(content)):
+                if content[i] == '{':
+                    depth += 1
+                elif content[i] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        try:
+                            return json.loads(content[first_brace:i+1])
+                        except json.JSONDecodeError:
+                            break
+
+        return None
 
     def _parse_response(
         self,
         content: str,
     ) -> tuple[RewrittenStudentPrompts, RewrittenTeacherPrompts]:
-        try:
-            data = json.loads(content)
-        except json.JSONDecodeError as exc:
-            raise ValueError("Prompt rewrite LLM response was not valid JSON") from exc
+        data = self._extract_json(content)
+        if data is None:
+            raise ValueError(
+                f"Prompt rewrite LLM response was not valid JSON. "
+                f"Response preview: {content[:500]}"
+            )
 
         try:
-            student = data["student"]
-            teacher = data["teacher"]
-        except KeyError as exc:
-            raise ValueError("Prompt rewrite JSON missing required sections 'student' or 'teacher'") from exc
+            student = data.get("student") or data.get("student_prompts")
+            teacher = data.get("teacher") or data.get("teacher_prompts")
+            if not student or not teacher:
+                raise KeyError("Missing student or teacher sections")
+        except (KeyError, AttributeError) as exc:
+            raise ValueError(
+                f"Prompt rewrite JSON missing required sections. "
+                f"Found keys: {list(data.keys()) if isinstance(data, dict) else 'not a dict'}"
+            ) from exc
 
         try:
             student_prompts = RewrittenStudentPrompts(
@@ -176,4 +251,3 @@ __all__ = [
     "RewrittenStudentPrompts",
     "RewrittenTeacherPrompts",
 ]
-

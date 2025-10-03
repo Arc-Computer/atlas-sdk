@@ -12,8 +12,11 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
     header { padding: 1rem 1.5rem; background: #1e293b; font-size: 1.25rem; font-weight: 600; }
     .layout { display: flex; height: calc(100vh - 64px); }
-    nav { width: 320px; border-right: 1px solid #334155; overflow-y: auto; padding: 1rem; background: #111827; }
+    nav { width: 340px; border-right: 1px solid #334155; overflow-y: auto; padding: 1rem; background: #111827; }
     nav h2 { margin-top: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; }
+    .filters { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem; }
+    .filters label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.08em; }
+    .filters select { width: 100%; background: #0f172a; color: #e2e8f0; border: 1px solid #334155; border-radius: 0.5rem; padding: 0.45rem 0.5rem; }
     nav ul { list-style: none; padding: 0; margin: 0; }
     nav li { margin-bottom: 0.5rem; }
     nav button { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #334155; border-radius: 0.5rem; background: #1e293b; color: inherit; cursor: pointer; text-align: left; }
@@ -30,6 +33,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     .events { max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; }
     .events .event { border: 1px solid #334155; border-radius: 0.75rem; padding: 0.75rem; background: #0f172a; font-size: 0.85rem; }
     .muted { color: #94a3b8; font-size: 0.85rem; }
+    .reference-list { list-style: none; padding-left: 0; margin: 0.5rem 0 0 0; }
+    .reference-list li { margin-bottom: 0.35rem; }
   </style>
 </head>
 <body>
@@ -37,6 +42,20 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <div class=\"layout\">
     <nav>
       <h2>Sessions</h2>
+      <div class=\"filters\">
+        <div>
+          <label for=\"sector-filter\">Sector</label>
+          <select id=\"sector-filter\">
+            <option value=\"\">All sectors</option>
+          </select>
+        </div>
+        <div>
+          <label for=\"occupation-filter\">Occupation</label>
+          <select id=\"occupation-filter\">
+            <option value=\"\">All occupations</option>
+          </select>
+        </div>
+      </div>
       <ul id=\"session-list\"><li class=\"muted\">Loading sessions...</li></ul>
     </nav>
     <main>
@@ -59,7 +78,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     </main>
   </div>
   <script>
-    const state = { selectedSession: null };
+    const state = { selectedSession: null, sessions: [], filters: { sector: '', occupation: '' } };
 
     async function fetchJson(url) {
       const response = await fetch(url);
@@ -70,16 +89,27 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
 
     function renderSessions(sessions) {
+      state.sessions = sessions;
       const list = document.getElementById('session-list');
       list.innerHTML = '';
-      if (!sessions.length) {
+      const filtered = sessions.filter((session) => {
+        const metadata = session.metadata || {};
+        const sectorMatch = !state.filters.sector || metadata.sector === state.filters.sector;
+        const occupationMatch = !state.filters.occupation || metadata.occupation === state.filters.occupation;
+        return sectorMatch && occupationMatch;
+      });
+      if (!filtered.length) {
         list.innerHTML = '<li class="muted">No sessions found.</li>';
         return;
       }
-      for (const session of sessions) {
+      for (const session of filtered) {
         const item = document.createElement('li');
         const button = document.createElement('button');
-        button.textContent = `${session.id} · ${session.task}`;
+        const metadata = session.metadata || {};
+        const label = [session.id, session.task, metadata.sector, metadata.occupation]
+          .filter(Boolean)
+          .join(' · ');
+        button.textContent = label;
         if (session.id === state.selectedSession) {
           button.classList.add('active');
         }
@@ -103,6 +133,20 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     function renderSessionSummary(session) {
       const container = document.getElementById('session-summary');
       const badge = `<span class="badge">${session.status || 'unknown'}</span>`;
+      const metadata = session.metadata || {};
+      const references = Array.isArray(metadata.references) ? metadata.references : [];
+      const referenceList = references.length
+        ? `<ul class="reference-list">${references
+            .map((entry) => {
+              const filename = entry.filename || 'reference';
+              const href = entry.source_url
+                ? `<a href="${entry.source_url}" target="_blank" rel="noopener">${filename}</a>`
+                : filename;
+              const cached = entry.cached_path ? `<code>${entry.cached_path}</code>` : '';
+              return `<li>${href}${cached ? ` · ${cached}` : ''}</li>`;
+            })
+            .join('')}</ul>`
+        : '<div class="muted">No cached references.</div>';
       container.innerHTML = `
         <h2>Session ${session.id}</h2>
         <div class="session-meta">
@@ -111,10 +155,16 @@ DASHBOARD_HTML = """<!DOCTYPE html>
           <div><strong>Completed</strong><br/>${formatDate(session.completed_at)}</div>
           <div><strong>Final Answer</strong><br/>${session.final_answer || '—'}</div>
           <div><strong>Status</strong><br/>${badge}</div>
+          <div><strong>Sector</strong><br/>${metadata.sector || '—'}</div>
+          <div><strong>Occupation</strong><br/>${metadata.occupation || '—'}</div>
         </div>
         <details style="margin-top:1rem;">
           <summary>Plan JSON</summary>
           <pre>${JSON.stringify(session.plan || {}, null, 2)}</pre>
+        </details>
+        <details style="margin-top:1rem;" open>
+          <summary>References</summary>
+          ${referenceList}
         </details>
       `;
     }
@@ -214,9 +264,43 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     async function refreshSessions() {
       try {
         const data = await fetchJson('/api/sessions');
+        updateFilters(data.sessions);
         renderSessions(data.sessions);
       } catch (error) {
         console.error('Failed to refresh sessions', error);
+      }
+    }
+
+    function updateFilters(sessions) {
+      const sectors = new Set();
+      const occupations = new Set();
+      sessions.forEach((session) => {
+        const metadata = session.metadata || {};
+        if (metadata.sector) {
+          sectors.add(metadata.sector);
+        }
+        if (metadata.occupation) {
+          occupations.add(metadata.occupation);
+        }
+      });
+      populateSelect('sector-filter', sectors, 'All sectors');
+      populateSelect('occupation-filter', occupations, 'All occupations');
+    }
+
+    function populateSelect(id, values, placeholder) {
+      const select = document.getElementById(id);
+      const current = select.value;
+      select.innerHTML = `<option value="">${placeholder}</option>`;
+      Array.from(values)
+        .sort((a, b) => a.localeCompare(b))
+        .forEach((value) => {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = value;
+          select.appendChild(option);
+        });
+      if (current && Array.from(values).includes(current)) {
+        select.value = current;
       }
     }
 
@@ -245,6 +329,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     }
 
     document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('sector-filter').addEventListener('change', (event) => {
+        state.filters.sector = event.target.value;
+        renderSessions(state.sessions);
+      });
+      document.getElementById('occupation-filter').addEventListener('change', (event) => {
+        state.filters.occupation = event.target.value;
+        renderSessions(state.sessions);
+      });
       refreshSessions();
       connectWebSocket();
       setInterval(refreshSessions, 15000);

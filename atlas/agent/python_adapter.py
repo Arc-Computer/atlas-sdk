@@ -60,15 +60,17 @@ class PythonAdapter(AgentAdapter):
         try:
             return self._callable(prompt=prompt, metadata=metadata)
         except Exception as exc:
-            raise AdapterError("python adapter callable raised an exception") from exc
+            raise AdapterError(f"python adapter callable raised an exception: {exc}") from exc
     async def ainvoke(self, prompt: str, metadata: Dict[str, Any] | None = None) -> str:
         call_metadata = metadata or {}
+        if self._config.llm:
+            call_metadata["llm_config"] = self._config.llm.model_dump()
         func = self._callable
         if inspect.iscoroutinefunction(func):
             try:
                 result = await func(prompt=prompt, metadata=call_metadata)
             except Exception as exc:
-                raise AdapterError("python adapter coroutine raised an exception") from exc
+                raise AdapterError(f"python adapter coroutine raised an exception: {exc}") from exc
         else:
             result = await asyncio.to_thread(self._call_sync, prompt, call_metadata)
         return await self._normalise_result(result)

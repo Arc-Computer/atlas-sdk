@@ -34,17 +34,28 @@ class Teacher:
             return cached[1]
         messages = [
             {"role": "system", "content": self._plan_prompt},
-            {"role": "user", "content": json.dumps({"task": task, "plan": plan.model_dump()}, ensure_ascii=False)},
+            {
+                "role": "user",
+                "content": json.dumps({"task": task, "plan": plan.model_dump()}, ensure_ascii=False) + "\nReturn json.",
+            },
         ]
         response = await self._client.acomplete(messages, response_format={"type": "json_object"})
-        reviewed = Plan.model_validate_json(response.content)
+        try:
+            payload = json.loads(response.content)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Teacher plan review response was not valid JSON") from exc
+        reviewed = Plan.model_validate(self._normalise_plan_payload(payload))
         self._plan_cache[cache_key] = (now, reviewed)
         return reviewed
 
     async def avalidate_step(self, step: Step, trace: str, output: str) -> Dict[str, Any]:
         messages = [
             {"role": "system", "content": self._validation_prompt},
-            {"role": "user", "content": json.dumps(self._build_validation_payload(step, trace, output), ensure_ascii=False)},
+            {
+                "role": "user",
+                "content": json.dumps(self._build_validation_payload(step, trace, output), ensure_ascii=False)
+                + "\nReturn json.",
+            },
         ]
         response = await self._client.acomplete(messages, response_format={"type": "json_object"})
         parsed = json.loads(response.content)
@@ -56,7 +67,10 @@ class Teacher:
     async def agenerate_guidance(self, step: Step, evaluation: Dict[str, Any]) -> str:
         messages = [
             {"role": "system", "content": self._guidance_prompt},
-            {"role": "user", "content": json.dumps(self._build_guidance_payload(step, evaluation), ensure_ascii=False)},
+            {
+                "role": "user",
+                "content": json.dumps(self._build_guidance_payload(step, evaluation), ensure_ascii=False),
+            },
         ]
         response = await self._client.acomplete(messages)
         return response.content
@@ -95,3 +109,21 @@ class Teacher:
         except RuntimeError:
             return asyncio.run(coroutine)
         raise RuntimeError("Teacher synchronous methods cannot be used inside an active event loop")
+
+    def _normalise_plan_payload(self, payload):
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+        if not isinstance(payload, dict):
+            return payload
+        payload.pop("total_estimated_time", None)
+        steps = payload.get("steps")
+        if isinstance(steps, list):
+            for step in steps:
+                if isinstance(step, dict):
+                    step.pop("estimated_time", None)
+                    step.setdefault("depends_on", [])
+                    if "tool" not in step:
+                        step["tool"] = None
+                    if "tool_params" not in step:
+                        step["tool_params"] = None
+        return payload

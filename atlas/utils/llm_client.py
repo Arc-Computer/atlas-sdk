@@ -87,6 +87,14 @@ class LLMClient:
             for key, value in overrides.items():
                 if value is not None:
                     kwargs[key] = value
+        if "gpt-5" in params.model.lower():
+            headers = dict(kwargs.get("extra_headers") or {})
+            headers.setdefault("OpenAI-Beta", "reasoning=1")
+            kwargs["extra_headers"] = headers
+            kwargs["temperature"] = 1.0
+            extra_body = dict(kwargs.get("extra_body") or {})
+            extra_body.setdefault("reasoning_effort", "medium")
+            kwargs["extra_body"] = extra_body
         return kwargs
 
     def _ensure_client(self) -> None:
@@ -101,6 +109,10 @@ class LLMClient:
             content = message.get("content")
             if content is None and "tool_calls" in message:
                 return json.dumps(message["tool_calls"])
+            if content is None or str(content).strip() == "":
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"LLM returned empty content. Full response: {response}")
             return str(content or "")
         except (KeyError, IndexError, TypeError) as exc:
-            raise RuntimeError("Unexpected response format from LLM client") from exc
+            raise RuntimeError(f"Unexpected response format from LLM client. Response: {response}") from exc

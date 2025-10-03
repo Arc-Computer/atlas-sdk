@@ -17,7 +17,7 @@ class FakeStudent:
         self._attempts = 0
 
     async def acreate_plan(self, task: str) -> Plan:
-        return Plan(steps=[Step(id=1, description="solve", depends_on=[], estimated_time="1m")], total_estimated_time="1m")
+        return Plan(steps=[Step(id=1, description="solve", depends_on=[])])
 
     async def aexecute_step(self, step: Step, context, guidance):
         self._attempts += 1

@@ -99,6 +99,7 @@ class PythonAdapterConfig(AdapterConfig):
     attribute: str | None = None
     working_directory: str | None = None
     allow_generator: bool = False
+    llm: "LLMParameters | None" = None
 
 class LLMProvider(str, Enum):
     """LLM providers supported by Atlas."""
@@ -107,6 +108,7 @@ class LLMProvider(str, Enum):
     ANTHROPIC = "anthropic"
     AZURE_OPENAI = "azure-openai"
     BEDROCK = "bedrock"
+    GOOGLE = "google"
 
 class LLMParameters(BaseModel):
     """Configuration for an LLM request path."""
@@ -158,7 +160,7 @@ class TeacherPrompts(BaseModel):
     plan_review: str = (
         "{base_prompt}\n\nYou are now the Teacher reviewing the student's proposed plan. Ensure it is"
         " complete, respects the user's constraints, and schedules steps with correct dependencies."
-        " Provide a corrected plan as JSON with fields 'steps' and 'total_estimated_time'."
+        " Provide a corrected plan as JSON with a 'steps' array that satisfies those requirements."
     )
     validation: str = (
         "{base_prompt}\n\nYou are the Teacher validating whether the latest execution trace satisfied the"
