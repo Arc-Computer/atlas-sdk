@@ -6,10 +6,10 @@ Atlas SDK lets you wrap any Bring-Your-Own-Agent (BYOA) into a guided Teacher �
 
 ## Key Features
 
-- **BYOA Adapters** – Drop in HTTP, Python, or OpenAI agents without rewriting core logic.
+- **Bring-Your-Own-Agent (BYOA) Adapters** – Drop in HTTP, Python, or OpenAI agents without rewriting core logic.
 - **Teacher / Student Loop** – Plans and executes tasks sequentially with review, validation, and retry guidance.
-- **Reward Improvement Module (RIM)** – Runs configurable judges (process, helpfulness, custom) to score every step.
-- **Trajectory Capture** – Emits NeMo-style intermediate steps that can be streamed, logged, or audited later.
+- **Reward System (RIM)** – Runs configurable judges (process, helpfulness, custom) to score every step.
+- **Trajectory Capture** – Emits intermediate steps that can be streamed, logged, or audited later.
 - **PostgreSQL Persistence** – Ships with an async persistence layer and schema for sessions, attempts, guidance, and events.
 
 ---
