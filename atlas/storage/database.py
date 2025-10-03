@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from typing import Dict
 from typing import Iterable
+from typing import List
 
 try:
     import asyncpg
@@ -44,25 +46,28 @@ class Database:
 
     async def create_session(self, task: str, metadata: Dict[str, Any] | None = None) -> int:
         pool = self._require_pool()
+        serialized_metadata = self._serialize_json(metadata) if metadata else None
         async with pool.acquire() as connection:
             return await connection.fetchval(
                 "INSERT INTO sessions(task, metadata) VALUES ($1, $2) RETURNING id",
                 task,
-                metadata,
+                serialized_metadata,
             )
 
     async def log_plan(self, session_id: int, plan: Plan) -> None:
         pool = self._require_pool()
+        serialized_plan = self._serialize_json(plan.model_dump())
         async with pool.acquire() as connection:
             await connection.execute(
                 "INSERT INTO plans(session_id, plan) VALUES ($1, $2)"
                 " ON CONFLICT (session_id) DO UPDATE SET plan = EXCLUDED.plan",
                 session_id,
-                plan.model_dump(),
+                serialized_plan,
             )
 
     async def log_step_result(self, session_id: int, result: StepResult) -> None:
         pool = self._require_pool()
+        serialized_evaluation = self._serialize_json(result.evaluation)
         async with pool.acquire() as connection:
             await connection.execute(
                 "INSERT INTO step_results(session_id, step_id, trace, output, evaluation, attempts)"
@@ -73,7 +78,7 @@ class Database:
                 result.step_id,
                 result.trace,
                 result.output,
-                result.evaluation,
+                serialized_evaluation,
                 result.attempts,
             )
 
@@ -91,7 +96,7 @@ class Database:
                 step_id,
             )
             records = [
-                (session_id, step_id, attempt.get("attempt", index + 1), attempt.get("evaluation"))
+                (session_id, step_id, attempt.get("attempt", index + 1), self._serialize_json(attempt.get("evaluation")))
                 for index, attempt in enumerate(attempts)
             ]
             if records:
@@ -102,11 +107,12 @@ class Database:
 
     async def log_intermediate_step(self, session_id: int, event: IntermediateStep) -> None:
         pool = self._require_pool()
+        serialized_event = self._serialize_json(event.model_dump())
         async with pool.acquire() as connection:
             await connection.execute(
                 "INSERT INTO trajectory_events(session_id, event) VALUES ($1, $2)",
                 session_id,
-                event.model_dump(),
+                serialized_event,
             )
 
     async def log_guidance(self, session_id: int, step_id: int, notes: Iterable[str]) -> None:
@@ -134,7 +140,99 @@ class Database:
                 session_id,
             )
 
+    async def fetch_sessions(self, limit: int = 50, offset: int = 0) -> List[dict[str, Any]]:
+        pool = self._require_pool()
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(
+                "SELECT id, task, status, metadata, final_answer, created_at, completed_at"
+                " FROM sessions ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+                limit,
+                offset,
+            )
+        return [dict(row) for row in rows]
+
+    async def fetch_session(self, session_id: int) -> dict[str, Any] | None:
+        pool = self._require_pool()
+        async with pool.acquire() as connection:
+            row = await connection.fetchrow(
+                "SELECT id, task, status, metadata, final_answer, created_at, completed_at"
+                " FROM sessions WHERE id = $1",
+                session_id,
+            )
+            if row is None:
+                return None
+            plan_row = await connection.fetchrow(
+                "SELECT plan FROM plans WHERE session_id = $1",
+                session_id,
+            )
+        session = dict(row)
+        session["plan"] = plan_row["plan"] if plan_row else None
+        return session
+
+    async def fetch_session_steps(self, session_id: int) -> List[dict[str, Any]]:
+        pool = self._require_pool()
+        async with pool.acquire() as connection:
+            step_rows = await connection.fetch(
+                "SELECT step_id, trace, output, evaluation, attempts"
+                " FROM step_results WHERE session_id = $1 ORDER BY step_id",
+                session_id,
+            )
+            attempt_rows = await connection.fetch(
+                "SELECT step_id, attempt, evaluation"
+                " FROM step_attempts WHERE session_id = $1 ORDER BY step_id, attempt",
+                session_id,
+            )
+            guidance_rows = await connection.fetch(
+                "SELECT step_id, sequence, note"
+                " FROM guidance_notes WHERE session_id = $1 ORDER BY step_id, sequence",
+                session_id,
+            )
+        attempts_by_step: dict[int, list[dict[str, Any]]] = {}
+        for row in attempt_rows:
+            attempts_by_step.setdefault(row["step_id"], []).append(
+                {"attempt": row["attempt"], "evaluation": row["evaluation"]}
+            )
+        guidance_by_step: dict[int, list[str]] = {}
+        for row in guidance_rows:
+            guidance_by_step.setdefault(row["step_id"], []).append(row["note"])
+        results: list[dict[str, Any]] = []
+        for row in step_rows:
+            step_id = row["step_id"]
+            results.append(
+                {
+                    "step_id": step_id,
+                    "trace": row["trace"],
+                    "output": row["output"],
+                    "evaluation": row["evaluation"],
+                    "attempts": row["attempts"],
+                    "attempt_details": attempts_by_step.get(step_id, []),
+                    "guidance_notes": guidance_by_step.get(step_id, []),
+                }
+            )
+        return results
+
+    async def fetch_trajectory_events(self, session_id: int, limit: int = 200) -> List[dict[str, Any]]:
+        pool = self._require_pool()
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(
+                "SELECT id, event, created_at FROM trajectory_events"
+                " WHERE session_id = $1 ORDER BY id DESC LIMIT $2",
+                session_id,
+                limit,
+            )
+        return [dict(row) for row in rows]
+
     def _require_pool(self) -> asyncpg.Pool:
         if self._pool is None:
             raise RuntimeError("Database connection has not been established")
         return self._pool
+
+    @staticmethod
+    def _serialize_json(data: Any) -> str | None:
+        """Convert data to JSON string for asyncpg JSONB columns."""
+        if data is None:
+            return None
+        try:
+            return json.dumps(data, default=str)
+        except (TypeError, ValueError):
+            return json.dumps(str(data))

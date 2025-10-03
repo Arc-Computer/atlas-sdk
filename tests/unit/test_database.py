@@ -26,6 +26,14 @@ class FakeConnection:
     async def executemany(self, sql, records):
         self.commands.append((sql, tuple(records)))
 
+    async def fetch(self, sql, *args):
+        self.commands.append((sql, args))
+        return []
+
+    async def fetchrow(self, sql, *args):
+        self.commands.append((sql, args))
+        return None
+
 
 class FakeAcquire:
     def __init__(self, connection):
@@ -62,7 +70,7 @@ async def test_database_logs_plan_steps(monkeypatch):
     database = Database(config)
     await database.connect()
     session_id = await database.create_session("task")
-    plan = Plan(steps=[Step(id=1, description="desc", depends_on=[], estimated_time="1m")], total_estimated_time="1m")
+    plan = Plan(steps=[Step(id=1, description="desc", depends_on=[])])
     await database.log_plan(session_id, plan)
     step_result = StepResult(step_id=1, trace="trace", output="output", evaluation={}, attempts=1)
     await database.log_step_result(session_id, step_result)

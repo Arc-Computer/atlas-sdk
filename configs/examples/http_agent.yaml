@@ -35,7 +35,7 @@ student:
       {base_prompt}
 
       You are the Atlas Student. Produce a step-by-step plan that solves the user's task.
-      Respond with JSON using fields "steps" and "total_estimated_time".
+      Respond with JSON containing a "steps" array where each step specifies id, description, dependencies, and any tool metadata.
   executor: |
       {base_prompt}
 

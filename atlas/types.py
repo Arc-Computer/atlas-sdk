@@ -8,12 +8,10 @@ class Step(BaseModel):
     tool: Optional[str] = None
     tool_params: Optional[dict] = None
     depends_on: List[Union[int, str]] = Field(default_factory=list)
-    estimated_time: str
 
 
 class Plan(BaseModel):
     steps: List[Step]
-    total_estimated_time: str
 
 
 class StepResult(BaseModel):

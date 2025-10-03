@@ -133,6 +133,14 @@ class OpenAIAdapter(AgentAdapter):
             kwargs["extra_headers"] = llm.additional_headers
         if self._config.response_format:
             kwargs["response_format"] = self._config.response_format
+        if "gpt-5" in llm.model.lower():
+            headers = dict(kwargs.get("extra_headers") or {})
+            headers.setdefault("OpenAI-Beta", "reasoning=1")
+            kwargs["extra_headers"] = headers
+            kwargs["temperature"] = 1.0
+            extra_body = dict(kwargs.get("extra_body") or {})
+            extra_body.setdefault("reasoning_effort", "medium")
+            kwargs["extra_body"] = extra_body
         return kwargs
 
     def _parse_response(self, response: Any) -> str:

@@ -16,7 +16,24 @@ dev = [
     "pytest>=7.4",
     "pytest-asyncio>=0.21",
 ]
+dashboard = [
+    "fastapi>=0.110",
+    "uvicorn>=0.23",
+]
+gdpval = [
+    "datasets>=3.9.0",
+    "pypdf>=4.0",
+    "python-docx>=1.1",
+    "huggingface-hub>=0.24",
+]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "postgres: integration tests requiring PostgreSQL",
+    "gdpval: tests covering the GDPval demo agent",
+]
+
+[tool.setuptools.packages.find]
+include = ["atlas*"]
