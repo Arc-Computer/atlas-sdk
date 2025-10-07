@@ -141,6 +141,58 @@ See `docs/examples/terminal_telemetry.md` for a step-by-step walkthrough.
 
 ---
 
+## Exporting Runtime Sessions
+
+Use the `atlas.export` CLI to convert persisted PostgreSQL sessions into JSONL traces that match the core runtime schema.
+
+```bash
+atlas.export \
+  --database-url postgresql://atlas:atlas@localhost:5432/atlas \
+  --output traces.jsonl
+```
+
+Key flags:
+
+- `--session-id` (repeatable) restricts the export to explicit sessions.
+- `--limit`/`--offset` and `--batch-size` page through large archives.
+- `--trajectory-limit` controls how many intermediate events are embedded per session.
+
+Each line in the output is an `AtlasSessionTrace` record:
+
+```json
+{
+  "task": "...",
+  "final_answer": "...",
+  "plan": {"steps": [...]},
+  "steps": [
+    {
+      "step_id": 1,
+      "description": "...",
+      "tool": "summariser",
+      "reward": {"score": 0.92, "judges": [...]},
+      "validation": {"valid": true, "rationale": "..."},
+      "guidance": ["..."],
+      "context": {"prior_results": {"1": "..."}}
+    }
+  ],
+  "session_metadata": {
+    "session_id": 42,
+    "status": "succeeded",
+    "trajectory_events": [...]
+  }
+}
+```
+
+The structure aligns with `AtlasSessionTrace`, `AtlasStepTrace`, and `AtlasRewardBreakdown` used by `trainers/runtime_dataset.py`, so you can immediately consume the file inside the core repo:
+
+1. Run `atlas.core.run(...)` with PostgreSQL persistence enabled.
+2. Execute `atlas.export --database-url ... --output traces.jsonl`.
+3. Call `load_runtime_traces("traces.jsonl")` (from the core repo) to build training datasets.
+
+Additional usage notes live in `docs/examples/export_runtime_traces.md`.
+
+---
+
 ## Testing
 
 ```bash

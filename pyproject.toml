@@ -10,6 +10,7 @@ dependencies = [
     "litellm>=1.36.0",
     "pydantic>=2.5.0",
 ]
+scripts = { "atlas.export" = "atlas.export.jsonl:main" }
 
 [project.optional-dependencies]
 dev = [
@@ -23,6 +24,7 @@ testpaths = ["tests"]
 markers = [
     "postgres: integration tests requiring PostgreSQL",
 ]
+pythonpath = ["."]
 
 [tool.setuptools.packages.find]
 include = ["atlas*"]

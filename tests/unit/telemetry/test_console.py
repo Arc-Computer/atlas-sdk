@@ -5,9 +5,11 @@ from atlas.data_models.intermediate_step import IntermediateStepType
 from atlas.data_models.intermediate_step import StreamEventData
 from atlas.orchestration.execution_context import ExecutionContext
 from atlas.telemetry import ConsoleTelemetryStreamer
+from atlas.runtime.schema import AtlasRewardBreakdown
 from atlas.types import Plan
 from atlas.types import Result
 from atlas.types import Step
+from atlas.types import StepEvaluation
 from atlas.types import StepResult
 
 
@@ -77,7 +79,10 @@ def test_console_streamer_renders_events_and_summary():
                 step_id=1,
                 trace="trace",
                 output="complete",
-                evaluation={"reward": {"score": 0.8}},
+                evaluation=StepEvaluation(
+                    validation={},
+                    reward=AtlasRewardBreakdown(score=0.8, raw={"score": 0.8}),
+                ),
                 attempts=2,
             )
         ],
