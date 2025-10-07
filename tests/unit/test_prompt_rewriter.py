@@ -1,8 +1,6 @@
 import asyncio
 import json
 
-import pytest
-
 from atlas.config.models import (
     AdapterConfig,
     AdapterType,
@@ -10,11 +8,11 @@ from atlas.config.models import (
     LLMProvider,
     PromptRewriteConfig,
     StudentConfig,
-    StudentPrompts,
     TeacherConfig,
 )
 from atlas.transition.rewriter import PromptRewriteEngine
 from atlas.transition.rewriter import RewrittenStudentPrompts, RewrittenTeacherPrompts
+from atlas.utils.llm_client import LLMResponse
 
 
 def _gpt5_params() -> LLMParameters:
@@ -27,28 +25,30 @@ def _gpt5_params() -> LLMParameters:
     )
 
 
-def test_prompt_rewrite_engine_parses_live_response():
+def test_prompt_rewrite_engine_handles_persona_parallelism():
     async def runner() -> None:
         engine = PromptRewriteEngine(
             PromptRewriteConfig(llm=_gpt5_params(), max_tokens=4096, temperature=1.0),
             fallback_llm=None,
         )
-        captured: dict[str, object] = {}
-        original_acomplete = engine._client.acomplete
+        responses = {
+            "planner": "Design sequential steps that expose explicit dependencies and clear parallelisable stages.",
+            "executor": "Execute the assigned step, referencing context outputs and remaining safe for parallel peers.",
+            "synthesizer": "Combine every completed step outcome with citations and highlight residual gaps.",
+            "plan_review": "Check dependency integrity, coverage, and parallel readiness before approving the plan.",
+            "validation": "Validate each attempt with structured reasoning and expected outputs while noting concurrency issues.",
+            "guidance": "Deliver actionable guidance tailored to the failed attempt so the retry succeeds quickly.",
+        }
 
-        async def traced_acomplete(messages, response_format=None, overrides=None):
-            merged_overrides = dict(overrides or {})
-            extra_body = dict(merged_overrides.get("extra_body") or {})
-            extra_body.setdefault("reasoning_effort", "medium")
-            merged_overrides["extra_body"] = extra_body
-            response = await original_acomplete(messages, response_format, merged_overrides)
-            captured["content"] = response.content
-            captured["raw"] = response.raw
-            return response
+        async def fake_acomplete(messages, response_format=None, overrides=None):
+            payload = json.loads(messages[1]["content"])
+            persona_key = payload["persona"]["output_key"]
+            text = responses[persona_key]
+            return LLMResponse(content=text, raw={"persona": persona_key})
 
-        engine._client.acomplete = traced_acomplete
+        engine._client.acomplete = fake_acomplete
         adapter_config = AdapterConfig(type=AdapterType.HTTP, name="agent", system_prompt="Base prompt", tools=[])
-        student = StudentConfig(prompts=StudentPrompts(planner="", executor="", synthesizer=""))
+        student = StudentConfig()
         teacher = TeacherConfig(
             llm=_gpt5_params(),
             max_review_tokens=3072,
@@ -56,29 +56,16 @@ def test_prompt_rewrite_engine_parses_live_response():
             guidance_max_tokens=1024,
             validation_max_tokens=1024,
         )
-        try:
-            student_prompts, teacher_prompts = await engine.generate(
-                base_prompt="Base prompt",
-                adapter_config=adapter_config,
-                student_config=student,
-                teacher_config=teacher,
-            )
-        except Exception:
-            raw = captured.get("content", "")
-            if raw:
-                print(f"Prompt rewrite raw response: {raw}")
-            else:
-                print(f"Prompt rewrite payload: {captured.get('raw', {})}")
-            raise
-        raw_json = captured.get("content", "")
-        try:
-            payload = json.loads(raw_json)
-        except json.JSONDecodeError:
-            print(f"Prompt rewrite raw response: {raw_json}")
-            raise
+        student_prompts, teacher_prompts = await engine.generate(
+            base_prompt="Base prompt",
+            adapter_config=adapter_config,
+            student_config=student,
+            teacher_config=teacher,
+        )
         assert isinstance(student_prompts, RewrittenStudentPrompts)
         assert isinstance(teacher_prompts, RewrittenTeacherPrompts)
-        assert payload["student"]["planner"].strip()
-        assert payload["teacher"]["guidance"].strip()
+        assert student_prompts.planner.startswith("Base prompt")
+        assert teacher_prompts.guidance.startswith("Base prompt")
+        assert responses["guidance"] in teacher_prompts.guidance
 
     asyncio.run(runner())

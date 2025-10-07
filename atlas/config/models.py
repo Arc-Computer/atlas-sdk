@@ -186,7 +186,8 @@ class StudentConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    prompts: StudentPrompts
+    prompts: StudentPrompts | None = None
+    prompt_guidance: Dict[str, str] = Field(default_factory=dict)
     max_plan_tokens: int = Field(default=2048, ge=1)
     max_step_tokens: int = Field(default=2048, ge=1)
     max_synthesis_tokens: int = Field(default=2048, ge=1)
@@ -202,7 +203,8 @@ class TeacherConfig(BaseModel):
     plan_cache_seconds: int = Field(default=300, ge=0)
     guidance_max_tokens: int = Field(default=512, ge=1)
     validation_max_tokens: int = Field(default=512, ge=1)
-    prompts: "TeacherPrompts" = Field(default_factory=lambda: TeacherPrompts())
+    prompts: TeacherPrompts | None = None
+    prompt_guidance: Dict[str, str] = Field(default_factory=dict)
 
 class JudgeKind(str, Enum):
     """Judge families aggregated within RIM."""

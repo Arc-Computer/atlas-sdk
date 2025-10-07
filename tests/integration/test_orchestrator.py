@@ -14,23 +14,41 @@ from atlas.types import Plan, Result, Step
 
 class FakeStudent:
     def __init__(self):
-        self._attempts = 0
+        self._attempts: dict[int, int] = {}
 
     async def acreate_plan(self, task: str) -> Plan:
-        return Plan(steps=[Step(id=1, description="solve", depends_on=[])])
+        return Plan(
+            steps=[
+                Step(id=1, description="gather dataset A", depends_on=[]),
+                Step(id=2, description="gather dataset B", depends_on=[]),
+                Step(id=3, description="synthesize findings", depends_on=[1, 2]),
+            ]
+        )
 
     async def aexecute_step(self, step: Step, context, guidance):
-        self._attempts += 1
-        output = "success" if self._attempts >= 2 else "failure"
-        tool_calls = [{"name": "search", "args": {"query": "foo"}, "id": "call-1"}]
+        attempts = self._attempts.get(step.id, 0) + 1
+        self._attempts[step.id] = attempts
+        if step.id == 1:
+            output = "success-a" if attempts >= 2 else "pending-a"
+            tool_id = "call-1"
+        elif step.id == 2:
+            output = "success-b"
+            tool_id = "call-2"
+        else:
+            part_a = context.get(1, "")
+            part_b = context.get(2, "")
+            output = f"summary:{part_a}|{part_b}"
+            tool_id = "call-3"
+        tool_calls = [{"name": "search", "args": {"query": step.description}, "id": tool_id}]
         messages = [
             AIMessage(content="calling tool", tool_calls=tool_calls),
-            ToolMessage(content='{"result": 1}', tool_call_id="call-1"),
+            ToolMessage(content='{"result": 1}', tool_call_id=tool_id),
         ]
-        return StudentStepResult(trace="trace", output=output, messages=messages, attempts=self._attempts)
+        return StudentStepResult(trace="trace", output=output, messages=messages, attempts=attempts)
 
     async def asynthesize_final_answer(self, task: str, step_summaries):
-        return "done"
+        outputs = [entry["output"] for entry in step_summaries]
+        return " | ".join(outputs)
 
 
 class FakeTeacher:
@@ -38,18 +56,26 @@ class FakeTeacher:
         return plan
 
     async def avalidate_step(self, step: Step, trace: str, output: str):
-        return {"valid": output == "success", "rationale": ""}
+        if step.id == 1:
+            return {"valid": output.startswith("success"), "rationale": ""}
+        if step.id == 2:
+            return {"valid": output.startswith("success"), "rationale": ""}
+        return {"valid": output.startswith("summary:"), "rationale": ""}
 
     async def agenerate_guidance(self, step: Step, evaluation):
-        return "retry"
+        return "retry with missing references"
 
     def collect_results(self, items):
-        return items
+        return sorted(items, key=lambda payload: payload["step_id"])
 
 
 class FakeEvaluator:
     async def ajudge(self, context: JudgeContext):
-        score = 0.9 if context.attempt >= 2 else 0.2
+        output = context.output or ""
+        if output.startswith("success") or output.startswith("summary"):
+            score = 0.9
+        else:
+            score = 0.2
         return {"score": score, "judges": []}
 
 
@@ -88,12 +114,14 @@ async def test_orchestrator_retries_and_records_context():
     finally:
         subscription.unsubscribe()
     assert isinstance(result, Result)
-    step_result = result.step_results[0]
-    assert step_result.attempts == 2
+    step_attempts = {entry.step_id: entry.attempts for entry in result.step_results}
+    assert step_attempts[1] == 2
+    assert step_attempts[2] == 1
+    assert step_attempts[3] == 1
     step_meta = context.metadata["steps"][1]
     event_types = [event.event_type for event in events]
     assert IntermediateStepType.TASK_START in event_types
     assert IntermediateStepType.TOOL_START in event_types
     assert IntermediateStepType.TOOL_END in event_types
     assert len(step_meta["attempts"]) == 2
-    assert step_meta["guidance"] == ["retry"]
+    assert step_meta["guidance"] == ["retry with missing references"]

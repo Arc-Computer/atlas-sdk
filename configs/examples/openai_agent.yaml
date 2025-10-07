@@ -13,19 +13,6 @@ agent:
   response_format: null
 
 student:
-  prompts:
-    planner: |
-      {base_prompt}
-
-      Produce a step-by-step execution plan as JSON.
-    executor: |
-      {base_prompt}
-
-      Execute the current step and explain what you did.
-    synthesizer: |
-      {base_prompt}
-
-      Use all step outputs to craft the final response.
   max_plan_tokens: 2048
   max_step_tokens: 2048
   max_synthesis_tokens: 2048

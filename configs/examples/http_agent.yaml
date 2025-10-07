@@ -30,20 +30,6 @@ agent:
     - output
 
 student:
-  prompts:
-    planner: |
-      {base_prompt}
-
-      You are the Atlas Student. Produce a step-by-step plan that solves the user's task.
-      Respond with JSON containing a "steps" array where each step specifies id, description, dependencies, and any tool metadata.
-  executor: |
-      {base_prompt}
-
-      Follow the plan step exactly. Use provided context and produce detailed operations.
-  synthesizer: |
-      {base_prompt}
-
-      Combine the outcomes of every step into a final, user-ready answer.
   max_plan_tokens: 2048
   max_step_tokens: 2048
   max_synthesis_tokens: 2048

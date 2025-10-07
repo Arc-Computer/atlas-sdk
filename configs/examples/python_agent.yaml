@@ -10,19 +10,6 @@ agent:
   allow_generator: false
 
 student:
-  prompts:
-    planner: |
-      {base_prompt}
-
-      Break the task into a minimal sequence of dependent steps expressed as JSON.
-    executor: |
-      {base_prompt}
-
-      Execute the current step carefully, calling Python helpers when needed.
-    synthesizer: |
-      {base_prompt}
-
-      Summarize every completed step and deliver the final answer.
   max_plan_tokens: 2048
   max_step_tokens: 2048
   max_synthesis_tokens: 2048

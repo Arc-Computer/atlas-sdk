@@ -59,26 +59,6 @@ agent:
       OpenAI-Beta: reasoning=1
 
 student:
-  prompts:
-    planner: |
-      {base_prompt}
-
-      You are preparing a GDPval analysis for the {metadata[sector]} sector ({metadata[occupation]} occupation).
-      Construct a plan that enumerates each reasoning step, specifies which reference documents are required,
-      and highlights any missing sources that should be reviewed. Output JSON with fields: step_id, description,
-      references_needed (filenames), and dependencies.
-    executor: |
-      {base_prompt}
-
-      You are executing step {{step_id}} for the {metadata[sector]} sector ({metadata[occupation]} occupation).
-      Use the tools to inspect the required references (list_references, read_reference, summarize_reference)
-      and synthesize findings grounded in the cited files. Report the outcome, citing filenames inline.
-    synthesizer: |
-      {base_prompt}
-
-      Summarize the completed work for the {metadata[sector]} sector ({metadata[occupation]} occupation).
-      Provide a concise validation report pulling key evidence from the referenced documents. Cite filenames and
-      highlight uncertainties or missing evidence where applicable.
   max_plan_tokens: 32000
   max_step_tokens: 32000
   max_synthesis_tokens: 32000
