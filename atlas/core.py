@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from typing import Any
 from typing import List
-from typing import TYPE_CHECKING
+from typing import Protocol
 
 from atlas.agent.factory import create_from_atlas_config
 from atlas.config.loader import load_config
@@ -22,26 +23,46 @@ from atlas.transition.rewriter import (
     RewrittenTeacherPrompts,
 )
 from atlas.types import Result
+from atlas.telemetry import ConsoleTelemetryStreamer
 
-if TYPE_CHECKING:
-    from atlas.dashboard import TelemetryPublisher
+
+class TelemetryPublisherProtocol(Protocol):
+    def attach(self, step_manager: Any) -> None:
+        ...
+
+    def detach(self) -> None:
+        ...
+
+    def publish_control_event(self, event_type: str, data: dict[str, Any]) -> None:
+        ...
 
 
 async def arun(
     task: str,
     config_path: str,
-    publisher: "TelemetryPublisher | None" = None,
+    publisher: TelemetryPublisherProtocol | None = None,
     session_metadata: dict[str, Any] | None = None,
+    stream_progress: bool | None = None,
 ) -> Result:
     config = load_config(config_path)
     execution_context = ExecutionContext.get()
     execution_context.reset()
     if session_metadata:
         execution_context.metadata["session_metadata"] = session_metadata
+    if stream_progress is not None:
+        stream_enabled = stream_progress
+    else:
+        isatty = getattr(sys.stdout, "isatty", None)
+        stream_enabled = bool(isatty and isatty())
+    streamer: ConsoleTelemetryStreamer | None = None
     events: List = []
     subscription = execution_context.event_stream.subscribe(events.append)
     if publisher is not None:
         publisher.attach(execution_context.intermediate_step_manager)
+    elif stream_enabled:
+        streamer = ConsoleTelemetryStreamer()
+        streamer.attach(execution_context)
+        streamer.session_started(task)
     adapter = create_from_atlas_config(config)
     adapter_config = config.agent
     rewrite_engine = PromptRewriteEngine(config.prompt_rewrite, getattr(adapter_config, "llm", None))
@@ -90,8 +111,10 @@ async def arun(
                         "final_answer": result.final_answer,
                     },
                 )
+        if streamer is not None:
+            streamer.session_completed(result)
         return result
-    except Exception:
+    except Exception as exc:
         if database and session_id is not None:
             await _persist_events(database, session_id, events)
             await database.finalize_session(session_id, "", "failed")
@@ -100,11 +123,15 @@ async def arun(
                     "session-completed",
                     {"session_id": session_id, "status": "failed"},
                 )
+        if streamer is not None:
+            streamer.session_failed(exc)
         raise
     finally:
         subscription.unsubscribe()
         if publisher is not None:
             publisher.detach()
+        elif streamer is not None:
+            streamer.detach()
         if database:
             await database.disconnect()
 
@@ -114,8 +141,9 @@ async def arun(
 def run(
     task: str,
     config_path: str,
-    publisher: "TelemetryPublisher | None" = None,
+    publisher: TelemetryPublisherProtocol | None = None,
     session_metadata: dict[str, Any] | None = None,
+    stream_progress: bool | None = None,
 ) -> Result:
     try:
         asyncio.get_running_loop()
@@ -126,6 +154,7 @@ def run(
                 config_path,
                 publisher=publisher,
                 session_metadata=session_metadata,
+                stream_progress=stream_progress,
             )
         )
     raise RuntimeError("atlas.run cannot be invoked inside an existing event loop")

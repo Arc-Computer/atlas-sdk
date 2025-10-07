@@ -20,7 +20,7 @@ Atlas SDK lets you wrap any Bring-Your-Own-Agent (BYOA) into a guided Teacher â†
 python3.13 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
-pip install -e .[dev,dashboard]
+pip install -e .[dev]
 ```
 
 Run an example configuration:
@@ -99,7 +99,7 @@ agent:
 6. Database.log_*()           # optional persistence of plans, attempts, trajectory events
 ```
 
-Trajectory events stream through `ExecutionContext.event_stream`, enabling live dashboards or durable storage via `atlas/storage/database.py` and `atlas/storage/schema.sql`.
+Trajectory events stream through `ExecutionContext.event_stream`, enabling live console streaming and durable storage via `atlas/storage/database.py` and `atlas/storage/schema.sql`.
 
 **RIM Model Guidance**
 
@@ -109,72 +109,35 @@ Trajectory events stream through `ExecutionContext.event_stream`, enabling live 
 
 ---
 
-## Telemetry Dashboard
+## Terminal Telemetry
 
-The dashboard runs as an optional FastAPI service that renders live telemetry and stored runs.
+Atlas streams orchestration events directly to the terminal when `core.run` executes in an interactive shell. The default console renderer highlights the accepted plan, step attempts, tool invocations, reward scores, and the final synthesis without extra setup.
 
-1. Provision PostgreSQL:
+Example session:
 
-   ```bash
-   docker compose -f docker-compose.dashboard.yml up -d
-   export ATLAS_DATABASE_URL="postgresql://atlas:atlas@localhost:5432/atlas"
-   psql "$ATLAS_DATABASE_URL" -f atlas/storage/schema.sql
-   ```
-
-2. Start the dashboard service:
-
-   ```bash
-   python -m atlas.dashboard --database-url "$ATLAS_DATABASE_URL"
-   ```
-
-3. In another terminal, execute the sample agent with telemetry enabled:
-
-   ```bash
-   python examples/telemetry_dashboard_demo.py --database-url "$ATLAS_DATABASE_URL" \
-     --task "Summarize the Atlas SDK architecture"
-   ```
-
-4. Visit `http://127.0.0.1:8000` to browse sessions, timelines, evaluations, and live events.
-
-Tear down the compose stack when finished:
-
-```bash
-docker compose -f docker-compose.dashboard.yml down
+```text
+=== Atlas task started: Summarize the Atlas SDK (2025-02-12 10:15:03) ===
+Plan ready with steps:
+  1. gather dataset A
+  2. synthesise findings
+[step 1] attempt 1 started: gather dataset A
+[tool] web_search call -> {"query": "Atlas SDK release"}
+[tool] web_search result <- {"result": "..."}
+[step 1] completed: gather dataset A
+  reward score: 0.91
+[step 2] retry 2 started: synthesise findings
+  guidance: cite the repository README
+=== Atlas task completed in 12.4s ===
+Final answer:
+  Atlas SDK ships a teacher-student loop...
+- gather dataset A | attempts: 1 | score: 0.91
+- synthesise findings | attempts: 2 | score: 0.88
+RIM scores | max: 0.91 | avg: 0.89
 ```
 
----
+Disable streaming with `core.run(..., stream_progress=False)` when piping output or running in CI. Pass `stream_progress=True` to force streaming even when stdout is not a TTY. The renderer also works with `core.arun` and runs alongside PostgreSQL persistence, so stored sessions retain full telemetry.
 
-## GDPval Demo
-
-GDPval is a validation benchmark that pairs GDP growth tasks with curated reference documents.
-
-1. Install extras and export credentials:
-
-   ```bash
-   pip install -e .[dev,dashboard,gdpval]
-   export OPENAI_API_KEY=...
-   # Optional: export HUGGINGFACEHUB_API_TOKEN if your datasets auth is restricted
-   ```
-
-2. Start PostgreSQL and the telemetry dashboard (see the Telemetry Dashboard section above).
-
-3. Run a single GDPval task:
-
-   ```bash
-   python examples/gdpval/run_gdpval.py --task-id gdpval_task_001 --config configs/examples/gdpval_python.yaml
-   ```
-
-   Cached references are stored in `.atlas/gdpval/<task-id>/` and surface in the dashboard metadata panel.
-
-4. Stream the full split (cap execution with `--max` when needed):
-
-   ```bash
-   python examples/gdpval/run_gdpval.py --all --max 10 --config configs/examples/gdpval_python.yaml
-   ```
-
-   Summaries accumulate at `examples/gdpval/gdpval_runs/` as `runs.csv` and `runs.jsonl`.
-
-5. Open `http://127.0.0.1:8000` to filter sessions by sector or occupation, inspect cached references, and observe live telemetry while tasks execute.
+See `docs/examples/terminal_telemetry.md` for a step-by-step walkthrough.
 
 ---
 
@@ -191,7 +154,7 @@ The suite covers dependency parsing, prompt rewriting, student/teacher orchestra
 ## Requirements & Notes
 
 - Python 3.10+ (project is developed and validated with 3.13).
-- Optional dependencies (installed via `pip install -e .[dev,dashboard,gdpval]`) include `litellm`, `langchain-core`, `langgraph`, `asyncpg`, the FastAPI dashboard stack, and GDPval helpers (`datasets`, `pypdf`, `python-docx`).
+- Development extras (`pip install -e .[dev]`) install pytest tooling for local validation; core telemetry streams rely solely on the standard library.
 - Vendored NeMo components live under `atlas/roles/` and `atlas/utils/reactive/`; SPDX headers are retained and must remain intact.
 - Aim for descriptive naming and concise docstrings so the intent is evident without extra commentary.
 
