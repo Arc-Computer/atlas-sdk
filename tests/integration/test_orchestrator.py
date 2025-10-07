@@ -3,7 +3,7 @@ import pytest
 pytest.importorskip("langchain_core")
 
 from langchain_core.messages import AIMessage, ToolMessage
-from atlas.config.models import OrchestrationConfig, RIMConfig, JudgeConfig, JudgeKind, LLMParameters
+from atlas.config.models import OrchestrationConfig, RIMConfig, LLMParameters
 from atlas.orchestration.execution_context import ExecutionContext
 from atlas.orchestration.orchestrator import Orchestrator
 from atlas.data_models.intermediate_step import IntermediateStepType
@@ -82,16 +82,12 @@ class FakeEvaluator:
 def build_orchestrator():
     orchestration_config = OrchestrationConfig(max_retries=1, step_timeout_seconds=900, rim_guidance_tag="tag", emit_intermediate_steps=True)
     rim_config = RIMConfig(
-        judges=[
-            JudgeConfig(identifier="process", kind=JudgeKind.PROCESS, llm=LLMParameters(model="stub"))
-        ],
-        temperatures=[0.0],
+        small_model=LLMParameters(model="stub"),
+        large_model=LLMParameters(model="arbiter"),
+        active_judges={"process": True, "helpfulness": True},
         variance_threshold=1.0,
         uncertainty_threshold=1.0,
-        arbiter=LLMParameters(model="arbiter"),
-        success_threshold=0.7,
-        retry_threshold=0.6,
-        aggregation_strategy="weighted_mean",
+        parallel_workers=2,
     )
     return Orchestrator(
         teacher=FakeTeacher(),

@@ -6,10 +6,10 @@ Atlas SDK lets you wrap any Bring-Your-Own-Agent (BYOA) into a guided Teacher �
 
 ## Key Features
 
-- **BYOA Adapters** – Drop in HTTP, Python, or OpenAI agents without rewriting core logic.
+- **Bring-Your-Own-Agent (BYOA) Adapters** – Drop in HTTP, Python, or OpenAI agents without rewriting core logic.
 - **Teacher / Student Loop** – Plans and executes tasks sequentially with review, validation, and retry guidance.
-- **Reward Improvement Module (RIM)** – Runs configurable judges (process, helpfulness, custom) to score every step.
-- **Trajectory Capture** – Emits NeMo-style intermediate steps that can be streamed, logged, or audited later.
+- **Reward System (RIM)** – Runs configurable judges (process, helpfulness, custom) to score every step.
+- **Trajectory Capture** – Emits intermediate steps that can be streamed, logged, or audited later.
 - **PostgreSQL Persistence** – Ships with an async persistence layer and schema for sessions, attempts, guidance, and events.
 
 ---
@@ -92,7 +92,7 @@ agent:
 
 ```
 1. core.run()                 # load config, adapter, context
-2. Student.create_plan()      # NeMo-derived planning graph via BYOA bridge
+2. Student.create_plan()      # ATLAS-derived planning graph via BYOA bridge
 3. Teacher.review_plan()      # validates dependencies and tools
 4. Orchestrator.arun()        # sequential execution, retries, telemetry
 5. Evaluator.ajudge()         # process/helpfulness judges aggregate scores
@@ -193,7 +193,7 @@ The suite covers dependency parsing, prompt rewriting, student/teacher orchestra
 - Python 3.10+ (project is developed and validated with 3.13).
 - Optional dependencies (installed via `pip install -e .[dev,dashboard,gdpval]`) include `litellm`, `langchain-core`, `langgraph`, `asyncpg`, the FastAPI dashboard stack, and GDPval helpers (`datasets`, `pypdf`, `python-docx`).
 - Vendored NeMo components live under `atlas/roles/` and `atlas/utils/reactive/`; SPDX headers are retained and must remain intact.
-- Codebase avoids inline comments; preference is for expressive naming and docstrings.
+- Aim for descriptive naming and concise docstrings so the intent is evident without extra commentary.
 
 ---
 
@@ -201,7 +201,7 @@ The suite covers dependency parsing, prompt rewriting, student/teacher orchestra
 
 1. Fork and clone the repository.
 2. Use the provided `pyproject.toml` extras to install development dependencies.
-3. Follow `RULES.md` for coding conventions (read files before editing, no inline comments, sequential small commits).
+3. Review existing modules before coding and keep commits focused and incremental to match the current style.
 4. Add or update unit tests alongside feature changes.
 
 Pull requests should include updated documentation or examples when behaviour changes.

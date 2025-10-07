@@ -15,7 +15,6 @@ from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import field_validator
-from pydantic import model_validator
 
 class RetryPolicy(BaseModel):
     """Retry behavior for adapter calls."""
@@ -206,52 +205,19 @@ class TeacherConfig(BaseModel):
     prompts: TeacherPrompts | None = None
     prompt_guidance: Dict[str, str] = Field(default_factory=dict)
 
-class JudgeKind(str, Enum):
-    """Judge families aggregated within RIM."""
-
-    PROCESS = "process"
-    HELPFULNESS = "helpfulness"
-    CUSTOM = "custom"
-
-class JudgeConfig(BaseModel):
-    """One RIM judge configuration."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    identifier: str
-    kind: JudgeKind = JudgeKind.PROCESS
-    llm: LLMParameters
-    weight: float = Field(default=1.0, ge=0.0)
-    principles: List[str] = Field(default_factory=list)
-    max_tokens: int = Field(default=1024, ge=1)
-    enabled: bool = True
-
 class RIMConfig(BaseModel):
     """Aggregate reward model configuration."""
 
     model_config = ConfigDict(extra="forbid")
 
-    judges: List[JudgeConfig]
-
-    @field_validator("judges")
-    @classmethod
-    def ensure_judges_present(cls, value: List[JudgeConfig]):
-        if not value:
-            raise ValueError("at least one judge must be configured")
-        return value
-    temperatures: List[float] = Field(default_factory=lambda: [0.0, 0.3])
+    small_model: LLMParameters
+    large_model: LLMParameters
+    active_judges: Dict[str, bool] = Field(
+        default_factory=lambda: {"process": True, "helpfulness": True}
+    )
     variance_threshold: float = Field(default=0.15, ge=0.0)
     uncertainty_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
-    arbiter: LLMParameters
-    success_threshold: float = Field(default=0.7, ge=0.0, le=1.0)
-    retry_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
-    aggregation_strategy: Literal["weighted_mean", "minimum"] = "weighted_mean"
-
-    @model_validator(mode="after")
-    def ensure_thresholds(self) -> "RIMConfig":
-        if self.retry_threshold > self.success_threshold:
-            raise ValueError("retry_threshold cannot exceed success_threshold")
-        return self
+    parallel_workers: int = Field(default=4, ge=1, le=32)
 
 class OrchestrationConfig(BaseModel):
     """Controls sequential execution semantics."""

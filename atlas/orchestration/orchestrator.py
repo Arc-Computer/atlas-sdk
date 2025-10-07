@@ -44,6 +44,7 @@ class Orchestrator:
         self._evaluator = evaluator
         self._orchestration = orchestration_config
         self._rim_config = rim_config
+        self._rim_retry_threshold = getattr(rim_config, "retry_threshold", 0.6)
 
     async def arun(self, task: str) -> Result:
         context = ExecutionContext.get()
@@ -303,7 +304,7 @@ class Orchestrator:
             return False
         if not validation.get("valid", False):
             return attempts <= self._orchestration.max_retries
-        return score < self._rim_config.retry_threshold and attempts <= self._orchestration.max_retries
+        return score < self._rim_retry_threshold and attempts <= self._orchestration.max_retries
 
     def _determine_levels(self, plan: Plan) -> List[List[int]]:
         graph = DependencyGraph(plan)
