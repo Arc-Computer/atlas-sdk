@@ -1,5 +1,5 @@
 [project]
-name = "atlas-sdk"
+name = "arc-atlas"
 version = "0.1.0"
 description = "Atlas SDK sequential BYOA orchestration"
 dependencies = [
