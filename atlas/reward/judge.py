@@ -7,7 +7,6 @@ import json
 from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence
 
-from atlas.config.models import JudgeConfig
 from atlas.types import Step
 from atlas.utils.llm_client import LLMClient
 
@@ -50,16 +49,12 @@ class JudgeOutcome:
 
 
 class Judge:
-    """Base class for process/helpfulness judges."""
+    """Base class for RIM judges."""
 
-    def __init__(self, config: JudgeConfig) -> None:
-        self.identifier = config.identifier
-        self.weight = config.weight
-        self.enabled = config.enabled
-        self._client = LLMClient(config.llm)
-        self._fallback_principles = [
-            {"name": name, "weight": 1.0, "description": name} for name in config.principles
-        ]
+    def __init__(self, identifier: str, client: LLMClient) -> None:
+        self.identifier = identifier
+        self.weight = 1.0
+        self._client = client
 
     async def asample(self, context: JudgeContext, temperature: float) -> JudgeSample | None:
         """Generate a single sample using the small judge model."""
@@ -88,17 +83,6 @@ class Judge:
             return None
 
         parsed_principles = self._normalize_principles(principles)
-        if not parsed_principles and self._fallback_principles:
-            count = len(self._fallback_principles)
-            weight = 1.0 / count if count else 0.0
-            parsed_principles = [
-                {
-                    "name": entry.get("name", "Principle"),
-                    "weight": weight,
-                    "description": entry.get("description", ""),
-                }
-                for entry in self._fallback_principles
-            ]
 
         rationale_text = rationale if isinstance(rationale, str) else ""
 

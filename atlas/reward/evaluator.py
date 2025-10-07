@@ -8,18 +8,13 @@ from dataclasses import dataclass
 from statistics import pstdev
 from typing import Any, Dict, List, Sequence
 
-from atlas.config.models import JudgeConfig, JudgeKind, RIMConfig
+from atlas.config.models import RIMConfig
 from atlas.reward.helpfulness_judge import HelpfulnessJudge
 from atlas.reward.judge import Judge, JudgeContext, JudgeOutcome, JudgeSample
 from atlas.reward.process_judge import ProcessJudge
 from atlas.utils.llm_client import LLMClient
 
-
-_JUDGE_FACTORY: Dict[JudgeKind, type[Judge]] = {
-    JudgeKind.PROCESS: ProcessJudge,
-    JudgeKind.HELPFULNESS: HelpfulnessJudge,
-    JudgeKind.CUSTOM: ProcessJudge,
-}
+_DEFAULT_TEMPERATURES: Sequence[float] = (0.2, 0.5, 0.8)
 
 
 @dataclass
@@ -31,23 +26,34 @@ class _JudgeState:
 class Evaluator:
     """Runs tiered RIM evaluation with escalation when necessary."""
 
-    def __init__(self, config: RIMConfig) -> None:
+    def __init__(
+        self,
+        config: RIMConfig,
+        *,
+        small_client: LLMClient | None = None,
+        large_client: LLMClient | None = None,
+    ) -> None:
         self._config = config
-        self._temperatures = list(config.temperatures)
-        if not self._temperatures:
-            self._temperatures = [0.0]
+        self._temperatures = _DEFAULT_TEMPERATURES
         self._variance_threshold = config.variance_threshold
         self._uncertainty_threshold = config.uncertainty_threshold
-        self._arbiter_client = LLMClient(config.arbiter)
-        self._judges: List[Judge] = [
-            self._build_judge(judge_config) for judge_config in config.judges if judge_config.enabled
-        ]
+        self._small_client = small_client or LLMClient(config.small_model)
+        self._arbiter_client = large_client or LLMClient(config.large_model)
+        self._available_judges: Dict[str, Judge] = {
+            "process": ProcessJudge(self._small_client),
+            "helpfulness": HelpfulnessJudge(self._small_client),
+        }
+        active = [name for name, enabled in (config.active_judges or {}).items() if enabled]
+        if not active:
+            active = list(self._available_judges.keys())
+        self._judges = [self._available_judges[name] for name in active if name in self._available_judges]
+        if not self._judges:
+            raise ValueError("No active RIM judges are available")
 
     async def ajudge(self, context: JudgeContext) -> Dict[str, Any]:
-        judge_states = [
-            await self._evaluate_judge(judge, context)
-            for judge in self._judges
-        ]
+        judge_states = await asyncio.gather(
+            *(self._evaluate_judge(judge, context) for judge in self._judges)
+        )
         aggregated = self._aggregate(judge_states)
         return {
             "score": aggregated,
@@ -76,12 +82,6 @@ class Evaluator:
 
     def judge(self, context: JudgeContext) -> Dict[str, Any]:
         return asyncio.run(self.ajudge(context))
-
-    def _build_judge(self, config: JudgeConfig) -> Judge:
-        factory = _JUDGE_FACTORY.get(config.kind)
-        if factory is None:
-            raise ValueError(f"Unsupported judge kind {config.kind}")
-        return factory(config)
 
     async def _evaluate_judge(self, judge: Judge, context: JudgeContext) -> _JudgeState:
         samples = await self._collect_samples(judge, context)
@@ -169,10 +169,4 @@ class Evaluator:
     def _aggregate(self, states: Sequence[_JudgeState]) -> float:
         if not states:
             return 0.0
-        if self._config.aggregation_strategy == "minimum":
-            return min(state.outcome.score for state in states)
-        weighted = [state.outcome.score * state.judge.weight for state in states]
-        total_weight = sum(state.judge.weight for state in states)
-        if total_weight == 0:
-            return sum(state.outcome.score for state in states) / len(states)
-        return sum(weighted) / total_weight
+        return sum(state.outcome.score for state in states) / len(states)

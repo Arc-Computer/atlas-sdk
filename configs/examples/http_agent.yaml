@@ -30,20 +30,6 @@ agent:
     - output
 
 student:
-  prompts:
-    planner: |
-      {base_prompt}
-
-      You are the Atlas Student. Produce a step-by-step plan that solves the user's task.
-      Respond with JSON containing a "steps" array where each step specifies id, description, dependencies, and any tool metadata.
-  executor: |
-      {base_prompt}
-
-      Follow the plan step exactly. Use provided context and produce detailed operations.
-  synthesizer: |
-      {base_prompt}
-
-      Combine the outcomes of every step into a final, user-ready answer.
   max_plan_tokens: 2048
   max_step_tokens: 2048
   max_synthesis_tokens: 2048
@@ -78,41 +64,21 @@ orchestration:
   emit_intermediate_steps: true
 
 rim:
-  judges:
-    - identifier: process
-      kind: process
-      weight: 0.5
-      principles:
-        - Procedural accuracy
-      llm:
-        provider: openai
-        model: gpt-4o-mini
-        api_key_env: OPENAI_API_KEY
-        temperature: 0.0
-        max_output_tokens: 512
-    - identifier: helpfulness
-      kind: helpfulness
-      weight: 0.5
-      principles:
-        - Helpfulness to the end user
-      llm:
-        provider: openai
-        model: gpt-4o-mini
-        api_key_env: OPENAI_API_KEY
-        temperature: 0.0
-        max_output_tokens: 512
-  temperatures: [0.0, 0.3]
-  variance_threshold: 0.15
-  uncertainty_threshold: 0.3
-  arbiter:
+  small_model:
+    provider: openai
+    model: gpt-4o-mini
+    api_key_env: OPENAI_API_KEY
+    max_output_tokens: 512
+  large_model:
     provider: openai
     model: gpt-4o
     api_key_env: OPENAI_API_KEY
-    temperature: 0.1
     max_output_tokens: 768
-  success_threshold: 0.7
-  retry_threshold: 0.6
-  aggregation_strategy: weighted_mean
+  active_judges:
+    process: true
+    helpfulness: true
+  variance_threshold: 0.15
+  uncertainty_threshold: 0.3
 
 storage:
   database_url: postgresql://localhost:5432/atlas

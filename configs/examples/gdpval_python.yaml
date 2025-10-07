@@ -59,26 +59,6 @@ agent:
       OpenAI-Beta: reasoning=1
 
 student:
-  prompts:
-    planner: |
-      {base_prompt}
-
-      You are preparing a GDPval analysis for the {metadata[sector]} sector ({metadata[occupation]} occupation).
-      Construct a plan that enumerates each reasoning step, specifies which reference documents are required,
-      and highlights any missing sources that should be reviewed. Output JSON with fields: step_id, description,
-      references_needed (filenames), and dependencies.
-    executor: |
-      {base_prompt}
-
-      You are executing step {{step_id}} for the {metadata[sector]} sector ({metadata[occupation]} occupation).
-      Use the tools to inspect the required references (list_references, read_reference, summarize_reference)
-      and synthesize findings grounded in the cited files. Report the outcome, citing filenames inline.
-    synthesizer: |
-      {base_prompt}
-
-      Summarize the completed work for the {metadata[sector]} sector ({metadata[occupation]} occupation).
-      Provide a concise validation report pulling key evidence from the referenced documents. Cite filenames and
-      highlight uncertainties or missing evidence where applicable.
   max_plan_tokens: 32000
   max_step_tokens: 32000
   max_synthesis_tokens: 32000
@@ -116,41 +96,21 @@ orchestration:
   emit_intermediate_steps: true
 
 rim:
-  judges:
-    - identifier: factuality
-      kind: helpfulness
-      weight: 0.5
-      principles:
-        - Cite specific evidence from GDPval references for every claim.
-      llm:
-        provider: google
-        model: gemini/gemini-2.5-flash
-        api_key_env: GEMINI_API_KEY
-        temperature: 0.05
-        max_output_tokens: 8192
-    - identifier: rigor
-      kind: process
-      weight: 0.5
-      principles:
-        - Validate reasoning steps for completeness and economic soundness.
-      llm:
-        provider: google
-        model: gemini/gemini-2.5-flash
-        api_key_env: GEMINI_API_KEY
-        temperature: 0.05
-        max_output_tokens: 8192
-  temperatures: [0.0, 0.2]
-  variance_threshold: 0.2
-  uncertainty_threshold: 0.35
-  arbiter:
+  small_model:
+    provider: google
+    model: gemini/gemini-2.5-flash
+    api_key_env: GEMINI_API_KEY
+    max_output_tokens: 8192
+  large_model:
     provider: google
     model: gemini/gemini-2.5-pro
     api_key_env: GEMINI_API_KEY
-    temperature: 1.0
     max_output_tokens: 8192
-  success_threshold: 0.8
-  retry_threshold: 0.6
-  aggregation_strategy: weighted_mean
+  active_judges:
+    process: true
+    helpfulness: true
+  variance_threshold: 0.2
+  uncertainty_threshold: 0.35
 
 storage:
   database_url: postgresql://atlas:atlas@localhost:5433/atlas

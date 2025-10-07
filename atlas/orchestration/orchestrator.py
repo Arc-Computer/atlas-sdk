@@ -44,6 +44,7 @@ class Orchestrator:
         self._evaluator = evaluator
         self._orchestration = orchestration_config
         self._rim_config = rim_config
+        self._rim_retry_threshold = getattr(rim_config, "retry_threshold", 0.6)
 
     async def arun(self, task: str) -> Result:
         context = ExecutionContext.get()
@@ -61,32 +62,92 @@ class Orchestrator:
         reviewed_plan = await self._teacher.areview_plan(task, initial_plan)
         context.metadata["task"] = task
         context.metadata["plan"] = reviewed_plan.model_dump()
-        execution_order = self._determine_order(reviewed_plan)
+        levels = self._determine_levels(reviewed_plan)
         context_outputs: Dict[int, str] = {}
         step_summaries: List[Dict[str, Any]] = []
         step_results: List[StepResult] = []
-        for step_id in execution_order:
-            step = self._lookup_step(reviewed_plan, step_id)
-            result, evaluation, attempts = await self._run_step(task, step, context_outputs, context)
-            context_outputs[step.id] = result.output
-            step_payload = {
-                "step_id": step.id,
-                "description": step.description,
-                "output": result.output,
-                "trace": result.trace,
-                "evaluation": evaluation,
-                "attempts": attempts,
-            }
-            step_summaries.append(step_payload)
-            step_results.append(
-                StepResult(
-                    step_id=step.id,
-                    trace=result.trace,
-                    output=result.output,
-                    evaluation=evaluation,
-                    attempts=attempts,
+        for level in levels:
+            if len(level) == 1:
+                step_id = level[0]
+                step = self._lookup_step(reviewed_plan, step_id)
+                result, evaluation, attempts = await self._run_step(task, step, context_outputs, context)
+                context_outputs[step.id] = result.output
+                step_summaries.append(
+                    {
+                        "step_id": step.id,
+                        "description": step.description,
+                        "output": result.output,
+                        "trace": result.trace,
+                        "evaluation": evaluation,
+                        "attempts": attempts,
+                    }
                 )
-            )
+                step_results.append(
+                    StepResult(
+                        step_id=step.id,
+                        trace=result.trace,
+                        output=result.output,
+                        evaluation=evaluation,
+                        attempts=attempts,
+                    )
+                )
+            else:
+                steps = [self._lookup_step(reviewed_plan, step_id) for step_id in level]
+                tasks = [
+                    self._run_step(task, step, dict(context_outputs), context)
+                    for step in steps
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                captured_exception: Exception | None = None
+                for step, outcome in zip(steps, results):
+                    if isinstance(outcome, Exception):
+                        evaluation = {"error": str(outcome)}
+                        step_summaries.append(
+                            {
+                                "step_id": step.id,
+                                "description": step.description,
+                                "output": "",
+                                "trace": "",
+                                "evaluation": evaluation,
+                                "attempts": 0,
+                            }
+                        )
+                        step_results.append(
+                            StepResult(
+                                step_id=step.id,
+                                trace="",
+                                output="",
+                                evaluation=evaluation,
+                                attempts=0,
+                            )
+                        )
+                        if captured_exception is None:
+                            captured_exception = outcome
+                        continue
+
+                    result, evaluation, attempts = outcome
+                    context_outputs[step.id] = result.output
+                    step_summaries.append(
+                        {
+                            "step_id": step.id,
+                            "description": step.description,
+                            "output": result.output,
+                            "trace": result.trace,
+                            "evaluation": evaluation,
+                            "attempts": attempts,
+                        }
+                    )
+                    step_results.append(
+                        StepResult(
+                            step_id=step.id,
+                            trace=result.trace,
+                            output=result.output,
+                            evaluation=evaluation,
+                            attempts=attempts,
+                        )
+                    )
+                if captured_exception is not None:
+                    raise captured_exception
         organized_results = self._teacher.collect_results(step_summaries)
         final_answer = await self._student.asynthesize_final_answer(task, organized_results)
         manager.push_intermediate_step(
@@ -243,17 +304,11 @@ class Orchestrator:
             return False
         if not validation.get("valid", False):
             return attempts <= self._orchestration.max_retries
-        return score < self._rim_config.retry_threshold and attempts <= self._orchestration.max_retries
+        return score < self._rim_retry_threshold and attempts <= self._orchestration.max_retries
 
-    def _determine_order(self, plan: Plan) -> List[int]:
+    def _determine_levels(self, plan: Plan) -> List[List[int]]:
         graph = DependencyGraph(plan)
-        levels = graph.topological_levels()
-        ordered: List[int] = []
-        for level in levels:
-            if len(level) != 1:
-                raise ValueError("Parallel execution is not supported in the sequential orchestrator")
-            ordered.append(level[0])
-        return ordered
+        return graph.topological_levels()
 
     def _lookup_step(self, plan: Plan, step_id: int) -> Step:
         for step in plan.steps:

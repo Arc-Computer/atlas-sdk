@@ -1,41 +1,87 @@
-"""Prompt templates used by reward judges."""
+"""Prompt templates used by Atlas RIM judges."""
 
-PROCESS_PROMPT = (
-    "Role: Execution trajectory quality judge. Apply the supplied principles.\n"
-    "Task: Evaluate how well the student executed the plan with the teacher's guidance.\n\n"
-    "Context:\n"
-    "- Step Description: {step_description}\n"
-    "- Dependencies: {dependencies}\n"
-    "- Teacher Guidance: {guidance}\n"
-    "- Execution Trace: {student_trace}\n"
-    "- Final Output: {student_output}\n\n"
-    "Step 1: Generate 3 or 4 principles tailored to this execution. Each principle must include\n"
-    "         a short name, a weight between 0.0 and 1.0 (weights sum to 1.0), and a one-sentence description.\n"
-    "         Consider alignment to plan, clarity of reasoning, and correct tool usage.\n"
-    "Step 2: Score the execution against every principle.\n"
-    "Step 3: Deliver a final score in [0,1] with a rationale referencing each principle.\n"
-    "Report an uncertainty value in [0,1]; use >0.3 when unsure.\n\n"
-    "Return JSON: {{\"principles\": [{{\"name\": str, \"weight\": float, \"description\": str}}],\n"
-    "              \"score\": float, \"rationale\": str, \"uncertainty\": float}}."
-)
+PROCESS_PROMPT = """
+SYSTEM: You are the Atlas Process Reward Judge. Evaluate how effectively the student executed the current workflow
+step while coordinating with parallel workstreams and adhering to teacher guidance, safety policies, and tool
+contracts.
 
-HELPFULNESS_PROMPT = (
-    "Role: Teaching effectiveness judge. Apply the supplied principles.\n"
-    "Task: Evaluate whether the teacher's guidance improved the student's outcome.\n\n"
-    "Context:\n"
-    "- Task: {task}\n"
-    "- Teacher Guidance: {teacher_trace}\n"
-    "- Student Execution Trace: {student_trace}\n"
-    "- Final Output: {student_output}\n"
-    "- Prior Step Results: {prior_results}\n\n"
-    "Step 1: Generate 3 or 4 principles for assessing helpfulness. Consider specificity, actionability, coverage of\n"
-    "         failure modes, and connection to the student's final result. Provide a name, weight (sum to 1.0), and\n"
-    "         short description for each principle.\n"
-    "Step 2: Score the teaching quality against each principle while reflecting on the student's outcome.\n"
-    "Step 3: Provide a final score in [0,1] with a rationale referencing every principle.\n"
-    "Include an uncertainty value in [0,1]; use >0.3 when confidence is low.\n\n"
-    "Return JSON: {{\"principles\": [{{\"name\": str, \"weight\": float, \"description\": str}}],\n"
-    "              \"score\": float, \"rationale\": str, \"uncertainty\": float}}."
-)
+You MUST respond with a JSON object containing exactly these keys:
+{
+  "principles": [{"name": str, "weight": float, "description": str}],
+  "score": float,
+  "rationale": str,
+  "uncertainty": float
+}
+No additional fields, text, or commentary.
+
+CONTEXT
+- Task: {task}
+- Step ID: {step_id}
+- Step Description: {step_description}
+- Declared Dependencies: {dependencies}
+- Attempt Number: {attempt}
+- Teacher Guidance History: {guidance}
+- Peer Step Outputs / Prior Results: {prior_results}
+- Execution Trace:
+{student_trace}
+- Student Output:
+{student_output}
+
+INSTRUCTIONS
+1. Derive three to five evaluation principles covering plan adherence, evidence quality, safety/compliance,
+   and coordination with concurrent steps. Provide a short name, a weight between 0 and 1 (weights must sum to 1.0),
+   and a concise description for each principle.
+2. Judge how the execution satisfied each principle using concrete evidence from the trace, output, guidance, and
+   peer step results. Identify missing data or risky behaviour explicitly.
+3. Compute a final score in [0,1] that reflects overall execution quality. Lower scores should highlight violations of
+   policy, safety, or correctness; higher scores require strong evidence across all principles.
+4. Write a rationale that references every principle, summarises key supporting evidence, and calls out outstanding
+   risks or coordination issues that need follow-up.
+5. Report an uncertainty value in [0,1]; use values above 0.3 when evidence is limited or contradictory.
+6. If unsafe, non-compliant, or hallucinated behaviour is detected, emphasise this and explain the impact.
+
+Return the JSON object only.
+"""
+
+HELPFULNESS_PROMPT = """
+SYSTEM: You are the Atlas Teaching Helpfulness Judge. Determine whether teacher guidance for this step accelerated
+progress, resolved risks, and supported safe execution, especially when other steps run in parallel.
+
+You MUST respond with a JSON object containing exactly these keys:
+{
+  "principles": [{"name": str, "weight": float, "description": str}],
+  "score": float,
+  "rationale": str,
+  "uncertainty": float
+}
+No additional fields, text, or commentary.
+
+CONTEXT
+- Task: {task}
+- Step ID: {step_id}
+- Step Description: {step_description}
+- Teacher Guidance History: {guidance}
+- Student Execution Trace:
+{student_trace}
+- Student Output:
+{student_output}
+- Peer Step Outputs / Prior Results: {prior_results}
+
+INSTRUCTIONS
+1. Derive three to five principles that measure guidance quality: specificity, actionability, risk mitigation,
+   grounding in available tools/data, and adaptability to parallel work. Provide a short name, weight (sum must equal
+   1.0), and description for each principle.
+2. Evaluate how the guidance influenced this attempt, citing evidence from traces, outputs, and prior results. Identify
+   situations where the guidance prevented or failed to address issues.
+3. Produce a final score in [0,1]. High scores require transformative, actionable guidance that enabled success; low
+   scores when guidance was missing, misleading, or unsafe.
+4. Compose a rationale tying each principle to observed behaviour, explaining successes, blind spots, and any need for
+   human escalation.
+5. Report an uncertainty value in [0,1]; use values above 0.3 when the guidance impact cannot be determined from the
+   available evidence.
+6. Flag explicit policy or safety violations caused or missed by the teacher guidance.
+
+Return the JSON object only.
+"""
 
 __all__ = ["PROCESS_PROMPT", "HELPFULNESS_PROMPT"]

@@ -10,19 +10,6 @@ agent:
   allow_generator: false
 
 student:
-  prompts:
-    planner: |
-      {base_prompt}
-
-      Break the task into a minimal sequence of dependent steps expressed as JSON.
-    executor: |
-      {base_prompt}
-
-      Execute the current step carefully, calling Python helpers when needed.
-    synthesizer: |
-      {base_prompt}
-
-      Summarize every completed step and deliver the final answer.
   max_plan_tokens: 2048
   max_step_tokens: 2048
   max_synthesis_tokens: 2048
@@ -57,41 +44,21 @@ orchestration:
   emit_intermediate_steps: true
 
 rim:
-  judges:
-    - identifier: process
-      kind: process
-      weight: 0.6
-      principles:
-        - Followed instructions precisely
-      llm:
-        provider: openai
-        model: gpt-4o-mini
-        api_key_env: OPENAI_API_KEY
-        temperature: 0.0
-        max_output_tokens: 512
-    - identifier: helpfulness
-      kind: helpfulness
-      weight: 0.4
-      principles:
-        - Improved task completion likelihood
-      llm:
-        provider: openai
-        model: gpt-4o-mini
-        api_key_env: OPENAI_API_KEY
-        temperature: 0.0
-        max_output_tokens: 512
-  temperatures: [0.0, 0.3]
-  variance_threshold: 0.15
-  uncertainty_threshold: 0.3
-  arbiter:
+  small_model:
+    provider: openai
+    model: gpt-4o-mini
+    api_key_env: OPENAI_API_KEY
+    max_output_tokens: 512
+  large_model:
     provider: openai
     model: gpt-4o
     api_key_env: OPENAI_API_KEY
-    temperature: 0.1
     max_output_tokens: 768
-  success_threshold: 0.75
-  retry_threshold: 0.65
-  aggregation_strategy: weighted_mean
+  active_judges:
+    process: true
+    helpfulness: true
+  variance_threshold: 0.15
+  uncertainty_threshold: 0.3
 
 storage:
   database_url: postgresql://localhost:5432/atlas
