@@ -1,14 +1,27 @@
 [project]
-name = "atlas-sdk"
-version = "0.1.0"
-description = "Atlas SDK sequential BYOA orchestration"
+name = "arc-atlas"
+version = "0.1.1"
+description = "Teacher/Student orchestration toolkit for Bring-Your-Own-Agent workflows."
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.10"
+keywords = ["autonomy", "agents", "langchain", "langgraph", "reasoning", "reward-models"]
 dependencies = [
     "asyncpg>=0.29.0",
     "httpx>=0.25.0",
-    "langchain-core>=0.1.52",
-    "langgraph>=0.2.30",
-    "litellm>=1.36.0",
-    "pydantic>=2.5.0",
+    "langchain-core>=0.3.76",
+    "langgraph>=0.6.8",
+    "litellm>=1.77.5",
+    "pydantic>=2.11.9",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries",
 ]
 scripts = { "atlas.export" = "atlas.export.jsonl:main" }
 
@@ -17,6 +30,11 @@ dev = [
     "pytest>=7.4",
     "pytest-asyncio>=0.21",
 ]
+
+[project.urls]
+Documentation = "https://docs.arc.computer/introduction"
+Source = "https://github.com/Arc-Computer/atlas-sdk"
+Issues = "https://github.com/Arc-Computer/atlas-sdk/issues"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
