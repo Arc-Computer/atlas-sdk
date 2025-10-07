@@ -93,10 +93,38 @@ class Orchestrator:
                 )
             else:
                 steps = [self._lookup_step(reviewed_plan, step_id) for step_id in level]
-                results = await asyncio.gather(
-                    *(self._run_step(task, step, context_outputs, context) for step in steps)
-                )
+                tasks = [
+                    self._run_step(task, step, dict(context_outputs), context)
+                    for step in steps
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                captured_exception: Exception | None = None
                 for step, outcome in zip(steps, results):
+                    if isinstance(outcome, Exception):
+                        evaluation = {"error": str(outcome)}
+                        step_summaries.append(
+                            {
+                                "step_id": step.id,
+                                "description": step.description,
+                                "output": "",
+                                "trace": "",
+                                "evaluation": evaluation,
+                                "attempts": 0,
+                            }
+                        )
+                        step_results.append(
+                            StepResult(
+                                step_id=step.id,
+                                trace="",
+                                output="",
+                                evaluation=evaluation,
+                                attempts=0,
+                            )
+                        )
+                        if captured_exception is None:
+                            captured_exception = outcome
+                        continue
+
                     result, evaluation, attempts = outcome
                     context_outputs[step.id] = result.output
                     step_summaries.append(
@@ -118,6 +146,8 @@ class Orchestrator:
                             attempts=attempts,
                         )
                     )
+                if captured_exception is not None:
+                    raise captured_exception
         organized_results = self._teacher.collect_results(step_summaries)
         final_answer = await self._student.asynthesize_final_answer(task, organized_results)
         manager.push_intermediate_step(
