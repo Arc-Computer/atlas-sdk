@@ -1,106 +1,59 @@
 import asyncio
+import json
+from typing import Dict
 
-import pytest
-
-pytest.importorskip("google")
-
-from atlas.config.models import JudgeConfig, JudgeKind, LLMParameters, LLMProvider, RIMConfig
+from atlas.config.models import LLMParameters, RIMConfig
 from atlas.reward.evaluator import Evaluator
 from atlas.reward.judge import JudgeContext
 from atlas.types import Step
+from atlas.utils.llm_client import LLMResponse
 
 
-def _gemini_params(model: str, max_tokens: int) -> LLMParameters:
-    return LLMParameters(
-        provider=LLMProvider.GOOGLE,
-        model=f"gemini/{model}",
-        api_key_env="GEMINI_API_KEY",
-        temperature=0.2,
-        max_output_tokens=max_tokens,
-    )
+class _StubClient:
+    def __init__(self, scores_by_temperature: Dict[float, float]) -> None:
+        self._scores = scores_by_temperature
+
+    async def acomplete(self, messages, response_format=None, overrides=None):
+        temperature = (overrides or {}).get("temperature", 0.0)
+        score = self._scores.get(temperature, 0.75)
+        payload = {
+            "principles": [
+                {"name": "P1", "weight": 0.5, "description": "execution quality"},
+                {"name": "P2", "weight": 0.5, "description": "safety compliance"},
+            ],
+            "score": score,
+            "rationale": f"scored at {score:.2f}",
+            "uncertainty": 0.1,
+        }
+        return LLMResponse(content=json.dumps(payload), raw={})
 
 
-def _attach_capture(client) -> dict[str, str]:
-    captured: dict[str, str] = {}
-    original = client.acomplete
-
-    async def traced(messages, response_format=None, overrides=None):
-        response = await original(messages, response_format, overrides)
-        captured["content"] = response.content
-        return response
-
-    client.acomplete = traced
-    return captured
-
-
-def test_evaluator_live_gemini_scores():
+def test_evaluator_combines_judge_scores():
     async def runner() -> None:
         config = RIMConfig(
-            judges=[
-                JudgeConfig(
-                    identifier="process",
-                    kind=JudgeKind.PROCESS,
-                    weight=0.5,
-                    principles=["Follow the plan"],
-                    llm=_gemini_params("gemini-2.5-flash", 512),
-                    max_tokens=512,
-                ),
-                JudgeConfig(
-                    identifier="helpfulness",
-                    kind=JudgeKind.HELPFULNESS,
-                    weight=0.5,
-                    principles=["Stay on topic"],
-                    llm=_gemini_params("gemini-2.5-flash", 512),
-                    max_tokens=512,
-                ),
-            ],
-            temperatures=[0.0],
+            small_model=LLMParameters(model="stub"),
+            large_model=LLMParameters(model="arbiter"),
+            active_judges={"process": True, "helpfulness": True},
             variance_threshold=1.0,
             uncertainty_threshold=1.0,
-            arbiter=_gemini_params("gemini-2.5-pro", 512),
-            success_threshold=0.5,
-            retry_threshold=0.3,
-            aggregation_strategy="weighted_mean",
+            parallel_workers=2,
         )
-        evaluator = Evaluator(config)
-        judge_captures = [_attach_capture(judge._client) for judge in evaluator._judges]
-        arbiter_capture = _attach_capture(evaluator._arbiter_client)
+        small_client = _StubClient({0.2: 0.8, 0.5: 0.7, 0.8: 0.6})
+        large_client = _StubClient({0.3: 0.75})
+        evaluator = Evaluator(config, small_client=small_client, large_client=large_client)
         context = JudgeContext(
-            task="Produce a brief assessment of Atlas progress",
-        step=Step(id=1, description="Summarize the latest milestone", depends_on=[]),
-            trace="Student described achievements and cited benchmarks.",
-            output="Atlas delivered new GDPval metrics with detailed justification.",
-            guidance=[],
+            task="Summarise Atlas milestone",
+            step=Step(id=1, description="Compile results", depends_on=[]),
+            trace="Student gathered data and produced a summary.",
+            output="Consolidated metrics with references.",
+            guidance=["Focus on GDPval metrics"],
         )
-        try:
-            result = await evaluator.ajudge(context)
-        except Exception:
-            for idx, capture in enumerate(judge_captures, start=1):
-                raw = capture.get("content", "")
-                if raw:
-                    print(f"Judge {idx} raw response: {raw}")
-            raw = arbiter_capture.get("content", "")
-            if raw:
-                print(f"Arbiter raw response: {raw}")
-            raise
-        score = result.get("score")
-        if not isinstance(score, (int, float)):
-            for capture in judge_captures:
-                raw = capture.get("content", "")
-                if raw:
-                    print(f"Judge raw response: {raw}")
-            raw = arbiter_capture.get("content", "")
-            if raw:
-                print(f"Arbiter raw response: {raw}")
-            pytest.fail("RIM evaluator did not return a numeric score")
-        for entry, capture in zip(result.get("judges", []), judge_captures, strict=False):
-            principles = entry.get("principles")
-            rationale = entry.get("rationale")
-            samples = entry.get("samples")
-            if not principles or not rationale or not samples:
-                raw = capture.get("content", "")
-                if raw:
-                    print(f"Judge response payload: {raw}")
-                pytest.fail("Judge response missing principles, rationale, or samples")
+        result = await evaluator.ajudge(context)
+        assert isinstance(result["score"], float)
+        assert result["judges"], "Expected per-judge breakdown"
+        for entry in result["judges"]:
+            assert entry["principles"], "Principles should be present"
+            assert isinstance(entry["score"], float)
+        assert 0 <= result["score"] <= 1
 
     asyncio.run(runner())

@@ -96,41 +96,21 @@ orchestration:
   emit_intermediate_steps: true
 
 rim:
-  judges:
-    - identifier: factuality
-      kind: helpfulness
-      weight: 0.5
-      principles:
-        - Cite specific evidence from GDPval references for every claim.
-      llm:
-        provider: google
-        model: gemini/gemini-2.5-flash
-        api_key_env: GEMINI_API_KEY
-        temperature: 0.05
-        max_output_tokens: 8192
-    - identifier: rigor
-      kind: process
-      weight: 0.5
-      principles:
-        - Validate reasoning steps for completeness and economic soundness.
-      llm:
-        provider: google
-        model: gemini/gemini-2.5-flash
-        api_key_env: GEMINI_API_KEY
-        temperature: 0.05
-        max_output_tokens: 8192
-  temperatures: [0.0, 0.2]
-  variance_threshold: 0.2
-  uncertainty_threshold: 0.35
-  arbiter:
+  small_model:
+    provider: google
+    model: gemini/gemini-2.5-flash
+    api_key_env: GEMINI_API_KEY
+    max_output_tokens: 8192
+  large_model:
     provider: google
     model: gemini/gemini-2.5-pro
     api_key_env: GEMINI_API_KEY
-    temperature: 1.0
     max_output_tokens: 8192
-  success_threshold: 0.8
-  retry_threshold: 0.6
-  aggregation_strategy: weighted_mean
+  active_judges:
+    process: true
+    helpfulness: true
+  variance_threshold: 0.2
+  uncertainty_threshold: 0.35
 
 storage:
   database_url: postgresql://atlas:atlas@localhost:5433/atlas
