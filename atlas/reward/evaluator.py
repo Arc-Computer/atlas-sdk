@@ -13,6 +13,7 @@ from atlas.reward.helpfulness_judge import HelpfulnessJudge
 from atlas.reward.judge import Judge, JudgeContext, JudgeOutcome, JudgeSample
 from atlas.reward.process_judge import ProcessJudge
 from atlas.utils.llm_client import LLMClient
+from atlas.orchestration.execution_context import ExecutionContext
 
 _DEFAULT_TEMPERATURES: Sequence[float] = (0.2, 0.5, 0.8)
 
@@ -70,11 +71,13 @@ class Evaluator:
                             "principles": sample.principles,
                             "uncertainty": sample.uncertainty,
                             "temperature": sample.temperature,
+                            "reasoning": sample.reasoning,
                         }
                         for sample in state.outcome.samples
                     ],
                     "escalated": state.outcome.escalated,
                     "escalation_reason": state.outcome.escalation_reason,
+                    "reasoning": state.outcome.reasoning,
                 }
                 for state in judge_states
             ],
@@ -111,7 +114,13 @@ class Evaluator:
                 samples=samples,
                 escalated=False,
                 escalation_reason=None,
+                reasoning=best_sample.reasoning,
             )
+        for sample in samples:
+            if sample.reasoning:
+                self._record_reasoning(f"{judge.identifier}:sample:{sample.temperature}", sample.reasoning)
+        if outcome.reasoning:
+            self._record_reasoning(f"{judge.identifier}:outcome", outcome.reasoning)
         return _JudgeState(judge=judge, outcome=outcome)
 
     async def _collect_samples(self, judge: Judge, context: JudgeContext) -> List[JudgeSample]:
@@ -131,6 +140,7 @@ class Evaluator:
         reason: str,
     ) -> JudgeOutcome:
         meta_prompt = judge.build_meta_prompt(context, samples, reason)
+        response = None
         try:
             response = await self._arbiter_client.acomplete(
                 messages=[{"role": "user", "content": meta_prompt}],
@@ -164,9 +174,19 @@ class Evaluator:
             samples=samples,
             escalated=True,
             escalation_reason=reason,
+            reasoning=response.reasoning if response else None,
         )
 
     def _aggregate(self, states: Sequence[_JudgeState]) -> float:
         if not states:
             return 0.0
         return sum(state.outcome.score for state in states) / len(states)
+
+    def _record_reasoning(self, key: str, payload: Dict[str, Any] | None) -> None:
+        if not payload:
+            return
+        context = ExecutionContext.get()
+        store = context.metadata.setdefault("reasoning_traces", {})
+        actor_store = store.setdefault("reward", {})
+        bucket = actor_store.setdefault(key, [])
+        bucket.append(payload)

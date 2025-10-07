@@ -40,6 +40,40 @@ Atlas returns an `atlas.types.Result` containing the final answer, the reviewed 
 
 ---
 
+## Exporting Runtime Sessions
+
+Atlas persists full execution traces whenever PostgreSQL storage is configured. Convert those sessions into training-ready
+JSONL with the bundled exporter:
+
+```bash
+# 1. Run tasks that log to Postgres (configure storage.database_url in your AtlasConfig)
+atlas.core.run(...)
+
+# 2. Export the captured sessions to JSONL
+atlas.export --database-url postgresql://localhost:5432/atlas --output traces.jsonl --limit 25
+
+# 3. Load the dataset inside the Atlas core repo
+from trainers.runtime_dataset import load_runtime_traces
+sessions = load_runtime_traces("traces.jsonl")
+```
+
+The CLI accepts repeatable filters such as `--session-id`, `--status`, and `--trajectory-event-limit`. Pass a standard
+PostgreSQL URL (including credentials) via `--database-url`. The exporter prints friendly counts of the sessions and steps
+written and emits newline-delimited JSON—one session per line.
+
+Each session record follows the shared runtime schema consumed by the training stack:
+
+- `task`, `final_answer`, `plan` – orchestration metadata for the run.
+- `session_metadata` – persisted metadata plus status/timestamps.
+- `steps` – executor traces with descriptions, outputs, reward breakdowns (`score`, per-judge details, tier samples),
+  validation results, retry guidance, and executor metadata (including captured reasoning blocks under `metadata.reasoning`).
+- `trajectory_events` – optional array of intermediate telemetry events for richer replay and debugging.
+
+Once exported you can feed the file directly into `load_runtime_traces` or flatten it for RL pipelines with helpers in
+`trainers/runtime_dataset.py` from the core repository.
+
+---
+
 ## Configuration Guide
 
 Configuration files live in `configs/examples/`. Each YAML document is validated against `atlas.config.models.AtlasConfig`.
@@ -138,6 +172,9 @@ RIM scores | max: 0.91 | avg: 0.89
 Disable streaming with `core.run(..., stream_progress=False)` when piping output or running in CI. Pass `stream_progress=True` to force streaming even when stdout is not a TTY. The renderer also works with `core.arun` and runs alongside PostgreSQL persistence, so stored sessions retain full telemetry.
 
 See `docs/examples/terminal_telemetry.md` for a step-by-step walkthrough.
+
+For a deeper look at how these events map onto the Atlas training stack—and why the SDK keeps telemetry lightweight—see
+`docs/telemetry_overview.md`.
 
 ---
 

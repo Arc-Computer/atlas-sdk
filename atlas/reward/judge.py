@@ -33,6 +33,7 @@ class JudgeSample:
     principles: List[Dict[str, Any]]
     uncertainty: float
     temperature: float
+    reasoning: Dict[str, Any] | None = None
 
 
 @dataclass
@@ -46,6 +47,7 @@ class JudgeOutcome:
     samples: List[JudgeSample]
     escalated: bool
     escalation_reason: str | None
+    reasoning: Dict[str, Any] | None = None
 
 
 class Judge:
@@ -92,6 +94,7 @@ class Judge:
             principles=parsed_principles,
             uncertainty=float(uncertainty),
             temperature=temperature,
+            reasoning=response.reasoning or payload.get("reasoning"),
         )
 
     async def ajudge(self, context: JudgeContext) -> JudgeOutcome:

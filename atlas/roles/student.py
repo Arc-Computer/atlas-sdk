@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from typing import Dict
 from typing import List
@@ -41,6 +41,7 @@ class StudentStepResult:
     trace: str
     output: str
     messages: List[BaseMessage]
+    metadata: Dict[str, Any] = field(default_factory=dict)
     attempts: int = 1
 
 
@@ -123,7 +124,13 @@ class Student:
         final_state = ToolCallAgentGraphState(**result_state)
         output_message = final_state.messages[-1]
         trace = self._build_trace(final_state.messages)
-        return StudentStepResult(trace=trace, output=str(output_message.content), messages=final_state.messages)
+        metadata = self._extract_reasoning_metadata(final_state.messages)
+        return StudentStepResult(
+            trace=trace,
+            output=str(output_message.content),
+            messages=final_state.messages,
+            metadata=metadata,
+        )
 
     async def asynthesize_final_answer(self, task: str, step_results: List[Dict[str, Any]]) -> str:
         context = ExecutionContext.get()
@@ -227,7 +234,45 @@ class Student:
                 parts.append(f"{label}: tool_calls={tool_block}")
             else:
                 parts.append(f"{label}: {content}")
+            if isinstance(message, AIMessage):
+                reasoning_payload = self._collect_reasoning_payload(message)
+                if reasoning_payload:
+                    parts.append(f"{label}_REASONING: {json.dumps(reasoning_payload, ensure_ascii=False)}")
         return "\n".join(parts)
+
+    def _collect_reasoning_payload(self, message: AIMessage) -> Dict[str, Any] | None:
+        payload: Dict[str, Any] = {}
+        reasoning_keys = (
+            "reasoning_content",
+            "reasoning",
+            "thinking",
+            "thinking_blocks",
+            "chain_of_thought",
+        )
+        for key in reasoning_keys:
+            value = message.additional_kwargs.get(key) if hasattr(message, "additional_kwargs") else None
+            if value:
+                payload[key] = value
+        return payload or None
+
+    def _extract_reasoning_metadata(self, messages: Sequence[BaseMessage]) -> Dict[str, Any]:
+        reasoning_entries: List[Dict[str, Any]] = []
+        for index, message in enumerate(messages):
+            if not isinstance(message, AIMessage):
+                continue
+            payload = self._collect_reasoning_payload(message)
+            if not payload:
+                continue
+            reasoning_entries.append(
+                {
+                    "message_index": index,
+                    "role": message.type,
+                    "payload": payload,
+                }
+            )
+        if not reasoning_entries:
+            return {}
+        return {"reasoning": reasoning_entries}
 
     async def _ensure_graph(self):
         if self._graph is None:

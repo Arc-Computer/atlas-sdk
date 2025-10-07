@@ -2,6 +2,8 @@ import asyncio
 
 import pytest
 
+from langchain_core.messages import AIMessage
+
 from atlas.agent.registry import build_adapter
 from atlas.config.models import (
     AdapterType,
@@ -154,3 +156,20 @@ def test_student_plan_execute_and_synthesize_live():
         assert final_answer.strip()
 
     asyncio.run(runner())
+
+
+def test_student_extracts_reasoning_metadata():
+    student = object.__new__(Student)
+    message = AIMessage(
+        content="result",
+        additional_kwargs={
+            "reasoning_content": [{"type": "thought", "text": "consider options"}],
+            "thinking_blocks": [{"type": "analysis", "content": "details"}],
+        },
+    )
+    metadata = student._extract_reasoning_metadata([message])
+    assert "reasoning" in metadata
+    reasoning_entry = metadata["reasoning"][0]
+    assert reasoning_entry["payload"]["reasoning_content"][0]["text"] == "consider options"
+    trace = student._build_trace([message])
+    assert "AI_REASONING" in trace

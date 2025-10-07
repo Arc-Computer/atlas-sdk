@@ -4,19 +4,18 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from typing import Dict
 from typing import List
 from typing import Sequence
 
 try:
-    from litellm import acompletion
-    from litellm import completion
+    import litellm
     _LITELLM_ERROR = None
+    litellm.drop_params = True
 except ModuleNotFoundError as exc:
-    acompletion = None
-    completion = None
+    litellm = None
     _LITELLM_ERROR = exc
 
 from atlas.config.models import LLMParameters
@@ -26,6 +25,7 @@ from atlas.config.models import LLMParameters
 class LLMResponse:
     content: str
     raw: Any
+    reasoning: Dict[str, Any] = field(default_factory=dict)
 
 
 class LLMClient:
@@ -40,8 +40,9 @@ class LLMClient:
     ) -> LLMResponse:
         self._ensure_client()
         kwargs = self._prepare_kwargs(messages, response_format, overrides)
-        result = await acompletion(**kwargs)
-        return LLMResponse(content=self._extract_content(result), raw=result)
+        result = await litellm.acompletion(**kwargs)
+        content, reasoning = self._extract_content(result)
+        return LLMResponse(content=content, reasoning=reasoning, raw=result)
 
     def complete(
         self,
@@ -51,8 +52,9 @@ class LLMClient:
     ) -> LLMResponse:
         self._ensure_client()
         kwargs = self._prepare_kwargs(messages, response_format, overrides)
-        result = completion(**kwargs)
-        return LLMResponse(content=self._extract_content(result), raw=result)
+        result = litellm.completion(**kwargs)
+        content, reasoning = self._extract_content(result)
+        return LLMResponse(content=content, reasoning=reasoning, raw=result)
 
     def _prepare_kwargs(
         self,
@@ -64,55 +66,62 @@ class LLMClient:
         api_key = os.getenv(params.api_key_env)
         if not api_key:
             raise RuntimeError(f"Environment variable '{params.api_key_env}' is not set")
-        kwargs: Dict[str, Any] = {
-            "model": params.model,
-            "messages": list(messages),
-            "api_key": api_key,
-            "temperature": params.temperature,
-            "timeout": params.timeout_seconds,
-        }
+        overrides = overrides or {}
+        kwargs: Dict[str, Any] = {"model": params.model, "messages": list(messages), "api_key": api_key}
         if params.api_base:
             kwargs["api_base"] = params.api_base
         if params.organization:
             kwargs["organization"] = params.organization
+        if params.temperature is not None:
+            kwargs["temperature"] = params.temperature
         if params.top_p is not None:
             kwargs["top_p"] = params.top_p
         if params.max_output_tokens is not None:
             kwargs["max_tokens"] = params.max_output_tokens
-        if params.additional_headers:
-            kwargs["extra_headers"] = params.additional_headers
+        kwargs["timeout"] = params.timeout_seconds
         if response_format:
             kwargs["response_format"] = response_format
-        if overrides:
-            for key, value in overrides.items():
-                if value is not None:
-                    kwargs[key] = value
-        if "gpt-5" in params.model.lower():
-            headers = dict(kwargs.get("extra_headers") or {})
-            headers.setdefault("OpenAI-Beta", "reasoning=1")
-            kwargs["extra_headers"] = headers
-            kwargs["temperature"] = 1.0
-            extra_body = dict(kwargs.get("extra_body") or {})
-            extra_body.setdefault("reasoning_effort", "medium")
+
+        extra_headers = dict(params.additional_headers)
+        override_headers = overrides.pop("extra_headers", None)
+        if override_headers:
+            extra_headers.update(override_headers)
+
+        extra_body = dict(overrides.pop("extra_body", {}) or {})
+        if params.supports_reasoning and params.reasoning_effort:
+            extra_body.setdefault("reasoning_effort", params.reasoning_effort)
+
+        if extra_headers:
+            kwargs["extra_headers"] = extra_headers
+        if extra_body:
             kwargs["extra_body"] = extra_body
+
+        for key, value in overrides.items():
+            if value is not None:
+                kwargs[key] = value
         return kwargs
 
     def _ensure_client(self) -> None:
-        if acompletion is None or completion is None:
+        if litellm is None:
             raise RuntimeError("litellm is required for LLMClient operations") from _LITELLM_ERROR
 
 
-    def _extract_content(self, response: Any) -> str:
+    def _extract_content(self, response: Any) -> tuple[str, Dict[str, Any]]:
         try:
             choice = response["choices"][0]
             message = choice["message"]
             content = message.get("content")
             if content is None and "tool_calls" in message:
-                return json.dumps(message["tool_calls"])
+                return json.dumps(message["tool_calls"]), {}
+            reasoning_payload: Dict[str, Any] = {}
+            for key in ("reasoning_content", "thinking", "thinking_blocks"):
+                value = message.get(key)
+                if value:
+                    reasoning_payload[key] = value
             if content is None or str(content).strip() == "":
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.warning(f"LLM returned empty content. Full response: {response}")
-            return str(content or "")
+            return str(content or ""), reasoning_payload
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError(f"Unexpected response format from LLM client. Response: {response}") from exc

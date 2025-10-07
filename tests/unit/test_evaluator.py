@@ -7,6 +7,7 @@ from atlas.reward.evaluator import Evaluator
 from atlas.reward.judge import JudgeContext
 from atlas.types import Step
 from atlas.utils.llm_client import LLMResponse
+from atlas.orchestration.execution_context import ExecutionContext
 
 
 class _StubClient:
@@ -25,7 +26,8 @@ class _StubClient:
             "rationale": f"scored at {score:.2f}",
             "uncertainty": 0.1,
         }
-        return LLMResponse(content=json.dumps(payload), raw={})
+        reasoning = {"thinking_blocks": [{"type": "analysis", "text": f"confidence {score:.2f}"}]}
+        return LLMResponse(content=json.dumps(payload), raw={}, reasoning=reasoning)
 
 
 def test_evaluator_combines_judge_scores():
@@ -48,12 +50,14 @@ def test_evaluator_combines_judge_scores():
             output="Consolidated metrics with references.",
             guidance=["Focus on GDPval metrics"],
         )
+        ExecutionContext.get().reset()
         result = await evaluator.ajudge(context)
         assert isinstance(result["score"], float)
         assert result["judges"], "Expected per-judge breakdown"
         for entry in result["judges"]:
             assert entry["principles"], "Principles should be present"
             assert isinstance(entry["score"], float)
+            assert entry.get("reasoning"), "Reasoning metadata should propagate"
         assert 0 <= result["score"] <= 1
 
     asyncio.run(runner())

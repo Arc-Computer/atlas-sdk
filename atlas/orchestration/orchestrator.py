@@ -79,6 +79,7 @@ class Orchestrator:
                         "output": result.output,
                         "trace": result.trace,
                         "evaluation": evaluation,
+                        "metadata": result.metadata,
                         "attempts": attempts,
                     }
                 )
@@ -89,6 +90,7 @@ class Orchestrator:
                         output=result.output,
                         evaluation=evaluation,
                         attempts=attempts,
+                        metadata=result.metadata,
                     )
                 )
             else:
@@ -134,6 +136,7 @@ class Orchestrator:
                             "output": result.output,
                             "trace": result.trace,
                             "evaluation": evaluation,
+                            "metadata": result.metadata,
                             "attempts": attempts,
                         }
                     )
@@ -144,6 +147,7 @@ class Orchestrator:
                             output=result.output,
                             evaluation=evaluation,
                             attempts=attempts,
+                            metadata=result.metadata,
                         )
                     )
                 if captured_exception is not None:
@@ -233,6 +237,7 @@ class Orchestrator:
                             "trace": student_result.trace,
                             "output": student_result.output,
                             "evaluation": evaluation,
+                            "metadata": student_result.metadata,
                         }
                     ),
                 )

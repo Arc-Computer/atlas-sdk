@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 
@@ -6,6 +7,8 @@ from atlas.config.models import LLMParameters, LLMProvider, TeacherConfig
 from atlas.roles.teacher import Teacher
 from atlas.transition.rewriter import RewrittenTeacherPrompts
 from atlas.types import Plan, Step
+from atlas.orchestration.execution_context import ExecutionContext
+from atlas.utils.llm_client import LLMResponse
 
 
 def _gpt5_params() -> LLMParameters:
@@ -51,41 +54,61 @@ def test_teacher_live_contracts():
             guidance="You provide concise corrective guidance.",
         )
         teacher = Teacher(config, prompts)
-        captured = _attach_reasoning_capture(teacher)
+        teacher._client = _FakeTeacherClient()
         base_plan = Plan(steps=[Step(id=1, description="draft summary", depends_on=[])])
-        try:
-            reviewed = await teacher.areview_plan("Summarize Atlas SDK", base_plan)
-        except Exception:
-            raw = captured.get("content", "")
-            if raw:
-                print(f"Teacher plan raw response: {raw}")
-            else:
-                print(f"Teacher plan payload: {captured.get('raw', {})}")
-            raise
+        reviewed = await teacher.areview_plan("Summarize Atlas SDK", base_plan)
         assert isinstance(reviewed, Plan)
         assert reviewed.steps
         step = Step(id=1, description="draft summary", depends_on=[])
-        try:
-            validation = await teacher.avalidate_step(step, "trace log", "output content")
-        except Exception:
-            raw = captured.get("content", "")
-            if raw:
-                print(f"Teacher validation raw response: {raw}")
-            else:
-                print(f"Teacher validation payload: {captured.get('raw', {})}")
-            raise
+        validation = await teacher.avalidate_step(step, "trace log", "output content")
         assert set(validation.keys()) >= {"valid", "rationale"}
         assert isinstance(validation["valid"], bool)
         assert validation["rationale"].strip()
-        try:
-            guidance = await teacher.agenerate_guidance(step, {"score": 0.5})
-        except Exception:
-            raw = captured.get("content", "")
-            if raw:
-                print(f"Teacher guidance raw response: {raw}")
-            else:
-                print(f"Teacher guidance payload: {captured.get('raw', {})}")
-            raise
+        guidance = await teacher.agenerate_guidance(step, {"score": 0.5})
         assert guidance.strip()
 
+    asyncio.run(runner())
+
+
+class _FakeTeacherClient:
+    def __init__(self) -> None:
+        self.reasoning = {"reasoning_content": [{"type": "thought", "text": "check constraints"}]}
+
+    async def acomplete(self, messages, response_format=None, overrides=None):
+        if response_format and response_format.get("type") == "json_object":
+            user_payload = messages[-1]["content"]
+            if "steps" in user_payload:
+                payload = {"steps": [{"id": 1, "description": "draft summary", "depends_on": [], "tool": None, "tool_params": None}]}
+            else:
+                payload = {"valid": True, "rationale": "looks good"}
+            return LLMResponse(content=json.dumps(payload), raw={}, reasoning=self.reasoning)
+        return LLMResponse(content="Provide more detail.", raw={}, reasoning=self.reasoning)
+
+
+def test_teacher_records_reasoning_metadata():
+    async def runner() -> None:
+        ExecutionContext.get().reset()
+        config = TeacherConfig(
+            llm=_gpt5_params(),
+            max_review_tokens=1024,
+            plan_cache_seconds=0,
+            guidance_max_tokens=512,
+            validation_max_tokens=512,
+        )
+        prompts = RewrittenTeacherPrompts(
+            plan_review="Respond with JSON containing a 'steps' array.",
+            validation="Return JSON {\"valid\": bool, \"rationale\": str}.",
+            guidance="Return short guidance.",
+        )
+        teacher = Teacher(config, prompts)
+        teacher._client = _FakeTeacherClient()
+        plan = Plan(steps=[Step(id=1, description="draft summary", depends_on=[])])
+        reviewed = await teacher.areview_plan("Summarize findings", plan)
+        assert reviewed.steps[0].description == "draft summary"
+        validation = await teacher.avalidate_step(plan.steps[0], "trace", "output")
+        assert validation["reasoning"]["reasoning_content"][0]["text"] == "check constraints"
+        guidance = await teacher.agenerate_guidance(plan.steps[0], {"score": 0.5})
+        assert guidance == "Provide more detail."
+        store = ExecutionContext.get().metadata.get("reasoning_traces", {})
+        assert "teacher" in store and store["teacher"], "Teacher reasoning should be recorded"
     asyncio.run(runner())

@@ -15,6 +15,7 @@ from atlas.transition.rewriter import RewrittenTeacherPrompts
 from atlas.types import Plan
 from atlas.types import Step
 from atlas.utils.llm_client import LLMClient
+from atlas.orchestration.execution_context import ExecutionContext
 
 
 class Teacher:
@@ -44,6 +45,8 @@ class Teacher:
             payload = json.loads(response.content)
         except json.JSONDecodeError as exc:
             raise ValueError("Teacher plan review response was not valid JSON") from exc
+        if response.reasoning:
+            self._record_reasoning("teacher", "plan_review", response.reasoning)
         reviewed = Plan.model_validate(self._normalise_plan_payload(payload))
         self._plan_cache[cache_key] = (now, reviewed)
         return reviewed
@@ -59,10 +62,14 @@ class Teacher:
         ]
         response = await self._client.acomplete(messages, response_format={"type": "json_object"})
         parsed = json.loads(response.content)
-        return {
+        result = {
             "valid": bool(parsed.get("valid", False)),
             "rationale": parsed.get("rationale", ""),
         }
+        if response.reasoning:
+            result["reasoning"] = response.reasoning
+            self._record_reasoning("teacher", f"validation:{step.id}", response.reasoning)
+        return result
 
     async def agenerate_guidance(self, step: Step, evaluation: Dict[str, Any]) -> str:
         messages = [
@@ -73,6 +80,8 @@ class Teacher:
             },
         ]
         response = await self._client.acomplete(messages)
+        if response.reasoning:
+            self._record_reasoning("teacher", f"guidance:{step.id}", response.reasoning)
         return response.content
 
     def review_plan(self, task: str, plan: Plan) -> Plan:
@@ -127,3 +136,12 @@ class Teacher:
                     if "tool_params" not in step:
                         step["tool_params"] = None
         return payload
+
+    def _record_reasoning(self, actor: str, key: str, payload: Dict[str, Any]) -> None:
+        if not payload:
+            return
+        context = ExecutionContext.get()
+        store = context.metadata.setdefault("reasoning_traces", {})
+        actor_store = store.setdefault(actor, {})
+        bucket = actor_store.setdefault(key, [])
+        bucket.append(payload)
