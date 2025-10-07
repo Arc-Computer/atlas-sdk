@@ -8,6 +8,7 @@ from atlas.orchestration.execution_context import ExecutionContext
 from atlas.orchestration.orchestrator import Orchestrator
 from atlas.data_models.intermediate_step import IntermediateStepType
 from atlas.reward.judge import JudgeContext
+from atlas.runtime.schema import AtlasRewardBreakdown
 from atlas.roles.student import StudentStepResult
 from atlas.types import Plan, Result, Step
 
@@ -76,7 +77,7 @@ class FakeEvaluator:
             score = 0.9
         else:
             score = 0.2
-        return {"score": score, "judges": []}
+        return AtlasRewardBreakdown(score=score, judges=[], raw={"score": score})
 
 
 def build_orchestrator():

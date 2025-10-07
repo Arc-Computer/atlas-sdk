@@ -67,7 +67,11 @@ class Database:
 
     async def log_step_result(self, session_id: int, result: StepResult) -> None:
         pool = self._require_pool()
-        serialized_evaluation = self._serialize_json(result.evaluation)
+        if hasattr(result.evaluation, "to_dict"):
+            evaluation_payload = result.evaluation.to_dict()
+        else:
+            evaluation_payload = result.evaluation
+        serialized_evaluation = self._serialize_json(evaluation_payload)
         async with pool.acquire() as connection:
             await connection.execute(
                 "INSERT INTO step_results(session_id, step_id, trace, output, evaluation, attempts)"

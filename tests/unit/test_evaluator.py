@@ -49,11 +49,11 @@ def test_evaluator_combines_judge_scores():
             guidance=["Focus on GDPval metrics"],
         )
         result = await evaluator.ajudge(context)
-        assert isinstance(result["score"], float)
-        assert result["judges"], "Expected per-judge breakdown"
-        for entry in result["judges"]:
-            assert entry["principles"], "Principles should be present"
-            assert isinstance(entry["score"], float)
-        assert 0 <= result["score"] <= 1
+        assert isinstance(result.score, float)
+        assert result.judges, "Expected per-judge breakdown"
+        for entry in result.judges:
+            assert entry.principles, "Principles should be present"
+            assert isinstance(entry.score, float)
+        assert 0 <= result.score <= 1
 
     asyncio.run(runner())

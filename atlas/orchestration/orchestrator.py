@@ -24,9 +24,11 @@ from langchain_core.messages import ToolMessage
 from atlas.roles.student import Student
 from atlas.roles.student import StudentStepResult
 from atlas.roles.teacher import Teacher
+from atlas.runtime.schema import AtlasRewardBreakdown
 from atlas.types import Plan
 from atlas.types import Result
 from atlas.types import Step
+from atlas.types import StepEvaluation
 from atlas.types import StepResult
 
 
@@ -78,7 +80,7 @@ class Orchestrator:
                         "description": step.description,
                         "output": result.output,
                         "trace": result.trace,
-                        "evaluation": evaluation,
+                        "evaluation": evaluation.to_dict(),
                         "attempts": attempts,
                     }
                 )
@@ -101,14 +103,14 @@ class Orchestrator:
                 captured_exception: Exception | None = None
                 for step, outcome in zip(steps, results):
                     if isinstance(outcome, Exception):
-                        evaluation = {"error": str(outcome)}
+                        evaluation = self._build_error_evaluation(str(outcome))
                         step_summaries.append(
                             {
                                 "step_id": step.id,
                                 "description": step.description,
                                 "output": "",
                                 "trace": "",
-                                "evaluation": evaluation,
+                                "evaluation": evaluation.to_dict(),
                                 "attempts": 0,
                             }
                         )
@@ -133,7 +135,7 @@ class Orchestrator:
                             "description": step.description,
                             "output": result.output,
                             "trace": result.trace,
-                            "evaluation": evaluation,
+                            "evaluation": evaluation.to_dict(),
                             "attempts": attempts,
                         }
                     )
@@ -173,10 +175,9 @@ class Orchestrator:
         step: Step,
         context_outputs: Dict[int, str],
         execution_context: ExecutionContext,
-    ) -> tuple[StudentStepResult, Dict[str, Any], int]:
+    ) -> tuple[StudentStepResult, StepEvaluation, int]:
         attempts = 0
         guidance: List[str] = []
-        evaluation: Dict[str, Any] = {}
         while True:
             attempts += 1
             manager = execution_context.intermediate_step_manager
@@ -221,7 +222,7 @@ class Orchestrator:
                 guidance=list(step_meta.get("guidance", [])),
             )
             reward = await self._evaluator.ajudge(judge_context)
-            evaluation = {"validation": validation, "reward": reward}
+            evaluation = StepEvaluation(validation=validation, reward=reward)
             execution_context.register_step_attempt(step.id, attempts, evaluation)
             manager.push_intermediate_step(
                 IntermediateStepPayload(
@@ -232,14 +233,14 @@ class Orchestrator:
                         output={
                             "trace": student_result.trace,
                             "output": student_result.output,
-                            "evaluation": evaluation,
+                            "evaluation": evaluation.to_dict(),
                         }
                     ),
                 )
             )
-            if not self._should_retry(validation, reward["score"], attempts):
+            if not self._should_retry(validation, reward, attempts):
                 return student_result, evaluation, attempts
-            guidance_text = await self._teacher.agenerate_guidance(step, evaluation)
+            guidance_text = await self._teacher.agenerate_guidance(step, evaluation.to_dict())
             execution_context.append_guidance(step.id, guidance_text)
             guidance.append(guidance_text)
 
@@ -299,12 +300,12 @@ class Orchestrator:
             return json.dumps(content)
         return str(content)
 
-    def _should_retry(self, validation: Dict[str, Any], score: float, attempts: int) -> bool:
+    def _should_retry(self, validation: Dict[str, Any], reward: AtlasRewardBreakdown, attempts: int) -> bool:
         if attempts > self._orchestration.max_retries + 1:
             return False
         if not validation.get("valid", False):
             return attempts <= self._orchestration.max_retries
-        return score < self._rim_retry_threshold and attempts <= self._orchestration.max_retries
+        return reward.score < self._rim_retry_threshold and attempts <= self._orchestration.max_retries
 
     def _determine_levels(self, plan: Plan) -> List[List[int]]:
         graph = DependencyGraph(plan)
@@ -315,3 +316,15 @@ class Orchestrator:
             if step.id == step_id:
                 return step
         raise ValueError(f"Plan is missing step {step_id}")
+
+    def _build_error_evaluation(self, error: str) -> StepEvaluation:
+        reward = AtlasRewardBreakdown(
+            score=0.0,
+            judges=[],
+            rationale="runtime_error",
+            raw={"error": error},
+        )
+        return StepEvaluation(
+            validation={"valid": False, "error": error},
+            reward=reward,
+        )

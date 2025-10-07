@@ -66,14 +66,21 @@ class ConsoleTelemetryStreamer:
         with self._lock:
             print(text, file=self._output, flush=True)
 
+    def _coerce_evaluation(self, evaluation: Any) -> dict[str, Any]:
+        if hasattr(evaluation, "to_dict"):
+            return evaluation.to_dict()
+        if isinstance(evaluation, dict):
+            return evaluation
+        return {}
+
     def _render_summary(self, result: Result) -> None:
         self._write("Final answer:")
         for line in result.final_answer.splitlines() or [""]:
             self._write(f"  {line}")
         rim_scores = []
         for step in result.step_results:
-            evaluation = step.evaluation or {}
-            reward = evaluation.get("reward") if isinstance(evaluation, dict) else None
+            evaluation = self._coerce_evaluation(step.evaluation)
+            reward = evaluation.get("reward")
             score = reward.get("score") if isinstance(reward, dict) else None
             if isinstance(score, (int, float)):
                 rim_scores.append(score)
@@ -210,15 +217,16 @@ class ConsoleTelemetryStreamer:
             return [f"  error: {payload_output['error']}"]
         lines: list[str] = []
         evaluation = payload_output.get("evaluation")
-        if isinstance(evaluation, dict):
-            validation = evaluation.get("validation")
+        evaluation_dict = self._coerce_evaluation(evaluation)
+        if evaluation_dict:
+            validation = evaluation_dict.get("validation")
             if isinstance(validation, dict) and "valid" in validation:
                 status = "approved" if validation.get("valid") else "rejected"
                 lines.append(f"  validation: {status}")
                 rationale = validation.get("rationale")
                 if rationale:
                     lines.append(f"  rationale: {self._shorten(str(rationale))}")
-            reward = evaluation.get("reward")
+            reward = evaluation_dict.get("reward")
             if isinstance(reward, dict):
                 score = reward.get("score")
                 if isinstance(score, (int, float)):
