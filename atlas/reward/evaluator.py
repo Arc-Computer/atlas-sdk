@@ -14,6 +14,7 @@ from atlas.reward.helpfulness_judge import HelpfulnessJudge
 from atlas.reward.judge import Judge, JudgeContext, JudgeOutcome, JudgeSample
 from atlas.reward.process_judge import ProcessJudge
 from atlas.utils.llm_client import LLMClient
+from atlas.orchestration.execution_context import ExecutionContext
 
 _DEFAULT_TEMPERATURES: Sequence[float] = (0.2, 0.5, 0.8)
 
@@ -56,32 +57,60 @@ class Evaluator:
             *(self._evaluate_judge(judge, context) for judge in self._judges)
         )
         aggregated = self._aggregate(judge_states)
-        judges = [
-            AtlasJudgeBreakdown(
-                identifier=state.judge.identifier,
-                score=state.outcome.score,
-                rationale=state.outcome.rationale,
-                principles=state.outcome.principles,
-                samples=[
-                    AtlasJudgeSample(
-                        score=sample.score,
-                        rationale=sample.rationale,
-                        principles=sample.principles,
-                        uncertainty=sample.uncertainty,
-                        temperature=sample.temperature,
-                    )
-                    for sample in state.outcome.samples
-                ],
-                escalated=state.outcome.escalated,
-                escalation_reason=state.outcome.escalation_reason,
+
+        raw_judges: List[Dict[str, Any]] = []
+        judges: List[AtlasJudgeBreakdown] = []
+        for state in judge_states:
+            samples = [
+                AtlasJudgeSample(
+                    score=sample.score,
+                    rationale=sample.rationale,
+                    principles=sample.principles,
+                    uncertainty=sample.uncertainty,
+                    temperature=sample.temperature,
+                )
+                for sample in state.outcome.samples
+            ]
+            judges.append(
+                AtlasJudgeBreakdown(
+                    identifier=state.judge.identifier,
+                    score=state.outcome.score,
+                    rationale=state.outcome.rationale,
+                    principles=state.outcome.principles,
+                    samples=samples,
+                    escalated=state.outcome.escalated,
+                    escalation_reason=state.outcome.escalation_reason,
+                )
             )
-            for state in judge_states
-        ]
+            raw_judges.append(
+                {
+                    "identifier": state.judge.identifier,
+                    "score": state.outcome.score,
+                    "rationale": state.outcome.rationale,
+                    "principles": state.outcome.principles,
+                    "samples": [
+                        {
+                            "score": sample.score,
+                            "rationale": sample.rationale,
+                            "principles": sample.principles,
+                            "uncertainty": sample.uncertainty,
+                            "temperature": sample.temperature,
+                            "reasoning": sample.reasoning,
+                        }
+                        for sample in state.outcome.samples
+                    ],
+                    "escalated": state.outcome.escalated,
+                    "escalation_reason": state.outcome.escalation_reason,
+                    "reasoning": state.outcome.reasoning,
+                }
+            )
+
+        raw_payload = {"score": aggregated, "judges": raw_judges}
         return AtlasRewardBreakdown(
             score=aggregated,
             judges=judges,
             rationale=None,
-            raw={"score": aggregated, "judges": [judge.to_dict() for judge in judges]},
+            raw=raw_payload,
         )
 
     def judge(self, context: JudgeContext) -> AtlasRewardBreakdown:
@@ -115,7 +144,13 @@ class Evaluator:
                 samples=samples,
                 escalated=False,
                 escalation_reason=None,
+                reasoning=best_sample.reasoning,
             )
+        for sample in samples:
+            if sample.reasoning:
+                self._record_reasoning(f"{judge.identifier}:sample:{sample.temperature}", sample.reasoning)
+        if outcome.reasoning:
+            self._record_reasoning(f"{judge.identifier}:outcome", outcome.reasoning)
         return _JudgeState(judge=judge, outcome=outcome)
 
     async def _collect_samples(self, judge: Judge, context: JudgeContext) -> List[JudgeSample]:
@@ -135,6 +170,10 @@ class Evaluator:
         reason: str,
     ) -> JudgeOutcome:
         meta_prompt = judge.build_meta_prompt(context, samples, reason)
+        response = None
+        exec_context = ExecutionContext.get()
+        exec_context.metadata["active_actor"] = "reward"
+        exec_context.metadata["_reasoning_origin"] = ("reward", "escalation")
         try:
             response = await self._arbiter_client.acomplete(
                 messages=[{"role": "user", "content": meta_prompt}],
@@ -160,7 +199,7 @@ class Evaluator:
             rationale_text = "Arbiter model failed to produce a valid response."
             parsed_principles = samples[0].principles if samples else []
 
-        return JudgeOutcome(
+        outcome = JudgeOutcome(
             identifier=judge.identifier,
             score=max(0.0, min(float(final_score), 1.0)),
             rationale=rationale_text,
@@ -168,9 +207,49 @@ class Evaluator:
             samples=samples,
             escalated=True,
             escalation_reason=reason,
+            reasoning=self._merge_reasoning_payload(
+                response.reasoning if response else None,
+                self._consume_reasoning_metadata("reward", "escalation"),
+            ),
         )
+        return outcome
 
     def _aggregate(self, states: Sequence[_JudgeState]) -> float:
         if not states:
             return 0.0
         return sum(state.outcome.score for state in states) / len(states)
+
+    def _merge_reasoning_payload(
+        self,
+        base: Dict[str, Any] | None,
+        queue_entries: List[Dict[str, Any]],
+    ) -> Dict[str, Any] | None:
+        if queue_entries:
+            if base:
+                return {"response": base, "queue": queue_entries}
+            return {"queue": queue_entries}
+        return base
+
+    def _record_reasoning(self, key: str, payload: Dict[str, Any] | None) -> None:
+        if not payload:
+            return
+        context = ExecutionContext.get()
+        store = context.metadata.setdefault("reasoning_traces", {})
+        actor_store = store.setdefault("reward", {})
+        bucket = actor_store.setdefault(key, [])
+        bucket.append(payload)
+
+    def _consume_reasoning_metadata(self, actor: str, stage: str) -> List[Dict[str, Any]]:
+        context = ExecutionContext.get()
+        queue = context.metadata.get("_llm_reasoning_queue", [])
+        if not queue:
+            return []
+        matched: List[Dict[str, Any]] = []
+        remaining: List[Dict[str, Any]] = []
+        for entry in queue:
+            if entry.get("origin") == (actor, stage):
+                matched.append(entry.get("payload") or {})
+            else:
+                remaining.append(entry)
+        context.metadata["_llm_reasoning_queue"] = remaining
+        return matched

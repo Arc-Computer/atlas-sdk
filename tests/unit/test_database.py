@@ -96,4 +96,6 @@ async def test_database_logs_plan_steps(monkeypatch):
     assert any("INSERT INTO step_attempts" in command[0] for command in commands)
     assert any("INSERT INTO guidance_notes" in command[0] for command in commands)
     assert any("INSERT INTO trajectory_events" in command[0] for command in commands)
+    step_insert = next(cmd for cmd in commands if "INSERT INTO step_results" in cmd[0])
+    assert "metadata" in step_insert[0].lower()
     await database.disconnect()

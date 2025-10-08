@@ -37,10 +37,29 @@ class SessionStore(Protocol):
         raise NotImplementedError
 
 
-@dataclass
-class ExportStats:
+@dataclass(slots=True)
+class ExportSummary:
     sessions: int = 0
     steps: int = 0
+
+
+# Backwards compatibility with earlier API name.
+ExportStats = ExportSummary
+
+
+@dataclass(slots=True)
+class ExportRequest:
+    database_url: str
+    output_path: Path
+    session_ids: Sequence[int] | None = None
+    limit: int | None = None
+    offset: int = 0
+    status_filters: Sequence[str] | None = None
+    trajectory_event_limit: int = DEFAULT_TRAJECTORY_LIMIT
+    batch_size: int = DEFAULT_BATCH_SIZE
+    min_connections: int = 1
+    max_connections: int = 4
+    statement_timeout_seconds: float = 30.0
 
 
 async def export_sessions(
@@ -52,11 +71,13 @@ async def export_sessions(
     offset: int = 0,
     batch_size: int = DEFAULT_BATCH_SIZE,
     trajectory_limit: int | None = DEFAULT_TRAJECTORY_LIMIT,
-) -> ExportStats:
+    status_filters: Sequence[str] | None = None,
+) -> ExportSummary:
     """Export sessions from storage into newline-delimited JSON."""
 
-    stats = ExportStats()
+    stats = ExportSummary()
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    statuses = {status.lower() for status in status_filters or []}
     with output_path.open("w", encoding="utf-8") as handle:
         async for payload in _iter_session_payloads(
             store,
@@ -65,7 +86,10 @@ async def export_sessions(
             offset=offset,
             batch_size=batch_size,
             trajectory_limit=trajectory_limit,
+            status_filters=statuses,
         ):
+            if payload is None:
+                continue
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
             stats.sessions += 1
             stats.steps += len(payload.get("steps") or [])
@@ -81,10 +105,11 @@ async def export_sessions_to_jsonl(
     offset: int = 0,
     batch_size: int = DEFAULT_BATCH_SIZE,
     trajectory_limit: int | None = DEFAULT_TRAJECTORY_LIMIT,
+    status_filters: Sequence[str] | None = None,
     min_connections: int = 1,
     max_connections: int = 4,
     statement_timeout_seconds: float = 30.0,
-) -> ExportStats:
+) -> ExportSummary:
     """Connect to Postgres and export sessions to disk."""
 
     config = StorageConfig(
@@ -104,10 +129,39 @@ async def export_sessions_to_jsonl(
             offset=offset,
             batch_size=batch_size,
             trajectory_limit=trajectory_limit,
+            status_filters=status_filters,
         )
     finally:
         await database.disconnect()
     return stats
+
+
+async def export_sessions_async(request: ExportRequest) -> ExportSummary:
+    """Asynchronously export sessions using an ExportRequest."""
+
+    return await export_sessions_to_jsonl(
+        request.database_url,
+        str(request.output_path),
+        session_ids=request.session_ids,
+        limit=request.limit,
+        offset=request.offset,
+        batch_size=request.batch_size,
+        trajectory_limit=request.trajectory_event_limit,
+        status_filters=request.status_filters,
+        min_connections=request.min_connections,
+        max_connections=request.max_connections,
+        statement_timeout_seconds=request.statement_timeout_seconds,
+    )
+
+
+def export_sessions_sync(request: ExportRequest) -> ExportSummary:
+    """Synchronous helper for CLI usage."""
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(export_sessions_async(request))
+    raise RuntimeError("export_sessions_sync cannot run within an existing event loop")
 
 
 async def _iter_session_payloads(
@@ -118,6 +172,7 @@ async def _iter_session_payloads(
     offset: int,
     batch_size: int,
     trajectory_limit: int | None,
+    status_filters: set[str],
 ):
     seen: set[int] = set()
     event_limit = (
@@ -134,7 +189,12 @@ async def _iter_session_payloads(
             if session_id in seen:
                 continue
             seen.add(session_id)
-            payload = await _assemble_session(store, session_id, trajectory_limit=event_limit)
+            payload = await _assemble_session(
+                store,
+                session_id,
+                trajectory_limit=event_limit,
+                status_filters=status_filters,
+            )
             if payload is not None:
                 yield payload
         return
@@ -155,12 +215,17 @@ async def _iter_session_payloads(
                 continue
             if session_id in seen:
                 continue
+            if status_filters:
+                status_value = str(row.get("status", "")).lower()
+                if status_value not in status_filters:
+                    continue
             seen.add(session_id)
             payload = await _assemble_session(
                 store,
                 session_id,
                 preloaded_session=row,
                 trajectory_limit=event_limit,
+                status_filters=status_filters,
             )
             if payload is not None:
                 yield payload
@@ -175,11 +240,17 @@ async def _assemble_session(
     *,
     preloaded_session: dict[str, Any] | None = None,
     trajectory_limit: int | None = None,
+    status_filters: set[str],
 ) -> dict[str, Any] | None:
     session_row = preloaded_session or await store.fetch_session(session_id)
     if session_row is None:
         logger.warning("Session %s not found; skipping", session_id)
         return None
+
+    if status_filters:
+        status_value = str(session_row.get("status", "")).lower()
+        if status_value not in status_filters:
+            return None
 
     detailed = session_row
     if "plan" not in detailed or detailed["plan"] is None:
@@ -195,15 +266,9 @@ async def _assemble_session(
         session_id,
         limit=trajectory_limit if trajectory_limit is not None else DEFAULT_TRAJECTORY_LIMIT,
     )
-    raw_metadata = detailed.get("metadata")
-    session_metadata = _coerce_json(raw_metadata)
-    if session_metadata is None:
-        session_metadata = {"raw": raw_metadata} if raw_metadata is not None else {}
-    _enrich_session_metadata(
-        session_metadata,
-        detailed,
-        events,
-    )
+
+    session_metadata = _coerce_dict(_coerce_json(detailed.get("metadata")))
+    events_payload = _enrich_session_metadata(session_metadata, detailed, events)
 
     context_outputs: dict[int, Any] = {}
     step_payloads: list[dict[str, Any]] = []
@@ -218,10 +283,12 @@ async def _assemble_session(
     session_payload = {
         "task": detailed.get("task", ""),
         "final_answer": detailed.get("final_answer") or "",
-        "plan": plan_dict,
+        "plan": plan_dict if plan_dict else (plan_model.model_dump() if plan_model else {}),
         "steps": step_payloads,
         "session_metadata": session_metadata,
     }
+    if events_payload:
+        session_payload["trajectory_events"] = events_payload
     return session_payload
 
 
@@ -229,7 +296,7 @@ def _enrich_session_metadata(
     session_metadata: dict[str, Any],
     session_row: dict[str, Any],
     events: list[dict[str, Any]],
-) -> None:
+) -> list[dict[str, Any]]:
     session_id = session_row.get("id")
     status = session_row.get("status")
     created_at = session_row.get("created_at")
@@ -244,9 +311,10 @@ def _enrich_session_metadata(
     if completed_at is not None and not session_metadata.get("completed_at"):
         session_metadata["completed_at"] = _format_timestamp(completed_at)
 
-    session_metadata["trajectory_events"] = [
-        _normalise_event(event) for event in reversed(events)
-    ]
+    normalised_events = [_normalise_event(event) for event in reversed(events)]
+    if normalised_events:
+        session_metadata["trajectory_events"] = normalised_events
+    return normalised_events
 
 
 def _build_step_payload(
@@ -265,13 +333,16 @@ def _build_step_payload(
     guidance = step_row.get("guidance_notes") or []
     if not isinstance(guidance, list):
         guidance = [str(guidance)]
-    attempt_details = []
+
+    attempt_details: list[dict[str, Any]] = []
     for attempt in step_row.get("attempt_details") or []:
         attempt_entry = dict(attempt)
         raw_eval = attempt_entry.get("evaluation")
         parsed_eval = _coerce_json(raw_eval)
-        attempt_entry["evaluation"] = parsed_eval if parsed_eval is not None else {"raw": raw_eval}
+        if parsed_eval is not None:
+            attempt_entry["evaluation"] = parsed_eval
         attempt_details.append(attempt_entry)
+
     attempts_value = step_row.get("attempts")
     if isinstance(attempts_value, int):
         attempts = attempts_value
@@ -281,22 +352,24 @@ def _build_step_payload(
         except (TypeError, ValueError):
             attempts = len(attempt_details) or len(guidance) or 0
 
-    metadata: dict[str, Any] = {
-        "attempts": attempt_details,
-        "raw_evaluation": evaluation if evaluation else {"raw": raw_evaluation_value},
-    }
-    if plan_step is not None:
-        depends_on = getattr(plan_step, "depends_on", None)
-        if depends_on is None and isinstance(plan_step, dict):
-            depends_on = plan_step.get("depends_on")
-        if depends_on is not None:
-            metadata["depends_on"] = list(depends_on)
+    metadata = _coerce_metadata(step_row.get("metadata"))
+    if attempt_details:
+        metadata.setdefault("attempt_history", attempt_details)
+        metadata.setdefault("attempt_details", attempt_details)
+    if evaluation:
+        metadata.setdefault("raw_evaluation", evaluation)
+    else:
+        metadata.setdefault("raw_evaluation", {"raw": raw_evaluation_value})
+
+    depends_on = _extract_plan_field(plan_step, "depends_on")
+    if depends_on is not None and "depends_on" not in metadata:
+        metadata["depends_on"] = list(depends_on)
 
     prior_results = {str(key): value for key, value in context_outputs.items()}
 
-    return {
+    step_payload = {
         "step_id": step_id,
-        "description": _extract_plan_field(plan_step, "description"),
+        "description": _extract_plan_field(plan_step, "description") or "",
         "trace": step_row.get("trace") or "",
         "output": step_row.get("output") or "",
         "reward": _build_reward_payload(reward_payload),
@@ -306,8 +379,14 @@ def _build_step_payload(
         "validation": _coerce_dict(validation_payload),
         "attempts": attempts,
         "guidance": [str(item) for item in guidance],
-        "metadata": metadata,
     }
+
+    for key, value in metadata.items():
+        if key not in step_payload:
+            step_payload[key] = value
+
+    step_payload["metadata"] = metadata
+    return step_payload
 
 
 def _build_reward_payload(entry: Any) -> dict[str, Any]:
@@ -400,15 +479,31 @@ def _coerce_json(value: Any) -> Any:
 
 def _coerce_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
-        return value
+        return dict(value)
     if value is None:
         return {}
-    return dict(value) if isinstance(value, list) else {}
+    if isinstance(value, list):
+        return {str(index): item for index, item in enumerate(value)}
+    return {str(value): value}
+
+
+def _coerce_metadata(value: Any) -> dict[str, Any]:
+    parsed = _coerce_json(value)
+    if isinstance(parsed, dict):
+        return dict(parsed)
+    if parsed is None:
+        return {}
+    return {"raw": parsed}
 
 
 def _normalise_event(entry: dict[str, Any]) -> dict[str, Any]:
     payload = dict(entry)
-    payload["event"] = _coerce_json(payload.get("event")) or {}
+    event_payload = _coerce_json(payload.get("event")) or {}
+    payload["event"] = event_payload
+    if isinstance(event_payload, dict):
+        for key in ("type", "name"):
+            if key in event_payload and key not in payload:
+                payload[key] = event_payload[key]
     created_at = payload.get("created_at")
     if created_at is not None:
         payload["created_at"] = _format_timestamp(created_at)
@@ -456,6 +551,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=DEFAULT_TRAJECTORY_LIMIT,
         help=f"Maximum trajectory events to include per session (default: {DEFAULT_TRAJECTORY_LIMIT}).",
     )
+    parser.add_argument(
+        "--status",
+        action="append",
+        dest="status_filters",
+        help="Filter sessions by status (case-insensitive). May be provided multiple times.",
+    )
     parser.add_argument("--quiet", action="store_true", help="Suppress informational logs.")
     args = parser.parse_args(argv)
 
@@ -471,9 +572,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 offset=args.offset,
                 batch_size=args.batch_size,
                 trajectory_limit=args.trajectory_limit,
+                status_filters=args.status_filters,
             )
         )
-    except Exception as exc:
+    except Exception as exc:  # pragma: no cover - CLI convenience
         logger.error("Failed to export sessions: %s", exc)
         return 1
 

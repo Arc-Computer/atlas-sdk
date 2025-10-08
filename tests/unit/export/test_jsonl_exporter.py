@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -133,10 +134,9 @@ def populated_store():
     return FakeStore(sessions, session_details, steps, events)
 
 
-@pytest.mark.asyncio
-async def test_export_sessions_writes_expected_payload(populated_store, tmp_path):
+def test_export_sessions_writes_expected_payload(populated_store, tmp_path):
     output_path = tmp_path / "traces.jsonl"
-    stats = await export_sessions(populated_store, output_path)
+    stats = asyncio.run(export_sessions(populated_store, output_path))
 
     assert isinstance(stats, ExportStats)
     assert stats.sessions == 1
@@ -151,8 +151,8 @@ async def test_export_sessions_writes_expected_payload(populated_store, tmp_path
     assert record["steps"][0]["description"] == "Collect supporting documents"
     assert record["steps"][0]["reward"]["score"] == pytest.approx(0.91)
     assert record["steps"][1]["context"]["prior_results"]["1"] == "documents collected"
-    assert record["steps"][1]["metadata"]["depends_on"] == [1]
-    assert record["steps"][1]["metadata"]["attempts"][1]["evaluation"]["reward"]["score"] == pytest.approx(0.82)
+    assert record["steps"][1]["depends_on"] == [1]
+    assert record["steps"][1]["attempt_history"][1]["evaluation"]["reward"]["score"] == pytest.approx(0.82)
     assert record["steps"][1]["guidance"] == ["focus on key points", "wrap up"]
 
     events = record["session_metadata"]["trajectory_events"]
@@ -161,20 +161,18 @@ async def test_export_sessions_writes_expected_payload(populated_store, tmp_path
     assert "created_at" in record["session_metadata"]
 
 
-@pytest.mark.asyncio
-async def test_export_sessions_handles_empty_result(tmp_path):
+def test_export_sessions_handles_empty_result(tmp_path):
     store = FakeStore([], {}, {}, {})
     output_path = tmp_path / "empty.jsonl"
 
-    stats = await export_sessions(store, output_path)
+    stats = asyncio.run(export_sessions(store, output_path))
 
     assert stats.sessions == 0
     assert stats.steps == 0
     assert output_path.read_text(encoding="utf-8") == ""
 
 
-@pytest.mark.asyncio
-async def test_export_sessions_filters_session_ids(populated_store, tmp_path):
+def test_export_sessions_filters_session_ids(populated_store, tmp_path):
     # Add a second session that should be ignored when filtering
     populated_store._sessions.append(
         {
@@ -194,7 +192,7 @@ async def test_export_sessions_filters_session_ids(populated_store, tmp_path):
     populated_store._events[2] = populated_store._events[1]
 
     output_path = tmp_path / "filtered.jsonl"
-    stats = await export_sessions(populated_store, output_path, session_ids=[2])
+    stats = asyncio.run(export_sessions(populated_store, output_path, session_ids=[2]))
 
     assert stats.sessions == 1
     record = json.loads(output_path.read_text(encoding="utf-8").strip())
