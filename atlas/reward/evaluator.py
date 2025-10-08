@@ -141,6 +141,9 @@ class Evaluator:
     ) -> JudgeOutcome:
         meta_prompt = judge.build_meta_prompt(context, samples, reason)
         response = None
+        exec_context = ExecutionContext.get()
+        exec_context.metadata["active_actor"] = "reward"
+        exec_context.metadata["_reasoning_origin"] = ("reward", "escalation")
         try:
             response = await self._arbiter_client.acomplete(
                 messages=[{"role": "user", "content": meta_prompt}],
@@ -166,7 +169,7 @@ class Evaluator:
             rationale_text = "Arbiter model failed to produce a valid response."
             parsed_principles = samples[0].principles if samples else []
 
-        return JudgeOutcome(
+        outcome = JudgeOutcome(
             identifier=judge.identifier,
             score=max(0.0, min(float(final_score), 1.0)),
             rationale=rationale_text,
@@ -174,13 +177,28 @@ class Evaluator:
             samples=samples,
             escalated=True,
             escalation_reason=reason,
-            reasoning=response.reasoning if response else None,
+            reasoning=self._merge_reasoning_payload(
+                response.reasoning if response else None,
+                self._consume_reasoning_metadata("reward", "escalation"),
+            ),
         )
+        return outcome
 
     def _aggregate(self, states: Sequence[_JudgeState]) -> float:
         if not states:
             return 0.0
         return sum(state.outcome.score for state in states) / len(states)
+
+    def _merge_reasoning_payload(
+        self,
+        base: Dict[str, Any] | None,
+        queue_entries: List[Dict[str, Any]],
+    ) -> Dict[str, Any] | None:
+        if queue_entries:
+            if base:
+                return {"response": base, "queue": queue_entries}
+            return {"queue": queue_entries}
+        return base
 
     def _record_reasoning(self, key: str, payload: Dict[str, Any] | None) -> None:
         if not payload:
@@ -190,3 +208,18 @@ class Evaluator:
         actor_store = store.setdefault("reward", {})
         bucket = actor_store.setdefault(key, [])
         bucket.append(payload)
+
+    def _consume_reasoning_metadata(self, actor: str, stage: str) -> List[Dict[str, Any]]:
+        context = ExecutionContext.get()
+        queue = context.metadata.get("_llm_reasoning_queue", [])
+        if not queue:
+            return []
+        matched: List[Dict[str, Any]] = []
+        remaining: List[Dict[str, Any]] = []
+        for entry in queue:
+            if entry.get("origin") == (actor, stage):
+                matched.append(entry.get("payload") or {})
+            else:
+                remaining.append(entry)
+        context.metadata["_llm_reasoning_queue"] = remaining
+        return matched

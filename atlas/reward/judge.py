@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Sequence
 
 from atlas.types import Step
 from atlas.utils.llm_client import LLMClient
+from atlas.orchestration.execution_context import ExecutionContext
 
 
 @dataclass
@@ -63,6 +64,9 @@ class Judge:
 
         messages = self._build_messages(context)
         overrides = {"temperature": temperature}
+        execution_context = ExecutionContext.get()
+        execution_context.metadata["active_actor"] = "reward"
+        execution_context.metadata["_reasoning_origin"] = ("reward", "sample")
         try:
             response = await self._client.acomplete(
                 messages,
@@ -70,10 +74,12 @@ class Judge:
                 overrides=overrides,
             )
         except Exception:
+            self._consume_reasoning_metadata("reward", "sample")
             return None
 
         payload = self._try_parse_json(response.content)
         if payload is None:
+            self._consume_reasoning_metadata("reward", "sample")
             return None
 
         score = payload.get("score")
@@ -88,14 +94,26 @@ class Judge:
 
         rationale_text = rationale if isinstance(rationale, str) else ""
 
-        return JudgeSample(
+        queue_entries = self._consume_reasoning_metadata("reward", "sample")
+        combined_reasoning = response.reasoning or payload.get("reasoning")
+        if queue_entries:
+            if combined_reasoning:
+                combined_reasoning = {
+                    "response": combined_reasoning,
+                    "queue": queue_entries,
+                }
+            else:
+                combined_reasoning = {"queue": queue_entries}
+
+        sample = JudgeSample(
             score=float(score),
             rationale=rationale_text,
             principles=parsed_principles,
             uncertainty=float(uncertainty),
             temperature=temperature,
-            reasoning=response.reasoning or payload.get("reasoning"),
+            reasoning=combined_reasoning or None,
         )
+        return sample
 
     async def ajudge(self, context: JudgeContext) -> JudgeOutcome:
         """Must be implemented by concrete judges."""
@@ -156,3 +174,18 @@ class Judge:
             for item in normalised:
                 item["weight"] = item["weight"] / weight_sum
         return normalised
+
+    def _consume_reasoning_metadata(self, actor: str, stage: str) -> List[Dict[str, Any]]:
+        context = ExecutionContext.get()
+        queue = context.metadata.get("_llm_reasoning_queue", [])
+        if not queue:
+            return []
+        matched: List[Dict[str, Any]] = []
+        remaining: List[Dict[str, Any]] = []
+        for entry in queue:
+            if entry.get("origin") == (actor, stage):
+                matched.append(entry.get("payload") or {})
+            else:
+                remaining.append(entry)
+        context.metadata["_llm_reasoning_queue"] = remaining
+        return matched

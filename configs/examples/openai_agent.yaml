@@ -6,10 +6,10 @@ agent:
   tools: []
   llm:
     provider: openai
-    model: gpt-4o-mini
+    model: o4-mini
     api_key_env: OPENAI_API_KEY
-    temperature: 0.0
-    max_output_tokens: 1024
+    temperature: 0.2
+    max_output_tokens: 2048
   response_format: null
 
 student:
@@ -64,7 +64,7 @@ rim:
   uncertainty_threshold: 0.3
 
 storage:
-  database_url: postgresql://localhost:5432/atlas
+  database_url: postgresql://localhost:5433/atlas_sdk_qat
   min_connections: 1
   max_connections: 5
   statement_timeout_seconds: 30

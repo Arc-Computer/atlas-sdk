@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.scripts]
-atlas.export = "atlas.export.cli:main"
+"atlas.export" = "atlas.export.cli:main"
 
 [project.optional-dependencies]
 dev = [

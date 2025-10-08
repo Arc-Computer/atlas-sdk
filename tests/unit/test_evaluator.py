@@ -4,7 +4,7 @@ from typing import Dict
 
 from atlas.config.models import LLMParameters, RIMConfig
 from atlas.reward.evaluator import Evaluator
-from atlas.reward.judge import JudgeContext
+from atlas.reward.judge import Judge, JudgeContext
 from atlas.types import Step
 from atlas.utils.llm_client import LLMResponse
 from atlas.orchestration.execution_context import ExecutionContext
@@ -28,6 +28,46 @@ class _StubClient:
         }
         reasoning = {"thinking_blocks": [{"type": "analysis", "text": f"confidence {score:.2f}"}]}
         return LLMResponse(content=json.dumps(payload), raw={}, reasoning=reasoning)
+
+
+class _QueueingClient:
+    async def acomplete(self, messages, response_format=None, overrides=None):
+        context = ExecutionContext.get()
+        queue = context.metadata.setdefault("_llm_reasoning_queue", [])
+        queue.append({"origin": ("reward", "sample"), "payload": {"thought": "analysis"}})
+        payload = {
+            "principles": [],
+            "score": 0.85,
+            "rationale": "consistent",
+            "uncertainty": 0.1,
+        }
+        reasoning = {"thinking_blocks": [{"type": "analysis", "text": "queue merged"}]}
+        return LLMResponse(content=json.dumps(payload), raw={}, reasoning=reasoning)
+
+
+class _StubJudge(Judge):
+    def _build_messages(self, context: JudgeContext):
+        return [{"role": "system", "content": "judge"}]
+
+
+def test_judge_asample_merges_queue_reasoning():
+    async def runner() -> None:
+        ExecutionContext.get().reset()
+        client = _QueueingClient()
+        judge = _StubJudge("process", client)
+        context = JudgeContext(
+            task="demo",
+            step=Step(id=1, description="collect", depends_on=[]),
+            trace="log",
+            output="result",
+        )
+        sample = await judge.asample(context, 0.2)
+        assert sample is not None
+        assert sample.reasoning is not None
+        assert sample.reasoning["queue"][0]["thought"] == "analysis"
+        assert ExecutionContext.get().metadata.get("_llm_reasoning_queue") == []
+
+    asyncio.run(runner())
 
 
 def test_evaluator_combines_judge_scores():

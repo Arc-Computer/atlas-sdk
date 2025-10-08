@@ -45,6 +45,12 @@ class StudentStepResult:
     attempts: int = 1
 
 
+@dataclass
+class _GraphNodeDetails:
+    name: str
+    kind: str
+
+
 class Student:
     def __init__(
         self,
@@ -68,11 +74,13 @@ class Student:
             handle_tool_errors=True,
             return_direct=None,
         )
+        self._llm_stream_state: Dict[str, Dict[str, Any]] = {}
 
     async def acreate_plan(self, task: str) -> Plan:
         context = ExecutionContext.get()
         manager = context.intermediate_step_manager
         event_id = str(uuid4())
+        context.metadata["_reasoning_origin"] = ("student", "plan")
         manager.push_intermediate_step(
             IntermediateStepPayload(
                 UUID=event_id,
@@ -81,14 +89,27 @@ class Student:
                 data=StreamEventData(input={"task": task}),
             )
         )
+        context.metadata["active_actor"] = "student"
         prompt = self._compose_planner_prompt(task)
         try:
             response = await self._adapter.ainvoke(prompt, metadata={"mode": "planning", "task": task})
             if isinstance(response, (dict, list)):
                 payload = response
             else:
-                payload = json.loads(response)
+                payload = self._parse_json_response(response)
             normalised = self._normalise_plan_payload(payload)
+            if not isinstance(normalised, dict) or not normalised.get("steps"):
+                normalised = {
+                    "steps": [
+                        {
+                            "id": 1,
+                            "description": task,
+                            "depends_on": [],
+                            "tool": None,
+                            "tool_params": None,
+                        }
+                    ]
+                }
             plan = Plan.model_validate(normalised)
         except Exception as exc:
             manager.push_intermediate_step(
@@ -108,6 +129,7 @@ class Student:
                 data=StreamEventData(output=plan.model_dump()),
             )
         )
+        self._consume_reasoning_metadata("student", "plan")
         return plan
 
     async def aexecute_step(
@@ -119,12 +141,55 @@ class Student:
     ) -> StudentStepResult:
         graph = await self._ensure_graph()
         messages = self._build_execution_messages(step, context, guidance)
+        execution_context = ExecutionContext.get()
+        execution_context.metadata["active_actor"] = "student"
+        execution_context.metadata["_reasoning_origin"] = ("student", "execution")
         state = ToolCallAgentGraphState(messages=messages)
-        result_state = await graph.ainvoke(state, config={"recursion_limit": recursion_limit})
-        final_state = ToolCallAgentGraphState(**result_state)
+        final_messages: Sequence[BaseMessage] | None = None
+        step_manager = execution_context.intermediate_step_manager
+        llm_snapshots: List[Any] = []
+        async for event in graph.astream_events(state, config={"recursion_limit": recursion_limit}, version="v2"):
+            self._handle_stream_event(step, event, step_manager)
+            chunk_messages = self._extract_messages_from_graph_payload(event.get("data", {}).get("chunk"))
+            if chunk_messages:
+                final_messages = chunk_messages
+            chunk_payload = event.get("data", {}).get("chunk")
+            if chunk_payload is not None:
+                snapshot = self._serialize_graph_payload(chunk_payload)
+                if snapshot:
+                    llm_snapshots.append(snapshot)
+            output_messages = self._extract_messages_from_graph_payload(event.get("data", {}).get("output"))
+            if output_messages:
+                final_messages = output_messages
+        if final_messages is None:
+            final_messages = state.messages
+        final_state = ToolCallAgentGraphState(messages=list(final_messages))
         output_message = final_state.messages[-1]
         trace = self._build_trace(final_state.messages)
         metadata = self._extract_reasoning_metadata(final_state.messages)
+        for payload in self._consume_reasoning_metadata("student", "execution"):
+            if payload:
+                reasoning_entries = metadata.setdefault("reasoning", [])
+                reasoning_entries.append({"origin": "student", "payload": payload})
+        if not metadata.get("reasoning"):
+            if llm_snapshots:
+                metadata.setdefault("reasoning", []).append(
+                    {
+                        "origin": "student",
+                        "payload": {
+                            "stream_snapshot": llm_snapshots[-1],
+                        },
+                    }
+                )
+            else:
+                metadata.setdefault("reasoning", []).append(
+                    {
+                        "origin": "student",
+                        "payload": {
+                            "content": str(output_message.content),
+                        },
+                    }
+                )
         return StudentStepResult(
             trace=trace,
             output=str(output_message.content),
@@ -255,6 +320,360 @@ class Student:
                 payload[key] = value
         return payload or None
 
+    def _parse_json_response(self, text: Any) -> Any:
+        if isinstance(text, (dict, list)):
+            return text
+        if not isinstance(text, str):
+            return text
+        cleaned = text.strip()
+        if cleaned.startswith("```"):
+            stripped = cleaned[3:]
+            if stripped.lstrip().startswith("json"):
+                stripped = stripped.lstrip()[4:]
+            cleaned = stripped.strip()
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3].strip()
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Failed to parse JSON response: {cleaned[:200]}") from exc
+
+    def _consume_reasoning_metadata(self, actor: str, stage: str) -> List[Dict[str, Any]]:
+        context = ExecutionContext.get()
+        queue = context.metadata.get("_llm_reasoning_queue", [])
+        matched: List[Dict[str, Any]] = []
+        remaining: List[Dict[str, Any]] = []
+        for entry in queue:
+            origin = entry.get("origin")
+            if origin == (actor, stage):
+                matched.append(entry.get("payload") or {})
+            else:
+                remaining.append(entry)
+        context.metadata["_llm_reasoning_queue"] = remaining
+        return matched
+
+    def _classify_event_node(self, event: Dict[str, Any]) -> _GraphNodeDetails:
+        metadata = event.get("metadata") or {}
+        event_name = str(event.get("name") or "graph")
+        raw_node = str(metadata.get("langgraph_node") or event_name)
+        node_lower = raw_node.lower()
+        langchain_type = str(metadata.get("langchain_type") or "").lower()
+        event_type = str(event.get("event") or "")
+        if event_type.startswith("on_chat_model"):
+            return _GraphNodeDetails(name=raw_node, kind="llm")
+        if event_type.startswith("on_tool"):
+            return _GraphNodeDetails(name=raw_node, kind="tool")
+        if "tool" in node_lower or langchain_type in {"tool", "toolkit"}:
+            return _GraphNodeDetails(name=raw_node, kind="tool")
+        if "agent" in node_lower:
+            return _GraphNodeDetails(name=raw_node, kind="task")
+        if any(keyword in node_lower for keyword in ("llm", "model", "chat")) or langchain_type in {"llm", "chat_model"}:
+            return _GraphNodeDetails(name=raw_node, kind="llm")
+        return _GraphNodeDetails(name=raw_node, kind="span")
+
+    def _build_event_metadata(
+        self,
+        step: Step,
+        event: Dict[str, Any],
+        node: _GraphNodeDetails,
+        run_id: str,
+    ) -> Dict[str, Any]:
+        actor = ExecutionContext.get().metadata.get("active_actor", "student")
+        metadata: Dict[str, Any] = {
+            "actor": actor,
+            "step_id": step.id,
+            "run_id": run_id,
+            "node": node.name,
+            "node_type": node.kind,
+        }
+        if tags := event.get("tags"):
+            metadata["tags"] = list(tags)
+        langgraph_meta = self._filter_langgraph_metadata(event.get("metadata") or {})
+        if langgraph_meta:
+            metadata["langgraph"] = langgraph_meta
+        return metadata
+
+    def _filter_langgraph_metadata(self, metadata: Dict[str, Any]) -> Dict[str, Any] | None:
+        if not metadata:
+            return None
+        allowed_keys = {
+            "langgraph_node",
+            "langgraph_step",
+            "langgraph_task_idx",
+            "langgraph_triggers",
+            "checkpoint_id",
+            "checkpoint_ns",
+            "ls_provider",
+            "ls_model_name",
+            "ls_model_type",
+            "ls_temperature",
+        }
+        filtered = {key: metadata[key] for key in allowed_keys if key in metadata}
+        return self._jsonify(filtered) if filtered else None
+
+    def _jsonify(self, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, dict):
+            return {str(key): self._jsonify(sub_value) for key, sub_value in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [self._jsonify(item) for item in value]
+        if hasattr(value, "model_dump"):
+            return self._jsonify(value.model_dump())
+        if hasattr(value, "__dict__"):
+            return self._jsonify(vars(value))
+        return str(value)
+
+    def _ensure_llm_stream_state(self, run_id: str) -> Dict[str, Any]:
+        return self._llm_stream_state.setdefault(run_id, {"token_count": 0, "chunks": []})
+
+    def _approximate_token_count(self, text: str) -> int:
+        stripped = text.strip()
+        if not stripped:
+            return 0
+        return max(1, len(stripped.split()))
+
+    def _normalise_llm_chunk(self, run_id: str, chunk: Any) -> Any:
+        if chunk is None:
+            return None
+        state = self._ensure_llm_stream_state(run_id)
+        text: str | None = None
+        if isinstance(chunk, dict):
+            content = chunk.get("content")
+            if isinstance(content, list):
+                text = "".join(str(item) for item in content if isinstance(item, str))
+            elif isinstance(content, str):
+                text = content
+            elif "text" in chunk and isinstance(chunk["text"], str):
+                text = chunk["text"]
+        elif isinstance(chunk, str):
+            text = chunk
+        if text is None:
+            return chunk
+        tokens = self._approximate_token_count(text)
+        state["token_count"] = state.get("token_count", 0) + tokens
+        if text.strip():
+            state.setdefault("chunks", []).append(text)
+        chunk_payload = dict(chunk if isinstance(chunk, dict) else {})
+        chunk_payload["text"] = text
+        chunk_payload["token_counts"] = {
+            "incremental": tokens,
+            "accumulated": state["token_count"],
+        }
+        return chunk_payload
+
+    def _handle_stream_event(self, step: Step, event: Dict[str, Any], manager: Any | None = None) -> None:
+        manager = manager or ExecutionContext.get().intermediate_step_manager
+        event_type = event.get("event")
+        if not event_type:
+            return
+        run_id = str(event.get("run_id") or uuid4())
+        node = self._classify_event_node(event)
+        metadata = self._build_event_metadata(step, event, node, run_id)
+        data = event.get("data") or {}
+        serialized_input = self._serialize_graph_payload(data.get("input"))
+        serialized_output = self._serialize_graph_payload(data.get("output"))
+        serialized_chunk = self._serialize_graph_payload(data.get("chunk"))
+
+        handled = False
+
+        if event_type in {"on_chain_start", "on_chat_model_start"}:
+            if node.kind == "task":
+                manager.push_intermediate_step(
+                    IntermediateStepPayload(
+                        UUID=run_id,
+                        event_type=IntermediateStepType.TASK_START,
+                        name=node.name,
+                        data=StreamEventData(input=serialized_input),
+                        metadata=metadata,
+                    )
+                )
+                handled = True
+            elif node.kind == "tool":
+                manager.push_intermediate_step(
+                    IntermediateStepPayload(
+                        UUID=run_id,
+                        event_type=IntermediateStepType.TOOL_START,
+                        name=node.name,
+                        data=StreamEventData(input=serialized_input),
+                        metadata=metadata,
+                    )
+                )
+                handled = True
+            elif node.kind == "llm":
+                self._ensure_llm_stream_state(run_id)
+                manager.push_intermediate_step(
+                    IntermediateStepPayload(
+                        UUID=run_id,
+                        event_type=IntermediateStepType.LLM_START,
+                        name=node.name,
+                        data=StreamEventData(input=serialized_input),
+                        metadata=metadata,
+                    )
+                )
+                handled = True
+
+        elif event_type in {"on_chain_end", "on_chat_model_end"}:
+            if node.kind == "task":
+                manager.push_intermediate_step(
+                    IntermediateStepPayload(
+                        UUID=run_id,
+                        event_type=IntermediateStepType.TASK_END,
+                        name=node.name,
+                        data=StreamEventData(input=serialized_input, output=serialized_output),
+                        metadata=metadata,
+                    )
+                )
+                handled = True
+            elif node.kind == "tool":
+                manager.push_intermediate_step(
+                    IntermediateStepPayload(
+                        UUID=run_id,
+                        event_type=IntermediateStepType.TOOL_END,
+                        name=node.name,
+                        data=StreamEventData(input=serialized_input, output=serialized_output),
+                        metadata=metadata,
+                    )
+                )
+                handled = True
+            elif node.kind == "llm":
+                state = self._llm_stream_state.pop(run_id, None)
+                if state:
+                    metadata = dict(metadata)
+                    metadata["token_counts"] = {
+                        "approx_total": state.get("token_count", 0),
+                        "chunks": len(state.get("chunks", [])),
+                    }
+                    if state.get("chunks"):
+                        context = ExecutionContext.get()
+                        queue = context.metadata.setdefault("_llm_reasoning_queue", [])
+                        queue.append(
+                            {
+                                "origin": ("student", "execution"),
+                                "payload": {
+                                    "chunks": list(state["chunks"]),
+                                    "token_counts": metadata["token_counts"],
+                                },
+                            }
+                        )
+                manager.push_intermediate_step(
+                    IntermediateStepPayload(
+                        UUID=run_id,
+                        event_type=IntermediateStepType.LLM_END,
+                        name=node.name,
+                        data=StreamEventData(input=serialized_input, output=serialized_output),
+                        metadata=metadata,
+                    )
+                )
+                handled = True
+
+        elif event_type in {"on_chain_stream", "on_chat_model_stream"} and node.kind == "llm":
+            chunk_payload = self._normalise_llm_chunk(run_id, serialized_chunk)
+            manager.push_intermediate_step(
+                IntermediateStepPayload(
+                    UUID=run_id,
+                    event_type=IntermediateStepType.LLM_NEW_TOKEN,
+                    name=node.name,
+                    data=StreamEventData(chunk=chunk_payload),
+                    metadata=metadata,
+                )
+            )
+            handled = True
+
+        if handled:
+            return
+
+        # Fallback to generic span events for unclassified telemetry.
+        event_name = event.get("name") or node.name
+        if event_type == "on_chain_start":
+            manager.push_intermediate_step(
+                IntermediateStepPayload(
+                    UUID=run_id,
+                    event_type=IntermediateStepType.SPAN_START,
+                    name=event_name,
+                    data=StreamEventData(input=serialized_input),
+                    metadata=metadata,
+                )
+            )
+        elif event_type == "on_chain_end":
+            manager.push_intermediate_step(
+                IntermediateStepPayload(
+                    UUID=run_id,
+                    event_type=IntermediateStepType.SPAN_END,
+                    name=event_name,
+                    data=StreamEventData(input=serialized_input, output=serialized_output),
+                    metadata=metadata,
+                )
+            )
+        elif event_type == "on_chain_stream":
+            manager.push_intermediate_step(
+                IntermediateStepPayload(
+                    UUID=run_id,
+                    event_type=IntermediateStepType.SPAN_CHUNK,
+                    name=event_name,
+                    data=StreamEventData(chunk=serialized_chunk),
+                    metadata=metadata,
+                )
+            )
+
+    def _extract_messages_from_graph_payload(self, payload: Any) -> List[BaseMessage] | None:
+        if payload is None:
+            return None
+        if isinstance(payload, ToolCallAgentGraphState):
+            return list(payload.messages)
+        if hasattr(payload, "messages"):
+            return list(getattr(payload, "messages"))
+        if isinstance(payload, dict):
+            for value in payload.values():
+                messages = self._extract_messages_from_graph_payload(value)
+                if messages:
+                    return messages
+        return None
+
+    def _serialize_graph_payload(self, payload: Any) -> Any:
+        if payload is None:
+            return None
+        if isinstance(payload, ToolCallAgentGraphState):
+            return {
+                "messages": [self._serialize_message(message) for message in payload.messages],
+            }
+        if isinstance(payload, BaseMessage):
+            return self._serialize_message(payload)
+        if isinstance(payload, list):
+            return [self._serialize_graph_payload(item) for item in payload]
+        if isinstance(payload, dict):
+            return {key: self._serialize_graph_payload(value) for key, value in payload.items()}
+        if hasattr(payload, "model_dump"):
+            return payload.model_dump()
+        return str(payload)
+
+    def _serialize_message(self, message: BaseMessage) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "type": message.type,
+            "content": message.content,
+            "additional_kwargs": getattr(message, "additional_kwargs", None),
+        }
+        tool_calls = getattr(message, "tool_calls", None)
+        if tool_calls:
+            payload["tool_calls"] = [
+                {
+                    "name": call.name,
+                    "args": call.args,
+                    "id": call.id,
+                    "type": getattr(call, "type", None),
+                }
+                for call in tool_calls
+            ]
+        tool_call_id = getattr(message, "tool_call_id", None)
+        if tool_call_id:
+            payload["tool_call_id"] = tool_call_id
+        status = getattr(message, "status", None)
+        if status:
+            payload["status"] = status
+        return payload
+
     def _extract_reasoning_metadata(self, messages: Sequence[BaseMessage]) -> Dict[str, Any]:
         reasoning_entries: List[Dict[str, Any]] = []
         for index, message in enumerate(messages):
@@ -288,7 +707,7 @@ class Student:
 
     def _normalise_plan_payload(self, payload):
         if isinstance(payload, str):
-            payload = json.loads(payload)
+            payload = self._parse_json_response(payload)
 
         if isinstance(payload, list):
             payload = {"steps": payload}
@@ -303,16 +722,33 @@ class Student:
                 if isinstance(step, dict):
                     step.pop("estimated_time", None)
                     step.setdefault("depends_on", [])
+                    if isinstance(step["depends_on"], list):
+                        normalised_deps = []
+                        for dep in step["depends_on"]:
+                            if isinstance(dep, str):
+                                dep_stripped = dep.strip().lstrip("step_")
+                                try:
+                                    normalised_deps.append(int(dep_stripped))
+                                except ValueError:
+                                    normalised_deps.append(dep)
+                            else:
+                                normalised_deps.append(dep)
+                        step["depends_on"] = normalised_deps
                     if "tool" not in step:
-                        step["tool"] = None
+                        step["tool"] = step.pop("tools", None)
                     if "tool_params" not in step:
                         step["tool_params"] = None
+                    tool_value = step.get("tool")
+                    if isinstance(tool_value, list):
+                        step["tool"] = ", ".join(str(item) for item in tool_value)
                     if "id" in step and isinstance(step["id"], str):
+                        raw_id = step["id"].strip()
+                        for prefix in ("step_", "step", "s"):
+                            if raw_id.lower().startswith(prefix):
+                                raw_id = raw_id[len(prefix):]
+                                break
                         try:
-                            step["id"] = int(step["id"].lstrip("s"))
-                        except (ValueError, AttributeError):
-                            try:
-                                step["id"] = int(step["id"])
-                            except (ValueError, TypeError):
-                                pass
+                            step["id"] = int(raw_id)
+                        except (ValueError, TypeError):
+                            pass
         return payload

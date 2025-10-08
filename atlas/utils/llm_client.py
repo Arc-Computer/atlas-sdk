@@ -88,7 +88,13 @@ class LLMClient:
             extra_headers.update(override_headers)
 
         extra_body = dict(overrides.pop("extra_body", {}) or {})
-        if params.supports_reasoning and params.reasoning_effort:
+        supports_reasoning = False
+        if litellm is not None and hasattr(litellm, "supports_reasoning"):
+            try:
+                supports_reasoning = bool(litellm.supports_reasoning(params.model))
+            except Exception:
+                supports_reasoning = False
+        if supports_reasoning and params.reasoning_effort:
             extra_body.setdefault("reasoning_effort", params.reasoning_effort)
 
         if extra_headers:
@@ -118,6 +124,20 @@ class LLMClient:
                 value = message.get(key)
                 if value:
                     reasoning_payload[key] = value
+            usage = response.get("usage") if isinstance(response, dict) else getattr(response, "usage", None)
+            if usage:
+                details = None
+                if isinstance(usage, dict):
+                    details = usage.get("completion_tokens_details")
+                else:
+                    details = getattr(usage, "completion_tokens_details", None)
+                if details:
+                    tokens = getattr(details, "reasoning_tokens", None)
+                    if not tokens and isinstance(details, dict):
+                        tokens = details.get("reasoning_tokens")
+                    if tokens:
+                        reasoning_payload.setdefault("token_counts", {})["reasoning_tokens"] = tokens
+            self._record_reasoning(reasoning_payload)
             if content is None or str(content).strip() == "":
                 import logging
                 logger = logging.getLogger(__name__)
@@ -125,3 +145,17 @@ class LLMClient:
             return str(content or ""), reasoning_payload
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError(f"Unexpected response format from LLM client. Response: {response}") from exc
+
+    def _record_reasoning(self, payload: Dict[str, Any]) -> None:
+        if not payload:
+            return
+        try:
+            from atlas.orchestration.execution_context import ExecutionContext  # noqa: WPS433
+            context = ExecutionContext.get()
+        except Exception:  # pragma: no cover - context not initialised
+            return
+        origin = context.metadata.pop("_reasoning_origin", None)
+        if origin is None:
+            return
+        queue = context.metadata.setdefault("_llm_reasoning_queue", [])
+        queue.append({"origin": origin, "payload": payload})

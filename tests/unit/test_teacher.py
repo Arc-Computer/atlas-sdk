@@ -17,7 +17,8 @@ def _gpt5_params() -> LLMParameters:
         model="gpt-5",
         temperature=1.0,
         timeout_seconds=3600.0,
-         additional_headers={"OpenAI-Beta": "reasoning=1"},
+        additional_headers={"OpenAI-Beta": "reasoning=1"},
+        reasoning_effort="medium",
     )
 
 
@@ -26,11 +27,7 @@ def _attach_reasoning_capture(teacher: Teacher) -> dict[str, object]:
     original = teacher._client.acomplete
 
     async def traced(messages, response_format=None, overrides=None):
-        merged = dict(overrides or {})
-        extra_body = dict(merged.get("extra_body") or {})
-        extra_body.setdefault("reasoning_effort", "medium")
-        merged["extra_body"] = extra_body
-        response = await original(messages, response_format, merged)
+        response = await original(messages, response_format, overrides)
         captured["content"] = response.content
         captured["raw"] = response.raw
         return response

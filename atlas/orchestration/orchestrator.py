@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any
 from typing import Dict
 from typing import List
@@ -19,8 +18,6 @@ from atlas.orchestration.dependency_graph import DependencyGraph
 from atlas.orchestration.execution_context import ExecutionContext
 from atlas.reward.evaluator import Evaluator
 from atlas.reward.judge import JudgeContext
-from langchain_core.messages import AIMessage
-from langchain_core.messages import ToolMessage
 from atlas.roles.student import Student
 from atlas.roles.student import StudentStepResult
 from atlas.roles.teacher import Teacher
@@ -212,7 +209,6 @@ class Orchestrator:
                     )
                 )
                 raise
-            self._emit_tool_events(execution_context, student_result.messages)
             validation = await self._teacher.avalidate_step(step, student_result.trace, student_result.output)
             step_meta = execution_context.metadata.get("steps", {}).get(step.id, {})
             judge_context = JudgeContext(
@@ -247,62 +243,6 @@ class Orchestrator:
             guidance_text = await self._teacher.agenerate_guidance(step, evaluation)
             execution_context.append_guidance(step.id, guidance_text)
             guidance.append(guidance_text)
-
-    def _emit_tool_events(self, execution_context: ExecutionContext, messages: Sequence[Any]) -> None:
-        manager = execution_context.intermediate_step_manager
-        sessions: Dict[str, str] = {}
-        for message in messages:
-            if isinstance(message, AIMessage) and message.tool_calls:
-                for index, call in enumerate(message.tool_calls):
-                    name = getattr(call, "name", None) or call.get("name") if isinstance(call, dict) else None
-                    if not name:
-                        continue
-                    call_id = getattr(call, "id", None) or call.get("id") if isinstance(call, dict) else None
-                    if call_id is None:
-                        call_id = f"{name}-{index}"
-                    arguments = getattr(call, "args", None)
-                    if isinstance(call, dict):
-                        arguments = call.get("arguments") or call.get("args")
-                    arguments = self._normalise_tool_arguments(arguments)
-                    tool_uuid = str(uuid4())
-                    sessions[call_id] = tool_uuid
-                    manager.push_intermediate_step(
-                        IntermediateStepPayload(
-                            UUID=tool_uuid,
-                            event_type=IntermediateStepType.TOOL_START,
-                            name=name,
-                            data=StreamEventData(input=arguments),
-                            metadata={"tool_call_id": call_id},
-                        )
-                    )
-            elif isinstance(message, ToolMessage):
-                call_id = message.tool_call_id
-                tool_uuid = sessions.get(call_id, str(uuid4()))
-                manager.push_intermediate_step(
-                    IntermediateStepPayload(
-                        UUID=tool_uuid,
-                        event_type=IntermediateStepType.TOOL_END,
-                        name=call_id or "tool_output",
-                        data=StreamEventData(output=self._stringify_tool_content(message.content)),
-                        metadata={"tool_call_id": call_id},
-                    )
-                )
-
-    def _normalise_tool_arguments(self, arguments: Any) -> Any:
-        if arguments is None:
-            return {}
-        if isinstance(arguments, str):
-            try:
-                parsed = json.loads(arguments)
-                return parsed
-            except json.JSONDecodeError:
-                return arguments
-        return arguments
-
-    def _stringify_tool_content(self, content: Any) -> str:
-        if isinstance(content, (dict, list)):
-            return json.dumps(content)
-        return str(content)
 
     def _should_retry(self, validation: Dict[str, Any], score: float, attempts: int) -> bool:
         if attempts > self._orchestration.max_retries + 1:
