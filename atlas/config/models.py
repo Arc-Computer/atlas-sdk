@@ -125,6 +125,7 @@ class LLMParameters(BaseModel):
     timeout_seconds: float = Field(default=60.0, ge=0.0)
     retry: RetryPolicy = Field(default_factory=RetryPolicy)
     additional_headers: Dict[str, str] = Field(default_factory=dict)
+    reasoning_effort: Literal["low", "medium", "high"] | None = None
 
 class OpenAIAdapterConfig(AdapterConfig):
     """Adapter that proxies OpenAI compatible chat completions."""

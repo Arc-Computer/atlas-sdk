@@ -72,18 +72,21 @@ class Database:
         else:
             evaluation_payload = result.evaluation
         serialized_evaluation = self._serialize_json(evaluation_payload)
+        serialized_metadata = self._serialize_json(result.metadata) if getattr(result, "metadata", None) else None
         async with pool.acquire() as connection:
             await connection.execute(
-                "INSERT INTO step_results(session_id, step_id, trace, output, evaluation, attempts)"
-                " VALUES ($1, $2, $3, $4, $5, $6)"
+                "INSERT INTO step_results(session_id, step_id, trace, output, evaluation, attempts, metadata)"
+                " VALUES ($1, $2, $3, $4, $5, $6, $7)"
                 " ON CONFLICT (session_id, step_id) DO UPDATE SET"
-                " trace = EXCLUDED.trace, output = EXCLUDED.output, evaluation = EXCLUDED.evaluation, attempts = EXCLUDED.attempts",
+                " trace = EXCLUDED.trace, output = EXCLUDED.output, evaluation = EXCLUDED.evaluation,"
+                " attempts = EXCLUDED.attempts, metadata = EXCLUDED.metadata",
                 session_id,
                 result.step_id,
                 result.trace,
                 result.output,
                 serialized_evaluation,
                 result.attempts,
+                serialized_metadata,
             )
 
     async def log_step_attempts(
@@ -177,7 +180,7 @@ class Database:
         pool = self._require_pool()
         async with pool.acquire() as connection:
             step_rows = await connection.fetch(
-                "SELECT step_id, trace, output, evaluation, attempts"
+                "SELECT step_id, trace, output, evaluation, attempts, metadata"
                 " FROM step_results WHERE session_id = $1 ORDER BY step_id",
                 session_id,
             )
@@ -209,6 +212,7 @@ class Database:
                     "output": row["output"],
                     "evaluation": row["evaluation"],
                     "attempts": row["attempts"],
+                    "metadata": row["metadata"],
                     "attempt_details": attempts_by_step.get(step_id, []),
                     "guidance_notes": guidance_by_step.get(step_id, []),
                 }

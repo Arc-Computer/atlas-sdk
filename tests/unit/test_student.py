@@ -2,6 +2,8 @@ import asyncio
 
 import pytest
 
+from langchain_core.messages import AIMessage
+
 from atlas.agent.registry import build_adapter
 from atlas.config.models import (
     AdapterType,
@@ -13,9 +15,11 @@ from atlas.config.models import (
     StudentPrompts,
     TeacherConfig,
 )
+from atlas.data_models.intermediate_step import IntermediateStepType
 from atlas.orchestration.execution_context import ExecutionContext
 from atlas.roles.student import Student
 from atlas.transition.rewriter import PromptRewriteEngine
+from atlas.types import Step
 
 
 def _gpt5_params() -> LLMParameters:
@@ -25,6 +29,7 @@ def _gpt5_params() -> LLMParameters:
         temperature=1.0,
         timeout_seconds=3600.0,
         additional_headers={"OpenAI-Beta": "reasoning=1"},
+        reasoning_effort="medium",
     )
 
 
@@ -33,11 +38,7 @@ def _wrap_rewrite_client(engine: PromptRewriteEngine) -> dict[str, object]:
     original = engine._client.acomplete
 
     async def traced(messages, response_format=None, overrides=None):
-        merged = dict(overrides or {})
-        extra_body = dict(merged.get("extra_body") or {})
-        extra_body.setdefault("reasoning_effort", "medium")
-        merged["extra_body"] = extra_body
-        response = await original(messages, response_format, merged)
+        response = await original(messages, response_format, overrides)
         captured["content"] = response.content
         captured["raw"] = response.raw
         return response
@@ -154,3 +155,90 @@ def test_student_plan_execute_and_synthesize_live():
         assert final_answer.strip()
 
     asyncio.run(runner())
+
+
+def test_student_extracts_reasoning_metadata():
+    student = object.__new__(Student)
+    message = AIMessage(
+        content="result",
+        additional_kwargs={
+            "reasoning_content": [{"type": "thought", "text": "consider options"}],
+            "thinking_blocks": [{"type": "analysis", "content": "details"}],
+        },
+    )
+    metadata = student._extract_reasoning_metadata([message])
+    assert "reasoning" in metadata
+    reasoning_entry = metadata["reasoning"][0]
+    assert reasoning_entry["payload"]["reasoning_content"][0]["text"] == "consider options"
+    trace = student._build_trace([message])
+    assert "AI_REASONING" in trace
+
+
+def test_student_handles_langgraph_stream_events():
+    ExecutionContext.get().reset()
+    ExecutionContext.get().metadata["active_actor"] = "student"
+    student = object.__new__(Student)
+    student._llm_stream_state = {}
+    step = Step(id=1, description="demo", tool=None, tool_params=None)
+    captured = []
+    manager = ExecutionContext.get().intermediate_step_manager
+    subscription = manager.subscribe(lambda event: captured.append(event))
+    try:
+        student._handle_stream_event(
+            step,
+            {
+                "event": "on_chain_start",
+                "name": "agent",
+                "metadata": {"langgraph_node": "agent"},
+                "run_id": "task-run",
+                "data": {"input": {"state": "init"}},
+            },
+            manager,
+        )
+        assert captured[-1].payload.event_type == IntermediateStepType.TASK_START
+
+        student._handle_stream_event(
+            step,
+            {
+                "event": "on_chat_model_start",
+                "name": "ChatOpenAI",
+                "metadata": {"langgraph_node": "agent"},
+                "run_id": "llm-run",
+                "data": {"input": {"messages": []}},
+            },
+            manager,
+        )
+        assert captured[-1].payload.event_type == IntermediateStepType.LLM_START
+
+        student._handle_stream_event(
+            step,
+            {
+                "event": "on_chat_model_stream",
+                "name": "ChatOpenAI",
+                "metadata": {"langgraph_node": "agent"},
+                "run_id": "llm-run",
+                "data": {"chunk": {"content": "Hello"}},
+            },
+            manager,
+        )
+        stream_event = captured[-1].payload
+        assert stream_event.event_type == IntermediateStepType.LLM_NEW_TOKEN
+        assert stream_event.data.chunk["text"] == "Hello"
+        assert stream_event.data.chunk["token_counts"]["accumulated"] >= 1
+
+        student._handle_stream_event(
+            step,
+            {
+                "event": "on_chat_model_end",
+                "name": "ChatOpenAI",
+                "metadata": {"langgraph_node": "agent"},
+                "run_id": "llm-run",
+                "data": {"output": {"content": "Done"}},
+            },
+            manager,
+        )
+        final_event = captured[-1].payload
+        assert final_event.event_type == IntermediateStepType.LLM_END
+        assert final_event.metadata["token_counts"]["approx_total"] >= 1
+    finally:
+        subscription.unsubscribe()

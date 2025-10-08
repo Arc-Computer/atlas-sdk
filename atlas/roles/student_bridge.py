@@ -13,6 +13,10 @@ from typing import Tuple
 from typing import Literal
 from typing import Optional
 
+import os
+
+os.environ.setdefault("TRANSFORMERS_NO_TORCH", "1")
+
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage
 from langchain_core.messages import BaseMessage

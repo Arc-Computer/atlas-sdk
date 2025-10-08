@@ -17,13 +17,14 @@ from atlas.reward.evaluator import Evaluator
 from atlas.roles.student import Student
 from atlas.roles.teacher import Teacher
 from atlas.storage.database import Database
+from atlas.telemetry import ConsoleTelemetryStreamer
+from atlas.telemetry.langchain_callback import configure_langchain_callbacks
 from atlas.transition.rewriter import (
     PromptRewriteEngine,
     RewrittenStudentPrompts,
     RewrittenTeacherPrompts,
 )
 from atlas.types import Result
-from atlas.telemetry import ConsoleTelemetryStreamer
 
 
 class TelemetryPublisherProtocol(Protocol):
@@ -47,6 +48,7 @@ async def arun(
     config = load_config(config_path)
     execution_context = ExecutionContext.get()
     execution_context.reset()
+    configure_langchain_callbacks()
     if session_metadata:
         execution_context.metadata["session_metadata"] = session_metadata
     if stream_progress is not None:

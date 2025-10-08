@@ -9,9 +9,11 @@ from typing import Dict
 from typing import List
 
 try:
+    import litellm
     from litellm import acompletion
     _LITELLM_ERROR = None
 except ModuleNotFoundError as exc:
+    litellm = None
     acompletion = None
     _LITELLM_ERROR = exc
 
@@ -133,14 +135,21 @@ class OpenAIAdapter(AgentAdapter):
             kwargs["extra_headers"] = llm.additional_headers
         if self._config.response_format:
             kwargs["response_format"] = self._config.response_format
-        if "gpt-5" in llm.model.lower():
+        supports_reasoning = False
+        if litellm is not None and hasattr(litellm, "supports_reasoning"):
+            try:
+                supports_reasoning = bool(litellm.supports_reasoning(llm.model))
+            except Exception:
+                supports_reasoning = False
+        if supports_reasoning:
             headers = dict(kwargs.get("extra_headers") or {})
             headers.setdefault("OpenAI-Beta", "reasoning=1")
             kwargs["extra_headers"] = headers
             kwargs["temperature"] = 1.0
-            extra_body = dict(kwargs.get("extra_body") or {})
-            extra_body.setdefault("reasoning_effort", "medium")
-            kwargs["extra_body"] = extra_body
+            if llm.reasoning_effort:
+                extra_body = dict(kwargs.get("extra_body") or {})
+                extra_body.setdefault("reasoning_effort", llm.reasoning_effort)
+                kwargs["extra_body"] = extra_body
         return kwargs
 
     def _parse_response(self, response: Any) -> str:

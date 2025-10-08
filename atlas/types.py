@@ -62,6 +62,7 @@ class StepResult(BaseModel):
     output: str
     evaluation: StepEvaluation
     attempts: int = 1
+    metadata: dict = Field(default_factory=dict)
 
 
 class Result(BaseModel):

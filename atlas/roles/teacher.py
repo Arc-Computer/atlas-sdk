@@ -15,6 +15,7 @@ from atlas.transition.rewriter import RewrittenTeacherPrompts
 from atlas.types import Plan
 from atlas.types import Step
 from atlas.utils.llm_client import LLMClient
+from atlas.orchestration.execution_context import ExecutionContext
 
 
 class Teacher:
@@ -32,6 +33,9 @@ class Teacher:
         cached = self._plan_cache.get(cache_key)
         if cached and now - cached[0] <= self._config.plan_cache_seconds:
             return cached[1]
+        context = ExecutionContext.get()
+        context.metadata["active_actor"] = "teacher"
+        context.metadata["_reasoning_origin"] = ("teacher", "plan_review")
         messages = [
             {"role": "system", "content": self._plan_prompt},
             {
@@ -44,11 +48,19 @@ class Teacher:
             payload = json.loads(response.content)
         except json.JSONDecodeError as exc:
             raise ValueError("Teacher plan review response was not valid JSON") from exc
+        if not isinstance(payload, dict) or not payload.get("steps"):
+            return plan
+        if response.reasoning:
+            self._record_reasoning("teacher", "plan_review", response.reasoning)
         reviewed = Plan.model_validate(self._normalise_plan_payload(payload))
         self._plan_cache[cache_key] = (now, reviewed)
+        self._consume_reasoning_metadata("teacher", "plan_review")
         return reviewed
 
     async def avalidate_step(self, step: Step, trace: str, output: str) -> Dict[str, Any]:
+        context = ExecutionContext.get()
+        context.metadata["active_actor"] = "teacher"
+        context.metadata["_reasoning_origin"] = ("teacher", "validation")
         messages = [
             {"role": "system", "content": self._validation_prompt},
             {
@@ -59,12 +71,20 @@ class Teacher:
         ]
         response = await self._client.acomplete(messages, response_format={"type": "json_object"})
         parsed = json.loads(response.content)
-        return {
+        result = {
             "valid": bool(parsed.get("valid", False)),
             "rationale": parsed.get("rationale", ""),
         }
+        if response.reasoning:
+            result["reasoning"] = response.reasoning
+            self._record_reasoning("teacher", f"validation:{step.id}", response.reasoning)
+        self._consume_reasoning_metadata("teacher", "validation")
+        return result
 
     async def agenerate_guidance(self, step: Step, evaluation: Dict[str, Any]) -> str:
+        context = ExecutionContext.get()
+        context.metadata["active_actor"] = "teacher"
+        context.metadata["_reasoning_origin"] = ("teacher", "guidance")
         messages = [
             {"role": "system", "content": self._guidance_prompt},
             {
@@ -73,6 +93,9 @@ class Teacher:
             },
         ]
         response = await self._client.acomplete(messages)
+        if response.reasoning:
+            self._record_reasoning("teacher", f"guidance:{step.id}", response.reasoning)
+        self._consume_reasoning_metadata("teacher", "guidance")
         return response.content
 
     def review_plan(self, task: str, plan: Plan) -> Plan:
@@ -127,3 +150,20 @@ class Teacher:
                     if "tool_params" not in step:
                         step["tool_params"] = None
         return payload
+
+    def _record_reasoning(self, actor: str, key: str, payload: Dict[str, Any]) -> None:
+        if not payload:
+            return
+        context = ExecutionContext.get()
+        store = context.metadata.setdefault("reasoning_traces", {})
+        actor_store = store.setdefault(actor, {})
+        bucket = actor_store.setdefault(key, [])
+        bucket.append(payload)
+
+    def _consume_reasoning_metadata(self, actor: str, stage: str) -> None:
+        context = ExecutionContext.get()
+        queue = context.metadata.get("_llm_reasoning_queue", [])
+        if not queue:
+            return
+        remaining = [entry for entry in queue if entry.get("origin") != (actor, stage)]
+        context.metadata["_llm_reasoning_queue"] = remaining

@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS step_results (
     output TEXT,
     evaluation JSONB,
     attempts INTEGER,
+    metadata JSONB,
     PRIMARY KEY (session_id, step_id)
 );
 
