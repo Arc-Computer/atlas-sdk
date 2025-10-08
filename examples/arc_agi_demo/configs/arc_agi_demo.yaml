@@ -1,0 +1,56 @@
+agent:
+  type: python
+  name: arc-agi-demo-agent
+  system_prompt: |
+    You are an analytical ARC puzzle solver. Always explain intermediate reasoning before giving the final grid.
+  tools: []
+  import_path: examples.arc_agi_demo.agent.demo_agent
+  attribute: invoke
+  working_directory: ../../..
+  allow_generator: false
+
+student:
+  max_plan_tokens: 8192
+  max_step_tokens: 8192
+  max_synthesis_tokens: 8192
+  tool_choice: auto
+
+teacher:
+  llm:
+    provider: openai
+    model: gpt-5-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.2
+    max_output_tokens: 8192
+  max_review_tokens: 8192
+  plan_cache_seconds: 120
+  guidance_max_tokens: 8192
+  validation_max_tokens: 8192
+
+orchestration:
+  max_retries: 1
+  step_timeout_seconds: 900
+  rim_guidance_tag: rim_feedback
+  emit_intermediate_steps: true
+
+rim:
+  small_model:
+    provider: openai
+    model: gemini/gemini-2.5-flash
+    api_key_env: GOOGLE_API_KEY
+    max_output_tokens: 8192
+  large_model:
+    provider: openai
+    model: gemini/gemini-2.5-pro
+    api_key_env: GOOGLE_API_KEY
+    max_output_tokens: 8192
+  active_judges:
+    process: true
+    helpfulness: true
+  variance_threshold: 0.15
+  uncertainty_threshold: 0.3
+storage:
+  database_url: postgresql://atlas:atlas@localhost:5433/atlas_arc_demo
+  min_connections: 1
+  max_connections: 5
+  statement_timeout_seconds: 30

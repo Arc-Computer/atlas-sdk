@@ -44,6 +44,9 @@ class Teacher:
             },
         ]
         response = await self._client.acomplete(messages, response_format={"type": "json_object"})
+        if not response.content.strip():
+            self._consume_reasoning_metadata("teacher", "plan_review")
+            return plan
         try:
             payload = json.loads(response.content)
         except json.JSONDecodeError as exc:
