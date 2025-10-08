@@ -11,12 +11,17 @@ The Atlas SDK ships with a standalone JSONL exporter so you can transform persis
 ## Basic Usage
 
 ```bash
-atlas.export \
+arc-atlas \
+  --database-url postgresql://atlas:atlas@localhost:5432/atlas \
+  --output traces.jsonl
+
+# Deterministic fallback that ignores shell PATH ordering
+python -m atlas.export.jsonl \
   --database-url postgresql://atlas:atlas@localhost:5432/atlas \
   --output traces.jsonl
 ```
 
-The command connects to the configured database, loads every stored session (or a filtered subset), and emits newline-delimited JSON. Friendly progress logs report how many sessions and steps were exported.
+The command connects to the configured database, loads every stored session (or a filtered subset), and emits newline-delimited JSON. Friendly progress logs report how many sessions and steps were exported. Compatibility aliases `atlas.export` / `atlas-export` still resolve to the same CLI, but `arc-atlas` (or the `python -m` form) avoids collisions with other tools named `atlas`.
 
 ### Useful Flags
 
@@ -46,7 +51,7 @@ Each line in `traces.jsonl` is an `AtlasSessionTrace`. The layout mirrors the da
 The exported file slots directly into the Atlas core training stack:
 
 1. Run `atlas.core.run(...)` to generate sessions and persist them to PostgreSQL.
-2. Execute `atlas.export --database-url ... --output traces.jsonl`.
+2. Execute `arc-atlas --database-url ... --output traces.jsonl` (or `python -m atlas.export.jsonl ...`).
 3. In the core repository, call `load_runtime_traces("traces.jsonl")` or `flatten_traces_for_training(...)` from `trainers/runtime_dataset.py`.
 
 This workflow keeps runtime telemetry decoupled from training data generation while reusing the shared schema consumed by the core trainers.

@@ -49,8 +49,11 @@ JSONL with the bundled exporter:
 # 1. Run tasks that log to Postgres (configure storage.database_url in your AtlasConfig)
 atlas.core.run(...)
 
-# 2. Export the captured sessions to JSONL
-atlas.export --database-url postgresql://localhost:5432/atlas --output traces.jsonl --limit 25
+# 2. Export the captured sessions to JSONL (use the unique CLI name to avoid PATH collisions)
+arc-atlas --database-url postgresql://localhost:5432/atlas --output traces.jsonl --limit 25
+
+# (Fall back to python -m if shell PATH ordering is unpredictable)
+python -m atlas.export.jsonl --database-url postgresql://localhost:5432/atlas --output traces.jsonl --limit 25
 
 # 3. Load the dataset inside the Atlas core repo
 from trainers.runtime_dataset import load_runtime_traces
@@ -180,13 +183,15 @@ For a deeper look at how these events map onto the Atlas training stack—and wh
 
 ## Exporting Runtime Sessions
 
-Use the `atlas.export` CLI to convert persisted PostgreSQL sessions into JSONL traces that match the core runtime schema.
+Use the `arc-atlas` CLI (or `python -m atlas.export.jsonl ...` if you prefer an explicit module invocation) to convert persisted PostgreSQL sessions into JSONL traces that match the core runtime schema.
 
 ```bash
-atlas.export \
+arc-atlas \
   --database-url postgresql://atlas:atlas@localhost:5432/atlas \
   --output traces.jsonl
 ```
+
+Compatibility aliases `atlas.export` and `atlas-export` remain available, but they may collide with other tools named `atlas` if those appear earlier in your `PATH`. `arc-atlas` and `python -m atlas.export.jsonl` are collision-proof.
 
 Key flags:
 
