@@ -148,6 +148,7 @@ class Student:
         final_messages: Sequence[BaseMessage] | None = None
         step_manager = execution_context.intermediate_step_manager
         llm_snapshots: List[Any] = []
+        llm_text_chunks: List[str] = []
         async for event in graph.astream_events(state, config={"recursion_limit": recursion_limit}, version="v2"):
             self._handle_stream_event(step, event, step_manager)
             chunk_messages = self._extract_messages_from_graph_payload(event.get("data", {}).get("chunk"))
@@ -158,6 +159,9 @@ class Student:
                 snapshot = self._serialize_graph_payload(chunk_payload)
                 if snapshot:
                     llm_snapshots.append(snapshot)
+                chunk_text = self._extract_text_from_chunk(chunk_payload)
+                if chunk_text:
+                    llm_text_chunks.append(chunk_text)
             output_messages = self._extract_messages_from_graph_payload(event.get("data", {}).get("output"))
             if output_messages:
                 final_messages = output_messages
@@ -173,12 +177,17 @@ class Student:
                 reasoning_entries.append({"origin": "student", "payload": payload})
         if not metadata.get("reasoning"):
             if llm_snapshots:
+                snapshot_payload: Dict[str, Any] = {
+                    "stream_snapshot": llm_snapshots[-1],
+                    "output_text": str(output_message.content),
+                }
+                combined_text = "".join(llm_text_chunks).strip()
+                if combined_text:
+                    snapshot_payload["text"] = combined_text
                 metadata.setdefault("reasoning", []).append(
                     {
                         "origin": "student",
-                        "payload": {
-                            "stream_snapshot": llm_snapshots[-1],
-                        },
+                        "payload": snapshot_payload,
                     }
                 )
             else:
@@ -319,6 +328,20 @@ class Student:
             if value:
                 payload[key] = value
         return payload or None
+
+    def _extract_text_from_chunk(self, chunk: Any) -> str | None:
+        if chunk is None:
+            return None
+        if isinstance(chunk, str):
+            return chunk
+        if isinstance(chunk, dict):
+            text_value = chunk.get("text")
+            if isinstance(text_value, str):
+                return text_value
+            content_value = chunk.get("content")
+            if isinstance(content_value, str):
+                return content_value
+        return None
 
     def _parse_json_response(self, text: Any) -> Any:
         if isinstance(text, (dict, list)):
@@ -549,25 +572,27 @@ class Student:
                     if state.get("chunks"):
                         context = ExecutionContext.get()
                         queue = context.metadata.setdefault("_llm_reasoning_queue", [])
+                        snapshot_text = "".join(state.get("chunks", [])).strip()
                         queue.append(
                             {
                                 "origin": ("student", "execution"),
                                 "payload": {
                                     "chunks": list(state["chunks"]),
                                     "token_counts": metadata["token_counts"],
+                                    "text": snapshot_text or None,
                                 },
                             }
                         )
-                manager.push_intermediate_step(
-                    IntermediateStepPayload(
-                        UUID=run_id,
-                        event_type=IntermediateStepType.LLM_END,
-                        name=node.name,
-                        data=StreamEventData(input=serialized_input, output=serialized_output),
-                        metadata=metadata,
-                    )
+            manager.push_intermediate_step(
+                IntermediateStepPayload(
+                    UUID=run_id,
+                    event_type=IntermediateStepType.LLM_END,
+                    name=node.name,
+                    data=StreamEventData(input=serialized_input, output=serialized_output),
+                    metadata=metadata,
                 )
-                handled = True
+            )
+            handled = True
 
         elif event_type in {"on_chain_stream", "on_chat_model_stream"} and node.kind == "llm":
             chunk_payload = self._normalise_llm_chunk(run_id, serialized_chunk)
