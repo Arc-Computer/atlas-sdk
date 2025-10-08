@@ -84,7 +84,7 @@ class Student:
         manager.push_intermediate_step(
             IntermediateStepPayload(
                 UUID=event_id,
-                event_type=IntermediateStepType.WORKFLOW_START,
+                event_type=IntermediateStepType.FUNCTION_START,
                 name="plan_creation",
                 data=StreamEventData(input={"task": task}),
             )
@@ -92,7 +92,7 @@ class Student:
         context.metadata["active_actor"] = "student"
         prompt = self._compose_planner_prompt(task)
         try:
-            response = await self._adapter.ainvoke(prompt, metadata={"mode": "planning", "task": task})
+            response = await self._adapter.ainvoke(prompt, metadata={"mode": "planning"})
             if isinstance(response, (dict, list)):
                 payload = response
             else:
@@ -124,7 +124,7 @@ class Student:
         manager.push_intermediate_step(
             IntermediateStepPayload(
                 UUID=event_id,
-                event_type=IntermediateStepType.WORKFLOW_END,
+                event_type=IntermediateStepType.FUNCTION_END,
                 name="plan_creation",
                 data=StreamEventData(output=plan.model_dump()),
             )
@@ -213,14 +213,14 @@ class Student:
         manager.push_intermediate_step(
             IntermediateStepPayload(
                 UUID=event_id,
-                event_type=IntermediateStepType.WORKFLOW_START,
+                event_type=IntermediateStepType.FUNCTION_START,
                 name="final_synthesis",
                 data=StreamEventData(input={"task": task, "step_results": step_results}),
             )
         )
         prompt = self._compose_synthesis_prompt(task, step_results)
         try:
-            response = await self._adapter.ainvoke(prompt, metadata={"mode": "synthesis", "task": task})
+            response = await self._adapter.ainvoke(prompt, metadata={"mode": "synthesis"})
             if isinstance(response, str):
                 final_answer = response
             else:
@@ -238,7 +238,7 @@ class Student:
         manager.push_intermediate_step(
             IntermediateStepPayload(
                 UUID=event_id,
-                event_type=IntermediateStepType.WORKFLOW_END,
+                event_type=IntermediateStepType.FUNCTION_END,
                 name="final_synthesis",
                 data=StreamEventData(output=final_answer),
             )
@@ -261,7 +261,26 @@ class Student:
         return self._run_async(self.asynthesize_final_answer(task, step_results))
 
     def _compose_planner_prompt(self, task: str) -> str:
-        return f"{self._prompts.planner}\n\nTask: {task.strip()}"
+        json_direction = (
+            "Respond ONLY with JSON matching this schema:\n"
+            "{\n"
+            "  \"steps\": [\n"
+            "    {\n"
+            "      \"id\": integer,\n"
+            "      \"description\": string,\n"
+            "      \"tool\": string | null,\n"
+            "      \"tool_params\": object | null,\n"
+            "      \"depends_on\": [integer]\n"
+            "    }\n"
+            "  ]\n"
+            "}\n"
+            "Do not include any prose before or after the JSON object."
+        )
+        return "\n\n".join([
+            self._prompts.planner,
+            f"Task: {task.strip()}",
+            json_direction,
+        ])
 
     def _compose_synthesis_prompt(self, task: str, step_results: List[Dict[str, Any]]) -> str:
         serialized_results = json.dumps(step_results, ensure_ascii=False, indent=2)
