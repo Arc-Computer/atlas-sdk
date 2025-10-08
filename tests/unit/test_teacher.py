@@ -1,13 +1,11 @@
 import asyncio
 import json
 
-import pytest
-
 from atlas.config.models import LLMParameters, LLMProvider, TeacherConfig
-from atlas.roles.teacher import Teacher
-from atlas.transition.rewriter import RewrittenTeacherPrompts
+from atlas.personas.teacher import Teacher
+from atlas.prompts import RewrittenTeacherPrompts
 from atlas.types import Plan, Step
-from atlas.orchestration.execution_context import ExecutionContext
+from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.utils.llm_client import LLMResponse
 
 

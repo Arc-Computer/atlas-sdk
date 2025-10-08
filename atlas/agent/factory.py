@@ -1,19 +1,15 @@
-"""Factory helpers wrapping the adapter registry."""
+"""Deprecated wrapper around :mod:`atlas.connectors.factory`."""
 
 from __future__ import annotations
 
-from atlas.agent.registry import AgentAdapter
-from atlas.agent.registry import build_adapter
-from atlas.config.models import AdapterUnion
-from atlas.config.models import AtlasConfig
+import warnings
 
+from atlas.connectors.factory import create_adapter, create_from_atlas_config
 
-def create_adapter(config: AdapterUnion) -> AgentAdapter:
-    return build_adapter(config)
-
-
-def create_from_atlas_config(config: AtlasConfig) -> AgentAdapter:
-    return build_adapter(config.agent)
-
+warnings.warn(
+    "atlas.agent.factory is deprecated; import from atlas.connectors.factory",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 __all__ = ["create_adapter", "create_from_atlas_config"]

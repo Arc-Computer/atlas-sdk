@@ -1,3 +1,6 @@
+-- Deprecated location for schema.sql. The authoritative copy lives in
+-- atlas/runtime/storage/schema.sql but we keep this file for compatibility.
+
 CREATE TABLE IF NOT EXISTS sessions (
     id SERIAL PRIMARY KEY,
     task TEXT NOT NULL,

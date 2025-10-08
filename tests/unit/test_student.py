@@ -1,24 +1,23 @@
 import asyncio
+import os
 
 import pytest
 
 from langchain_core.messages import AIMessage
 
-from atlas.agent.registry import build_adapter
+from atlas.connectors.registry import build_adapter
 from atlas.config.models import (
     AdapterType,
     LLMParameters,
     LLMProvider,
     OpenAIAdapterConfig,
-    PromptRewriteConfig,
     StudentConfig,
     StudentPrompts,
-    TeacherConfig,
 )
-from atlas.data_models.intermediate_step import IntermediateStepType
-from atlas.orchestration.execution_context import ExecutionContext
-from atlas.roles.student import Student
-from atlas.transition.rewriter import PromptRewriteEngine
+from atlas.runtime.models import IntermediateStepType
+from atlas.runtime.orchestration.execution_context import ExecutionContext
+from atlas.personas.student import Student
+from atlas.prompts import build_student_prompts
 from atlas.types import Step
 
 
@@ -31,20 +30,6 @@ def _gpt5_params() -> LLMParameters:
         additional_headers={"OpenAI-Beta": "reasoning=1"},
         reasoning_effort="medium",
     )
-
-
-def _wrap_rewrite_client(engine: PromptRewriteEngine) -> dict[str, object]:
-    captured: dict[str, object] = {}
-    original = engine._client.acomplete
-
-    async def traced(messages, response_format=None, overrides=None):
-        response = await original(messages, response_format, overrides)
-        captured["content"] = response.content
-        captured["raw"] = response.raw
-        return response
-
-    engine._client.acomplete = traced
-    return captured
 
 
 def _student_config() -> StudentConfig:
@@ -62,6 +47,8 @@ def _student_config() -> StudentConfig:
 
 
 def test_student_plan_execute_and_synthesize_live():
+    if os.getenv("OPENAI_API_KEY") is None:
+        pytest.skip("requires OPENAI_API_KEY for live adapter test")
     async def runner() -> None:
         ExecutionContext.get().reset()
         adapter_config = OpenAIAdapterConfig(
@@ -87,33 +74,8 @@ def test_student_plan_execute_and_synthesize_live():
             return result
 
         adapter.ainvoke = traced_adapter
-        rewrite_engine = PromptRewriteEngine(
-            PromptRewriteConfig(llm=_gpt5_params(), max_tokens=4096, temperature=1.0),
-            fallback_llm=None,
-        )
-        rewrite_capture = _wrap_rewrite_client(rewrite_engine)
         student_cfg = _student_config()
-        teacher_cfg = TeacherConfig(
-            llm=_gpt5_params(),
-            max_review_tokens=3072,
-            plan_cache_seconds=0,
-            guidance_max_tokens=1536,
-            validation_max_tokens=1536,
-        )
-        try:
-            student_prompts, _ = await rewrite_engine.generate(
-                base_prompt=adapter_config.system_prompt,
-                adapter_config=adapter_config,
-                student_config=student_cfg,
-                teacher_config=teacher_cfg,
-            )
-        except Exception:
-            raw = rewrite_capture.get("content", "")
-            if raw:
-                print(f"Prompt rewrite raw response: {raw}")
-            else:
-                print(f"Prompt rewrite payload: {rewrite_capture.get('raw', {})}")
-            raise
+        student_prompts = build_student_prompts(adapter_config.system_prompt, student_cfg)
         student = Student(
             adapter=adapter,
             adapter_config=adapter_config,

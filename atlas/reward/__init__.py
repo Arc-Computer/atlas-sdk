@@ -1,11 +1,19 @@
-"""Reward model exports."""
+"""Deprecated reward module."""
 
-from atlas.reward.evaluator import Evaluator
-from atlas.reward.judge import JudgeContext
-from atlas.reward.judge import JudgeOutcome
-from atlas.reward.judge import JudgeSample
-from atlas.reward.process_judge import ProcessJudge
-from atlas.reward.helpfulness_judge import HelpfulnessJudge
+from __future__ import annotations
+
+import warnings
+
+from atlas.evaluation.evaluator import Evaluator
+from atlas.evaluation.judges.base import JudgeContext, JudgeOutcome, JudgeSample
+from atlas.evaluation.judges.helpfulness import HelpfulnessJudge
+from atlas.evaluation.judges.process import ProcessJudge
+
+warnings.warn(
+    "atlas.reward is deprecated; import from atlas.evaluation",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 __all__ = [
     "Evaluator",

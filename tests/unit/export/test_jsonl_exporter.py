@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from atlas.export.jsonl import DEFAULT_TRAJECTORY_LIMIT, ExportStats, export_sessions
+from atlas.cli.jsonl_writer import DEFAULT_TRAJECTORY_LIMIT, ExportStats, export_sessions
 
 
 class FakeStore:

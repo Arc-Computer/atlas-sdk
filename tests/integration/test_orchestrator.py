@@ -4,12 +4,12 @@ pytest.importorskip("langchain_core")
 
 from langchain_core.messages import AIMessage, ToolMessage
 from atlas.config.models import OrchestrationConfig, RIMConfig, LLMParameters
-from atlas.orchestration.execution_context import ExecutionContext
-from atlas.orchestration.orchestrator import Orchestrator
-from atlas.data_models.intermediate_step import IntermediateStepType
-from atlas.reward.judge import JudgeContext
+from atlas.runtime.orchestration.execution_context import ExecutionContext
+from atlas.runtime.orchestration.orchestrator import Orchestrator
+from atlas.runtime.models import IntermediateStepType
+from atlas.evaluation.judges.base import JudgeContext
 from atlas.runtime.schema import AtlasRewardBreakdown
-from atlas.roles.student import StudentStepResult
+from atlas.personas.student import StudentStepResult
 from atlas.types import Plan, Result, Step
 
 
@@ -117,8 +117,8 @@ async def test_orchestrator_retries_and_records_context():
     assert step_attempts[3] == 1
     step_meta = context.metadata["steps"][1]
     event_types = [event.event_type for event in events]
+    assert IntermediateStepType.WORKFLOW_START in event_types
     assert IntermediateStepType.TASK_START in event_types
-    assert IntermediateStepType.TOOL_START in event_types
-    assert IntermediateStepType.TOOL_END in event_types
+    assert IntermediateStepType.TASK_END in event_types
     assert len(step_meta["attempts"]) == 2
     assert step_meta["guidance"] == ["retry with missing references"]

@@ -1,12 +1,29 @@
-"""Atlas BYOA agent adapters."""
+"""Compatibility shims for legacy adapter imports.
 
-from atlas.agent.factory import create_adapter
-from atlas.agent.factory import create_from_atlas_config
-from atlas.agent.http_adapter import HTTPAdapter
-from atlas.agent.openai_adapter import OpenAIAdapter
-from atlas.agent.python_adapter import PythonAdapter
-from atlas.agent.registry import AdapterError
-from atlas.agent.registry import AgentAdapter
+The new connector modules live under :mod:`atlas.connectors`. Importing from
+``atlas.agent`` will continue to work but will emit a :class:`DeprecationWarning`.
+"""
+
+from __future__ import annotations
+
+import warnings
+
+from atlas.connectors.factory import create_adapter, create_from_atlas_config
+from atlas.connectors.http import HTTPAdapter
+from atlas.connectors.openai import OpenAIAdapter
+from atlas.connectors.python import PythonAdapter
+from atlas.connectors.registry import AdapterError, AgentAdapter
+
+
+def _warn() -> None:
+    warnings.warn(
+        "atlas.agent is deprecated; import from atlas.connectors instead",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
+_warn()
 
 __all__ = [
     "AdapterError",

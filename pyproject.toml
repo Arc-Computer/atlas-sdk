@@ -24,9 +24,9 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 [project.scripts]
-"atlas.export" = "atlas.export.jsonl:main"
-"arc-atlas" = "atlas.export.jsonl:main"
-"atlas-export" = "atlas.export.jsonl:main"
+"atlas.export" = "atlas.cli.export:main"
+"arc-atlas" = "atlas.cli.export:main"
+"atlas-export" = "atlas.cli.export:main"
 
 [project.optional-dependencies]
 dev = [

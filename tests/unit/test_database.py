@@ -3,10 +3,10 @@ import pytest
 pytest.importorskip("asyncpg")
 
 from atlas.config.models import StorageConfig
-from atlas.data_models.intermediate_step import IntermediateStep, IntermediateStepPayload, IntermediateStepType, StreamEventData
-from atlas.data_models.invocation_node import InvocationNode
+from atlas.runtime.models import IntermediateStep, IntermediateStepPayload, IntermediateStepType, StreamEventData
+from atlas.runtime.models import InvocationNode
 from atlas.runtime.schema import AtlasRewardBreakdown
-from atlas.storage.database import Database
+from atlas.runtime.storage.database import Database
 from atlas.types import Plan, Step, StepEvaluation, StepResult
 
 
