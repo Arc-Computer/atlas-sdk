@@ -49,6 +49,7 @@ class Teacher:
         except json.JSONDecodeError as exc:
             raise ValueError("Teacher plan review response was not valid JSON") from exc
         if not isinstance(payload, dict) or not payload.get("steps"):
+            self._consume_reasoning_metadata("teacher", "plan_review")
             return plan
         if response.reasoning:
             self._record_reasoning("teacher", "plan_review", response.reasoning)
