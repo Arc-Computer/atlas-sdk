@@ -152,7 +152,7 @@ def test_exporter_writes_expected_jsonl(monkeypatch, tmp_path: Path):
     assert step["validation"]["valid"] is True
     assert step["guidance"] == ["cite sources"]
     assert step["metadata"]["reasoning"][0]["payload"]["reasoning_content"][0]["text"] == "analysis"
-    assert step["metadata"]["attempts"][0]["attempt"] == 1
+    assert step["metadata"]["attempt_history"][0]["attempt"] == 1
 
 
 def test_exporter_handles_empty_results(monkeypatch, tmp_path: Path):

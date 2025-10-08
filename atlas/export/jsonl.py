@@ -354,7 +354,7 @@ def _build_step_payload(
 
     metadata = _coerce_metadata(step_row.get("metadata"))
     if attempt_details:
-        metadata.setdefault("attempts", attempt_details)
+        metadata.setdefault("attempt_history", attempt_details)
         metadata.setdefault("attempt_details", attempt_details)
     if evaluation:
         metadata.setdefault("raw_evaluation", evaluation)
@@ -367,7 +367,7 @@ def _build_step_payload(
 
     prior_results = {str(key): value for key, value in context_outputs.items()}
 
-    return {
+    step_payload = {
         "step_id": step_id,
         "description": _extract_plan_field(plan_step, "description") or "",
         "trace": step_row.get("trace") or "",
@@ -379,8 +379,14 @@ def _build_step_payload(
         "validation": _coerce_dict(validation_payload),
         "attempts": attempts,
         "guidance": [str(item) for item in guidance],
-        "metadata": metadata,
     }
+
+    for key, value in metadata.items():
+        if key not in step_payload:
+            step_payload[key] = value
+
+    step_payload["metadata"] = metadata
+    return step_payload
 
 
 def _build_reward_payload(entry: Any) -> dict[str, Any]:
