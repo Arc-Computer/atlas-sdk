@@ -18,6 +18,9 @@ from atlas.data_models.intermediate_step import StreamEventData
 from atlas.data_models.invocation_node import InvocationNode
 from atlas.utils.reactive.subject import Subject
 
+if typing.TYPE_CHECKING:
+    from atlas.types import StepEvaluation
+
 
 class _Singleton(type):
     def __init__(cls, name, bases, namespace):
@@ -109,9 +112,13 @@ class ExecutionContext:
         steps = metadata.setdefault("steps", {})
         return steps.setdefault(step_id, {"attempts": [], "guidance": []})
 
-    def register_step_attempt(self, step_id: int, attempt: int, evaluation: dict) -> None:
+    def register_step_attempt(self, step_id: int, attempt: int, evaluation: "StepEvaluation | dict") -> None:
         entry = self._step_metadata(step_id)
-        entry.setdefault("attempts", []).append({"attempt": attempt, "evaluation": evaluation})
+        if hasattr(evaluation, "to_dict"):
+            payload = typing.cast("StepEvaluation", evaluation).to_dict()
+        else:
+            payload = typing.cast(dict, evaluation)
+        entry.setdefault("attempts", []).append({"attempt": attempt, "evaluation": payload})
 
     def append_guidance(self, step_id: int, guidance: str) -> None:
         entry = self._step_metadata(step_id)

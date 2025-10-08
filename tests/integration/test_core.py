@@ -5,8 +5,9 @@ import pytest
 pytest.importorskip("langchain_core")
 
 from atlas.config.models import AdapterConfig, AdapterType, LLMParameters, OrchestrationConfig, RIMConfig, StudentConfig, StudentPrompts, TeacherConfig
+from atlas.runtime.schema import AtlasRewardBreakdown
 from atlas.transition.rewriter import RewrittenStudentPrompts, RewrittenTeacherPrompts
-from atlas.types import Plan, Result, StepResult
+from atlas.types import Plan, Result, StepEvaluation, StepResult
 
 
 class StubAdapter:
@@ -31,10 +32,12 @@ class StubEvaluator:
 
 class StubOrchestrator:
     def __init__(self, *args, **kwargs):
+        reward = AtlasRewardBreakdown(score=1.0)
+        evaluation = StepEvaluation(validation={}, reward=reward)
         self.result = Result(
             final_answer="answer",
             plan=Plan(steps=[]),
-            step_results=[StepResult(step_id=1, trace="", output="", evaluation={}, attempts=1)],
+            step_results=[StepResult(step_id=1, trace="", output="", evaluation=evaluation, attempts=1)],
         )
 
     async def arun(self, task: str) -> Result:

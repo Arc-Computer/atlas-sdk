@@ -92,12 +92,15 @@ def test_evaluator_combines_judge_scores():
         )
         ExecutionContext.get().reset()
         result = await evaluator.ajudge(context)
-        assert isinstance(result["score"], float)
-        assert result["judges"], "Expected per-judge breakdown"
-        for entry in result["judges"]:
-            assert entry["principles"], "Principles should be present"
-            assert isinstance(entry["score"], float)
-            assert entry.get("reasoning"), "Reasoning metadata should propagate"
-        assert 0 <= result["score"] <= 1
+        assert isinstance(result.score, float)
+        assert result.judges, "Expected per-judge breakdown"
+        for entry in result.judges:
+            assert entry.principles, "Principles should be present"
+            assert isinstance(entry.score, float)
+        raw_judges = (result.raw or {}).get("judges", [])
+        assert raw_judges, "Raw payload should include judge details"
+        for raw_entry in raw_judges:
+            assert raw_entry.get("reasoning") is not None
+        assert 0 <= result.score <= 1
 
     asyncio.run(runner())

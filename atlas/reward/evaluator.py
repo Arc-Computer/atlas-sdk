@@ -9,6 +9,7 @@ from statistics import pstdev
 from typing import Any, Dict, List, Sequence
 
 from atlas.config.models import RIMConfig
+from atlas.runtime.schema import AtlasJudgeBreakdown, AtlasJudgeSample, AtlasRewardBreakdown
 from atlas.reward.helpfulness_judge import HelpfulnessJudge
 from atlas.reward.judge import Judge, JudgeContext, JudgeOutcome, JudgeSample
 from atlas.reward.process_judge import ProcessJudge
@@ -51,14 +52,37 @@ class Evaluator:
         if not self._judges:
             raise ValueError("No active RIM judges are available")
 
-    async def ajudge(self, context: JudgeContext) -> Dict[str, Any]:
+    async def ajudge(self, context: JudgeContext) -> AtlasRewardBreakdown:
         judge_states = await asyncio.gather(
             *(self._evaluate_judge(judge, context) for judge in self._judges)
         )
         aggregated = self._aggregate(judge_states)
-        return {
-            "score": aggregated,
-            "judges": [
+
+        raw_judges: List[Dict[str, Any]] = []
+        judges: List[AtlasJudgeBreakdown] = []
+        for state in judge_states:
+            samples = [
+                AtlasJudgeSample(
+                    score=sample.score,
+                    rationale=sample.rationale,
+                    principles=sample.principles,
+                    uncertainty=sample.uncertainty,
+                    temperature=sample.temperature,
+                )
+                for sample in state.outcome.samples
+            ]
+            judges.append(
+                AtlasJudgeBreakdown(
+                    identifier=state.judge.identifier,
+                    score=state.outcome.score,
+                    rationale=state.outcome.rationale,
+                    principles=state.outcome.principles,
+                    samples=samples,
+                    escalated=state.outcome.escalated,
+                    escalation_reason=state.outcome.escalation_reason,
+                )
+            )
+            raw_judges.append(
                 {
                     "identifier": state.judge.identifier,
                     "score": state.outcome.score,
@@ -79,11 +103,17 @@ class Evaluator:
                     "escalation_reason": state.outcome.escalation_reason,
                     "reasoning": state.outcome.reasoning,
                 }
-                for state in judge_states
-            ],
-        }
+            )
 
-    def judge(self, context: JudgeContext) -> Dict[str, Any]:
+        raw_payload = {"score": aggregated, "judges": raw_judges}
+        return AtlasRewardBreakdown(
+            score=aggregated,
+            judges=judges,
+            rationale=None,
+            raw=raw_payload,
+        )
+
+    def judge(self, context: JudgeContext) -> AtlasRewardBreakdown:
         return asyncio.run(self.ajudge(context))
 
     async def _evaluate_judge(self, judge: Judge, context: JudgeContext) -> _JudgeState:

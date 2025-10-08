@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from atlas.export.jsonl import ExportRequest, export_sessions_sync
+from atlas.export.jsonl import DEFAULT_TRAJECTORY_LIMIT, ExportRequest, export_sessions_sync
 
 
 class FakeDatabase:
@@ -98,9 +98,9 @@ class FakeDatabase:
             }
         ]
 
-    async def fetch_trajectory_events(self, session_id: int, limit: int = 200):
+    async def fetch_trajectory_events(self, session_id: int, limit: int = DEFAULT_TRAJECTORY_LIMIT):
         assert session_id == 1
-        assert limit == 200
+        assert limit == DEFAULT_TRAJECTORY_LIMIT
         return [
             {
                 "id": 99,
@@ -152,7 +152,7 @@ def test_exporter_writes_expected_jsonl(monkeypatch, tmp_path: Path):
     assert step["validation"]["valid"] is True
     assert step["guidance"] == ["cite sources"]
     assert step["metadata"]["reasoning"][0]["payload"]["reasoning_content"][0]["text"] == "analysis"
-    assert step["metadata"]["attempt_details"][0]["attempt"] == 1
+    assert step["metadata"]["attempts"][0]["attempt"] == 1
 
 
 def test_exporter_handles_empty_results(monkeypatch, tmp_path: Path):
@@ -168,5 +168,4 @@ def test_exporter_handles_empty_results(monkeypatch, tmp_path: Path):
     summary = export_sessions_sync(request)
     assert summary.sessions == 0
     assert summary.steps == 0
-    assert not output_path.exists()
-
+    assert output_path.read_text(encoding="utf-8") == ""

@@ -23,6 +23,7 @@ from atlas.agent.registry import register_adapter
 from atlas.config.models import AdapterType
 from atlas.config.models import OpenAIAdapterConfig
 
+
 class OpenAIAdapter(AgentAdapter):
     """Adapter that proxies chat completions to OpenAI compatible endpoints."""
 
@@ -111,7 +112,6 @@ class OpenAIAdapter(AgentAdapter):
             return json.dumps(content)
         return str(content)
 
-
     def _base_kwargs(self) -> Dict[str, Any]:
         llm = self._config.llm
         api_key = os.getenv(llm.api_key_env)
@@ -162,6 +162,7 @@ class OpenAIAdapter(AgentAdapter):
             return str(content or "")
         except (KeyError, IndexError, TypeError) as exc:
             raise AdapterError("unexpected response format from OpenAI adapter") from exc
+
     async def ainvoke(self, prompt: str, metadata: Dict[str, Any] | None = None) -> str:
         if acompletion is None:
             raise AdapterError("litellm is required for OpenAIAdapter") from _LITELLM_ERROR
@@ -173,6 +174,7 @@ class OpenAIAdapter(AgentAdapter):
         except Exception as exc:
             raise AdapterError("openai adapter request failed") from exc
         return self._parse_response(response)
+
 
 register_adapter(AdapterType.OPENAI, OpenAIAdapter)
 

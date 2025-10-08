@@ -5,8 +5,9 @@ pytest.importorskip("asyncpg")
 from atlas.config.models import StorageConfig
 from atlas.data_models.intermediate_step import IntermediateStep, IntermediateStepPayload, IntermediateStepType, StreamEventData
 from atlas.data_models.invocation_node import InvocationNode
+from atlas.runtime.schema import AtlasRewardBreakdown
 from atlas.storage.database import Database
-from atlas.types import Plan, Step, StepResult
+from atlas.types import Plan, Step, StepEvaluation, StepResult
 
 
 class FakeConnection:
@@ -72,7 +73,9 @@ async def test_database_logs_plan_steps(monkeypatch):
     session_id = await database.create_session("task")
     plan = Plan(steps=[Step(id=1, description="desc", depends_on=[])])
     await database.log_plan(session_id, plan)
-    step_result = StepResult(step_id=1, trace="trace", output="output", evaluation={}, attempts=1)
+    reward = AtlasRewardBreakdown(score=1.0)
+    evaluation = StepEvaluation(validation={}, reward=reward)
+    step_result = StepResult(step_id=1, trace="trace", output="output", evaluation=evaluation, attempts=1)
     await database.log_step_result(session_id, step_result)
     await database.log_step_attempts(session_id, 1, [{"attempt": 1, "evaluation": {"score": 1.0}}])
     await database.log_guidance(session_id, 1, ["note"])
