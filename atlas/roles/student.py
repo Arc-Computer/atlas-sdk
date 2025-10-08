@@ -583,16 +583,16 @@ class Student:
                                 },
                             }
                         )
-            manager.push_intermediate_step(
-                IntermediateStepPayload(
-                    UUID=run_id,
-                    event_type=IntermediateStepType.LLM_END,
-                    name=node.name,
-                    data=StreamEventData(input=serialized_input, output=serialized_output),
-                    metadata=metadata,
+                manager.push_intermediate_step(
+                    IntermediateStepPayload(
+                        UUID=run_id,
+                        event_type=IntermediateStepType.LLM_END,
+                        name=node.name,
+                        data=StreamEventData(input=serialized_input, output=serialized_output),
+                        metadata=metadata,
+                    )
                 )
-            )
-            handled = True
+                handled = True
 
         elif event_type in {"on_chain_stream", "on_chat_model_stream"} and node.kind == "llm":
             chunk_payload = self._normalise_llm_chunk(run_id, serialized_chunk)
