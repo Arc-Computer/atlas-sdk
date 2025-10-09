@@ -45,12 +45,9 @@ Atlas returns an `atlas.types.Result` containing the final answer, the reviewed 
 The repo ships with a ready-to-go Compose stack under `docker/`:
 
 ```bash
-# 1. Create a .env file next to the docker/ directory (Compose loads it automatically)
-cat <<'EOF' > .env
-OPENAI_API_KEY=sk-...
-GOOGLE_API_KEY=...
-EOF
-
+# 1. Ensure your project .env includes the required keys (Compose reads it automatically):
+#    OPENAI_API_KEY=sk-...
+#    GOOGLE_API_KEY=...
 # 2. Build the SDK image and start Postgres + the demo agent
 docker compose -f docker/docker-compose.yaml up --build
 ```
@@ -70,10 +67,9 @@ When you install the SDK from PyPI you still need a PostgreSQL URL if you want p
 
 ```bash
 pip install arc-atlas
-# Bring up Postgres (uses docker/.env if present)
 docker compose -f docker/docker-compose.yaml up -d postgres
 
-# Either set env vars for this shell or add them to .env before running Atlas
+# Either export these for the current shell or ensure they're present in .env
 export STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas_arc_demo
 export OPENAI_API_KEY=sk-...
 # Optional Process/Helpfulness judges
