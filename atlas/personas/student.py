@@ -327,15 +327,28 @@ class Student:
     ) -> List[BaseMessage]:
         context_block = json.dumps(context, ensure_ascii=False, indent=2)
         guidance_block = json.dumps(list(guidance or []), ensure_ascii=False, indent=2)
+        task_text = ""
+        try:
+            execution_context = ExecutionContext.get()
+            stored_task = execution_context.metadata.get("task")
+            if isinstance(stored_task, str):
+                task_text = stored_task.strip()
+        except Exception:  # pragma: no cover - defensive
+            task_text = ""
         payload = [
             f"Step ID: {step.id}",
             f"Description: {step.description}",
+        ]
+        if task_text:
+            payload.append("Original Task:")
+            payload.append(task_text)
+        payload.extend([
             f"Tool: {step.tool or 'none'}",
             f"Tool Parameters: {json.dumps(step.tool_params or {}, ensure_ascii=False)}",
             f"Dependencies: {step.depends_on}",
             f"Validated Prior Results (artifacts when available): {context_block}",
             f"Guidance History: {guidance_block}",
-        ]
+        ])
         user_message = "\n".join(payload)
         return [
             SystemMessage(content=self._prompts.executor),
