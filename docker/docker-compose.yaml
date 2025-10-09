@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: atlas
+      POSTGRES_PASSWORD: atlas
+      POSTGRES_DB: atlas_arc_demo
+    ports:
+      - "5433:5432"
+    volumes:
+      - atlas_pg_data:/var/lib/postgresql/data
+
+  atlas:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+      STORAGE__DATABASE_URL: postgresql://atlas:atlas@postgres:5432/atlas_arc_demo
+    depends_on:
+      - postgres
+    volumes:
+      - ..:/workspace:delegated
+    working_dir: /workspace
+
+volumes:
+  atlas_pg_data:
