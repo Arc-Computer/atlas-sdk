@@ -25,9 +25,9 @@ The persisted data must match the schema expected by the training stack in
 [Arc-Computer/ATLAS](https://github.com/Arc-Computer/ATLAS) (`atlas_core/runtime/schema.py`). The SDK currently records:
 
 - **Session envelope** – task string, final answer, plan JSON, and user-supplied metadata.
-- **Step traces** – description, executor trace, student output, validation verdicts, retry guidance, attempt counts,
-  and the full reward breakdown (`score`, per-judge details, tier samples). Reasoning blocks captured from the
-  underlying LLM are attached under `metadata`.
+- **Step traces** – description, executor trace, structured executor output (JSON with `status`, `artifacts`, optional `notes`),
+  validation verdicts, retry guidance, attempt counts, and the full reward breakdown (`score`, per-judge details, tier samples).
+  Reasoning blocks captured from the underlying LLM are attached under `metadata`.
 - **Trajectory events** – serialized `IntermediateStepPayload` items describing workflow/tool/LLM boundaries for replay
   or advanced analytics.
 
@@ -43,6 +43,9 @@ Running `arc-atlas --database-url ... --output traces.jsonl` (or `python -m atla
 2. Execute workloads with `atlas.core.run(...)`; telemetry remains in-process unless persistence is enabled.
 3. Invoke `arc-atlas` (or `python -m atlas.cli.export`) to produce training-ready JSONL.
 4. Feed the export into Atlas core utilities (`load_runtime_traces`, `flatten_traces_for_training`, etc.).
+
+If you need the raw text or structured artifacts from a step, parse the `output` string with `json.loads(...)` and inspect the `status` / `artifacts`
+fields before feeding the data into downstream pipelines.
 
 There are no mandatory external tracing systems—developers can keep using their existing agent infrastructure and opt
 into richer telemetry later if needed.

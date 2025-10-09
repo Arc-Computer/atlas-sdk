@@ -4,6 +4,12 @@ Atlas SDK lets you wrap any Bring-Your-Own-Agent (BYOA) into a guided Teacher �
 
 ---
 
+## 📚 Full Documentation
+
+The README hits the highlights. For the complete guide—including configuration tables, orchestration deep dives, and training recipes—visit [docs.arc.computer](https://docs.arc.computer).
+
+---
+
 ## Key Features
 
 - **Bring-Your-Own-Agent (BYOA) Adapters** – Drop in HTTP, Python, or OpenAI agents without rewriting core logic.
@@ -112,8 +118,7 @@ Each session record follows the shared runtime schema consumed by the training s
 
 - `task`, `final_answer`, `plan` – orchestration metadata for the run.
 - `session_metadata` – persisted metadata plus status/timestamps.
-- `steps` – executor traces with descriptions, outputs, reward breakdowns (`score`, per-judge details, tier samples),
-  validation results, retry guidance, and executor metadata (including captured reasoning blocks under `metadata.reasoning`).
+- `steps` – executor traces with descriptions, reward breakdowns, validation results, retry guidance, structured executor outputs, and telemetry metadata.
 - `trajectory_events` – optional array of intermediate telemetry events for richer replay and debugging.
 
 Once exported you can feed the file directly into `load_runtime_traces` or flatten it for RL pipelines with helpers in
@@ -178,7 +183,7 @@ agent:
 6. Database.log_*()           # optional persistence of plans, attempts, trajectory events
 ```
 
-Trajectory events stream through `ExecutionContext.event_stream`, enabling live console streaming and durable storage via `atlas/storage/database.py` and `atlas/storage/schema.sql`.
+Trajectory events stream through `ExecutionContext.event_stream`, enabling live console streaming and durable storage via `atlas/runtime/storage/database.py` and `atlas/runtime/storage/schema.sql`.
 
 **RIM Model Guidance**
 
@@ -225,12 +230,14 @@ For a deeper look at how these events map onto the Atlas training stack—and wh
 
 ## Exporting Runtime Sessions
 
-Use the `arc-atlas` CLI (or `python -m atlas.cli.export ...` if you prefer an explicit module invocation) to convert persisted PostgreSQL sessions into JSONL traces that match the core runtime schema.
+When persistence is enabled, every run captures plans, telemetry, and reward data. Convert those sessions into JSONL with the `arc-atlas` CLI:
 
 ```bash
 arc-atlas \
   --database-url postgresql://atlas:atlas@localhost:5432/atlas \
-  --output traces.jsonl
+  --output traces.jsonl \
+  --limit 25 \
+  --trajectory-event-limit 500
 ```
 
 Compatibility aliases `atlas.export` and `atlas-export` remain available, but they may collide with other tools named `atlas` if those appear earlier in your `PATH`. `arc-atlas` and `python -m atlas.cli.export` are collision-proof.
@@ -245,8 +252,8 @@ Each line in the output is an `AtlasSessionTrace` record:
 
 ```json
 {
-  "task": "...",
-  "final_answer": "...",
+  "task": "Summarize the Atlas SDK",
+  "final_answer": "The SDK wraps BYOA agents with a Student/Teacher loop...",
   "plan": {"steps": [...]},
   "steps": [
     {
@@ -254,9 +261,12 @@ Each line in the output is an `AtlasSessionTrace` record:
       "description": "...",
       "tool": "summariser",
       "reward": {"score": 0.92, "judges": [...]},
-      "validation": {"valid": true, "guidance": null},
+      "validation": {"valid": true},
       "guidance": ["..."],
-      "context": {"prior_results": {"1": "..."}}
+      "context": {"prior_results": {"1": "..."}},
+      "artifacts": {"final_answer": "Paris"},
+      "status": "ok",
+      "output": "{\"status\":\"ok\",\"artifacts\":{\"final_answer\":\"Paris\"}}"
     }
   ],
   "session_metadata": {
@@ -270,20 +280,10 @@ Each line in the output is an `AtlasSessionTrace` record:
 The structure aligns with `AtlasSessionTrace`, `AtlasStepTrace`, and `AtlasRewardBreakdown` used by `trainers/runtime_dataset.py`, so you can immediately consume the file inside the core repo:
 
 1. Run `atlas.core.run(...)` with PostgreSQL persistence enabled.
-2. Execute `arc-atlas --database-url ... --output traces.jsonl` (or `python -m atlas.cli.export ...`).
+2. Execute `arc-atlas --database-url ... --output traces.jsonl`.
 3. Call `load_runtime_traces("traces.jsonl")` (from the core repo) to build training datasets.
 
-Additional usage notes live in `docs/examples/export_runtime_traces.md`.
-
----
-
-## Migration Notes
-
-- Student/Teacher personas now live under `atlas.personas`, with LangGraph utilities in `atlas.runtime.agent_loop` and adapter tooling in `atlas.connectors`. Legacy modules such as `atlas.roles` and `atlas.agent` remain as shims that emit `DeprecationWarning`s.
-- Reward evaluation moved to `atlas.evaluation`; import `Evaluator` and judge primitives from there instead of `atlas.reward`.
-- Prompt generation no longer depends on `PromptRewriteEngine`. Call `atlas.prompts.build_student_prompts` / `build_teacher_prompts`, or provide explicit templates under `student.prompts` and `teacher.prompts` in your Atlas config.
-- The JSONL exporter now resides in `atlas.cli`. Invoke it via `arc-atlas` or `python -m atlas.cli.export`; compatibility aliases (`atlas.export`, `atlas-export`, `python -m atlas.export.jsonl`) still function but are slated for removal in a future major release.
-- Core dataclasses (`Plan`, `Step`, `Result`, etc.) remain available via `atlas.types`; this module is the supported convenience layer for consuming runtime schema objects in downstream integrations.
+Because each step output is now a JSON object, parse the string to access `status` and `artifacts` (e.g. `json.loads(step_output)["artifacts"]["final_answer"]`). Examples live in `docs/sdk/export-traces.mdx`.
 
 ---
 
@@ -320,3 +320,7 @@ Pull requests should include updated documentation or examples when behaviour ch
 ## License
 
 Atlas SDK is released under the Apache 2.0 license. See `LICENSE` for full details. Vendored NeMo components retain their original licensing notices.
+
+---
+
+Need more depth or end-to-end walkthroughs? Everything in this README is covered—and expanded—at [docs.arc.computer](https://docs.arc.computer).

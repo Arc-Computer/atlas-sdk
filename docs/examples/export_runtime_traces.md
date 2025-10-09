@@ -40,6 +40,7 @@ Each line in `traces.jsonl` is an `AtlasSessionTrace`. The layout mirrors the da
 - `steps` – array of `AtlasStepTrace` objects with:
   - `step_id`, `description`, `tool`, and `tool_params` from the plan.
   - `trace`, `output`, and `attempts` from runtime execution.
+  - `output` is a JSON string containing `status`, `artifacts`, and optional `notes`. Parse it (e.g. `json.loads(step["output"])`) to access the structured fields.
   - `reward` captured as an `AtlasRewardBreakdown` (score, judges, samples).
   - `validation` results from the Teacher and `guidance` history.
   - `context.prior_results` containing outputs from prior steps.
