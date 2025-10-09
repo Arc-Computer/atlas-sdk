@@ -176,6 +176,85 @@ def build_orchestrator():
     return orchestrator, teacher, student, evaluator
 
 
+class SingleShotStudent:
+    async def acreate_plan(self, task: str) -> Plan:
+        return Plan(
+            steps=[
+                Step(id=1, description="Summarise findings", depends_on=[]),
+            ]
+        )
+
+    async def aexecute_step(self, step: Step, context, guidance):
+        structured_output = {
+            "status": "ok",
+            "result": {"deliverable": "answer text", "artifacts": {}},
+            "deliverable": "answer text",
+            "artifacts": {},
+            "text": "answer text",
+        }
+        metadata = {
+            "status": "ok",
+            "artifacts": {},
+            "deliverable": "answer text",
+            "result": structured_output["result"],
+            "structured_output": structured_output,
+            "text": "answer text",
+        }
+        return StudentStepResult(
+            trace="single_trace",
+            output=json.dumps(structured_output),
+            messages=[],
+            metadata=metadata,
+            status="ok",
+            artifacts={},
+            deliverable="answer text",
+        )
+
+    async def asynthesize_final_answer(self, task: str, step_summaries):
+        payload = json.loads(step_summaries[0]["output"])
+        deliverable = payload.get("result", {}).get("deliverable", "")
+        return f"FINAL:{deliverable}"
+
+
+class SingleShotTeacher(FakeTeacher):
+    async def areview_plan(self, task: str, plan: Plan) -> Plan:
+        return Plan(steps=list(plan.steps), execution_mode="single_shot")
+
+    async def avalidate_step(
+        self,
+        step: Step,
+        trace: str,
+        structured_output: dict[str, Any],
+        prior_results: dict[int, Any],
+        prior_guidance,
+        attempt_guidance,
+    ):
+        return {"valid": True, "guidance": None}
+
+
+def build_single_shot_orchestrator():
+    orchestration_config = OrchestrationConfig(max_retries=1, step_timeout_seconds=900, rim_guidance_tag="tag", emit_intermediate_steps=True)
+    rim_config = RIMConfig(
+        small_model=LLMParameters(model="stub"),
+        large_model=LLMParameters(model="arbiter"),
+        active_judges={"process": True, "helpfulness": True},
+        variance_threshold=1.0,
+        uncertainty_threshold=1.0,
+        parallel_workers=2,
+    )
+    teacher = SingleShotTeacher()
+    student = SingleShotStudent()
+    evaluator = FakeEvaluator()
+    orchestrator = Orchestrator(
+        teacher=teacher,
+        student=student,
+        evaluator=evaluator,
+        orchestration_config=orchestration_config,
+        rim_config=rim_config,
+    )
+    return orchestrator, teacher, student, evaluator
+
+
 @pytest.mark.asyncio
 async def test_orchestrator_retries_and_records_context():
     context = ExecutionContext.get()
@@ -217,5 +296,21 @@ async def test_orchestrator_retries_and_records_context():
     results_by_step = {entry.step_id: entry for entry in result.step_results}
     assert results_by_step[1].metadata["deliverable"]["dataset"] == "A"
     assert results_by_step[3].metadata["status"] == "ok"
-    assert "summary" in results_by_step[3].metadata["deliverable"]["summary"]
+    summary_value = results_by_step[3].metadata["deliverable"]["summary"]
+    assert "dataset" in summary_value
     assert results_by_step[3].metadata["runtime"]["reward_skipped"] is False
+
+
+@pytest.mark.asyncio
+async def test_orchestrator_single_shot_invokes_reward():
+    context = ExecutionContext.get()
+    context.reset()
+    orchestrator, _, _, evaluator = build_single_shot_orchestrator()
+    result = await orchestrator.arun("single shot task")
+    assert result.plan.execution_mode == "single_shot"
+    assert len(result.step_results) == 1
+    assert len(evaluator.invocations) == 1
+    assert result.final_answer == "FINAL:answer text"
+    step_result = result.step_results[0]
+    assert step_result.evaluation.reward.score == pytest.approx(0.9)
+    assert step_result.metadata["status"] == "ok"

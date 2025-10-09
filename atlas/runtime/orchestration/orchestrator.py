@@ -78,13 +78,47 @@ class Orchestrator:
         execution_mode = getattr(reviewed_plan, "execution_mode", "stepwise")
         context.metadata["task"] = task
         context.metadata["plan"] = plan_payload
+        context.metadata["original_plan"] = plan_payload
         context.metadata["execution_mode"] = execution_mode
         if execution_mode == "single_shot":
             context.metadata["single_shot"] = True
-            summaries = self._build_single_shot_summaries(reviewed_plan)
-            collected = self._teacher.collect_results(summaries)
-            context.metadata["single_shot_summaries"] = collected
-            final_answer = await self._student.asynthesize_final_answer(task, collected)
+            single_step = self._build_single_shot_step(task, reviewed_plan)
+            single_shot_plan = Plan(steps=[single_step], execution_mode="single_shot")
+            context.metadata["plan"] = single_shot_plan.model_dump()
+            context_outputs: Dict[int, Dict[str, Any]] = {}
+            step_summaries: List[Dict[str, Any]] = []
+            step_results: List[StepResult] = []
+
+            outcome = await self._run_step(task, single_step, context_outputs, context)
+            if outcome.context_entry is not None:
+                context_outputs[single_step.id] = outcome.context_entry
+            result = outcome.result
+            evaluation = outcome.evaluation
+            attempts = outcome.attempts
+            step_summaries.append(
+                {
+                    "step_id": single_step.id,
+                    "description": single_step.description,
+                    "status": outcome.status,
+                    "output": result.output,
+                    "artifacts": outcome.artifacts,
+                    "deliverable": outcome.deliverable,
+                    "reason": result.metadata.get("reason"),
+                }
+            )
+            step_results.append(
+                StepResult(
+                    step_id=single_step.id,
+                    trace=result.trace,
+                    output=result.output,
+                    evaluation=evaluation,
+                    attempts=attempts,
+                    metadata=result.metadata,
+                )
+            )
+            organized_results = self._teacher.collect_results(step_summaries)
+            context.metadata["single_shot_results"] = organized_results
+            final_answer = await self._student.asynthesize_final_answer(task, organized_results)
             manager.push_intermediate_step(
                 IntermediateStepPayload(
                     UUID=orchestration_id,
@@ -93,7 +127,7 @@ class Orchestrator:
                     data=StreamEventData(output=final_answer),
                 )
             )
-            return Result(final_answer=final_answer, plan=reviewed_plan, step_results=[])
+            return Result(final_answer=final_answer, plan=single_shot_plan, step_results=step_results)
 
         levels = self._determine_levels(reviewed_plan)
         context_outputs: Dict[int, Dict[str, Any]] = {}
@@ -399,20 +433,25 @@ class Orchestrator:
         graph = DependencyGraph(plan)
         return graph.topological_levels()
 
-    def _build_single_shot_summaries(self, plan: Plan) -> List[Dict[str, Any]]:
-        summaries: List[Dict[str, Any]] = []
-        for step in plan.steps:
-            summaries.append(
-                {
-                    "step_id": step.id,
-                    "description": step.description,
-                    "status": "pending",
-                    "artifacts": {},
-                    "deliverable": None,
-                    "reason": None,
-                }
-            )
-        return summaries
+    def _build_single_shot_step(self, task: str, plan: Plan) -> Step:
+        plan_lines: List[str] = []
+        for index, step in enumerate(plan.steps, start=1):
+            plan_lines.append(f"{index}. {step.description}")
+        description_parts = [
+            "Produce the complete answer for the task in a single response.",
+            "Ensure the output matches the requested format and includes any necessary reasoning.",
+        ]
+        if plan_lines:
+            description_parts.append("Follow this reviewed plan while responding:")
+            description_parts.extend(plan_lines)
+        description = "\n".join(description_parts)
+        return Step(
+            id=1,
+            description=description,
+            tool=None,
+            tool_params=None,
+            depends_on=[],
+        )
 
     def _lookup_step(self, plan: Plan, step_id: int) -> Step:
         for step in plan.steps:
