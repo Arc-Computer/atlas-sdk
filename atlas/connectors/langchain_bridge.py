@@ -140,16 +140,6 @@ class BYOABridgeLLM(BaseChatModel):
                 content = json.dumps(content)
             parts.append(f"{message.type.upper()}: {content}")
         return "\n\n".join(parts)
-    def _build_metadata(self, messages: Sequence[BaseMessage]) -> Dict[str, Any]:
-        try:
-            serialized_messages = [self._serialize_message(message) for message in messages]
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.warning("Failed to serialise messages for metadata: %s", exc)
-            serialized_messages = []
-        return {
-            "messages": serialized_messages,
-            "tools": self._tool_metadata,
-        }
     def _parse_response(self, response: Any) -> Tuple[str, List[ToolCall]]:
         if isinstance(response, str):
             try:
@@ -182,8 +172,7 @@ class BYOABridgeLLM(BaseChatModel):
         return ChatResult(generations=[generation])
     async def _agenerate(self, messages: Sequence[BaseMessage], stop: Sequence[str] | None = None, **kwargs: Any) -> ChatResult:
         prompt = self._render_prompt(messages)
-        metadata = self._build_metadata(messages)
-        response = await self._adapter.ainvoke(prompt, metadata=metadata)
+        response = await self._adapter.ainvoke(prompt)
         content, tool_calls = self._parse_response(response)
         return self._to_chat_result(content, tool_calls)
     def _generate(self, messages: Sequence[BaseMessage], stop: Sequence[str] | None = None, **kwargs: Any) -> ChatResult:
