@@ -6,7 +6,7 @@ pytest.importorskip("langchain_core")
 
 from atlas.config.models import AdapterConfig, AdapterType, LLMParameters, OrchestrationConfig, RIMConfig, StudentConfig, StudentPrompts, TeacherConfig
 from atlas.runtime.schema import AtlasRewardBreakdown
-from atlas.transition.rewriter import RewrittenStudentPrompts, RewrittenTeacherPrompts
+from atlas.prompts import RewrittenStudentPrompts, RewrittenTeacherPrompts
 from atlas.types import Plan, Result, StepEvaluation, StepResult
 
 
@@ -75,17 +75,16 @@ def test_core_run_assembles_pipeline(monkeypatch):
         monkeypatch.setattr(core, "Evaluator", StubEvaluator)
         monkeypatch.setattr(core, "Orchestrator", lambda *args, **kwargs: StubOrchestrator())
 
-        class StubRewriteEngine:
-            def __init__(self, *_args, **_kwargs):
-                pass
-
-            async def generate(self, *args, **kwargs):
-                return (
-                    RewrittenStudentPrompts("planner", "executor", "synth"),
-                    RewrittenTeacherPrompts("plan", "validate", "guide"),
-                )
-
-        monkeypatch.setattr(core, "PromptRewriteEngine", StubRewriteEngine)
+        monkeypatch.setattr(
+            core,
+            "build_student_prompts",
+            lambda *_args, **_kwargs: RewrittenStudentPrompts("planner", "executor", "synth"),
+        )
+        monkeypatch.setattr(
+            core,
+            "build_teacher_prompts",
+            lambda *_args, **_kwargs: RewrittenTeacherPrompts("plan", "validate", "guide"),
+        )
         result = await core.arun("task", "config.yaml")
         assert result.final_answer == "answer"
 

@@ -119,6 +119,8 @@ class AtlasStepTrace:
     attempts: int = 1
     guidance: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+    artifacts: Dict[str, Any] = field(default_factory=dict)
+    deliverable: Any | None = None
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -134,6 +136,8 @@ class AtlasStepTrace:
             "attempts": self.attempts,
             "guidance": self.guidance,
             "metadata": self.metadata,
+            "artifacts": self.artifacts,
+            "deliverable": self.deliverable,
         }
 
 

@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from atlas.export.jsonl import DEFAULT_TRAJECTORY_LIMIT, ExportRequest, export_sessions_sync
+from atlas.cli.jsonl_writer import DEFAULT_TRAJECTORY_LIMIT, ExportRequest, export_sessions_sync
 
 
 class FakeDatabase:
@@ -59,7 +59,7 @@ class FakeDatabase:
                 "trace": "AI: finished",
                 "output": "atlas summary",
                 "evaluation": {
-                    "validation": {"valid": True, "rationale": "looks good"},
+                    "validation": {"valid": True, "guidance": "looks good"},
                     "reward": {
                         "score": 0.92,
                         "judges": [
@@ -125,7 +125,7 @@ class EmptyDatabase(FakeDatabase):
 
 
 def test_exporter_writes_expected_jsonl(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr("atlas.export.jsonl.Database", FakeDatabase)
+    monkeypatch.setattr("atlas.cli.jsonl_writer.Database", FakeDatabase)
     output_path = tmp_path / "traces.jsonl"
 
     request = ExportRequest(
@@ -156,7 +156,7 @@ def test_exporter_writes_expected_jsonl(monkeypatch, tmp_path: Path):
 
 
 def test_exporter_handles_empty_results(monkeypatch, tmp_path: Path):
-    monkeypatch.setattr("atlas.export.jsonl.Database", EmptyDatabase)
+    monkeypatch.setattr("atlas.cli.jsonl_writer.Database", EmptyDatabase)
     output_path = tmp_path / "traces.jsonl"
 
     request = ExportRequest(

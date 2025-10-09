@@ -31,7 +31,7 @@ The persisted data must match the schema expected by the training stack in
 - **Trajectory events** – serialized `IntermediateStepPayload` items describing workflow/tool/LLM boundaries for replay
   or advanced analytics.
 
-Running `atlas.export --database-url ... --output traces.jsonl` materialises the JSONL format consumed by
+Running `arc-atlas --database-url ... --output traces.jsonl` (or `python -m atlas.cli.export ...`) materialises the JSONL format consumed by
 `trainers/runtime_dataset.py` in the core repo. Loading the file via `load_runtime_traces("traces.jsonl")` returns
 `AtlasSessionTrace` objects without additional adapters.
 
@@ -41,7 +41,7 @@ Running `atlas.export --database-url ... --output traces.jsonl` materialises the
 
 1. Configure PostgreSQL persistence in your Atlas config (`storage.database_url`).
 2. Execute workloads with `atlas.core.run(...)`; telemetry remains in-process unless persistence is enabled.
-3. Invoke `atlas.export` to produce training-ready JSONL.
+3. Invoke `arc-atlas` (or `python -m atlas.cli.export`) to produce training-ready JSONL.
 4. Feed the export into Atlas core utilities (`load_runtime_traces`, `flatten_traces_for_training`, etc.).
 
 There are no mandatory external tracing systems—developers can keep using their existing agent infrastructure and opt
@@ -60,4 +60,3 @@ If you need deeper observability (e.g., LangChain callbacks or OpenTelemetry exp
 By default, the SDK prioritises simplicity and data fidelity over heavy telemetry instrumentation. This keeps the
 onboarding path short for teams that already operate agents in production while ensuring the exported traces slot
 directly into the Atlas training stack.
-

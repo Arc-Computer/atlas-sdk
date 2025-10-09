@@ -1,6 +1,6 @@
 import pytest
 
-from atlas.orchestration.dependency_graph import DependencyGraph
+from atlas.runtime.orchestration.dependency_graph import DependencyGraph
 from atlas.types import Plan, Step
 
 

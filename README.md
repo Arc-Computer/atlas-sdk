@@ -53,7 +53,7 @@ atlas.core.run(...)
 arc-atlas --database-url postgresql://localhost:5432/atlas --output traces.jsonl --limit 25
 
 # (Fall back to python -m if shell PATH ordering is unpredictable)
-python -m atlas.export.jsonl --database-url postgresql://localhost:5432/atlas --output traces.jsonl --limit 25
+python -m atlas.cli.export --database-url postgresql://localhost:5432/atlas --output traces.jsonl --limit 25
 
 # 3. Load the dataset inside the Atlas core repo
 from trainers.runtime_dataset import load_runtime_traces
@@ -89,16 +89,14 @@ Configuration files live in `configs/examples/`. Each YAML document is validated
 | `orchestration` | Retry policy, per-step timeout, and trajectory emission flags |
 | `rim` | Judge definitions, weights, aggregation strategy, thresholds |
 | `storage` | Optional PostgreSQL connection info for persistence |
-| `prompt_rewrite` | LLM used to derive planner / executor / teacher personas from the user prompt |
 
-During startup Atlas calls the rewrite LLM once to transform the BYOA system prompt into three personas:
+Atlas combines your adapter's `system_prompt` with opinionated templates from `atlas.prompts` to construct the built-in personas:
 
 1. **Planner Student** – drafts a dependency-aware plan
 2. **Executor Student** – runs each step and returns a trace
 3. **Teacher** – reviews plans, validates execution, and issues retries/guidance
 
-By default the rewrite call reuses the same API credentials as your agent. Provide an explicit `prompt_rewrite` block if
-you need a dedicated model or different limits.
+Override the defaults by providing explicit `student.prompts` and `teacher.prompts` blocks in your configuration. Each template can reference `{base_prompt}` to splice in the adapter prompt.
 
 ### Example: HTTP Adapter (excerpt)
 
@@ -183,7 +181,7 @@ For a deeper look at how these events map onto the Atlas training stack—and wh
 
 ## Exporting Runtime Sessions
 
-Use the `arc-atlas` CLI (or `python -m atlas.export.jsonl ...` if you prefer an explicit module invocation) to convert persisted PostgreSQL sessions into JSONL traces that match the core runtime schema.
+Use the `arc-atlas` CLI (or `python -m atlas.cli.export ...` if you prefer an explicit module invocation) to convert persisted PostgreSQL sessions into JSONL traces that match the core runtime schema.
 
 ```bash
 arc-atlas \
@@ -191,7 +189,7 @@ arc-atlas \
   --output traces.jsonl
 ```
 
-Compatibility aliases `atlas.export` and `atlas-export` remain available, but they may collide with other tools named `atlas` if those appear earlier in your `PATH`. `arc-atlas` and `python -m atlas.export.jsonl` are collision-proof.
+Compatibility aliases `atlas.export` and `atlas-export` remain available, but they may collide with other tools named `atlas` if those appear earlier in your `PATH`. `arc-atlas` and `python -m atlas.cli.export` are collision-proof.
 
 Key flags:
 
@@ -212,7 +210,7 @@ Each line in the output is an `AtlasSessionTrace` record:
       "description": "...",
       "tool": "summariser",
       "reward": {"score": 0.92, "judges": [...]},
-      "validation": {"valid": true, "rationale": "..."},
+      "validation": {"valid": true, "guidance": null},
       "guidance": ["..."],
       "context": {"prior_results": {"1": "..."}}
     }
@@ -228,10 +226,20 @@ Each line in the output is an `AtlasSessionTrace` record:
 The structure aligns with `AtlasSessionTrace`, `AtlasStepTrace`, and `AtlasRewardBreakdown` used by `trainers/runtime_dataset.py`, so you can immediately consume the file inside the core repo:
 
 1. Run `atlas.core.run(...)` with PostgreSQL persistence enabled.
-2. Execute `atlas.export --database-url ... --output traces.jsonl`.
+2. Execute `arc-atlas --database-url ... --output traces.jsonl` (or `python -m atlas.cli.export ...`).
 3. Call `load_runtime_traces("traces.jsonl")` (from the core repo) to build training datasets.
 
 Additional usage notes live in `docs/examples/export_runtime_traces.md`.
+
+---
+
+## Migration Notes
+
+- Student/Teacher personas now live under `atlas.personas`, with LangGraph utilities in `atlas.runtime.agent_loop` and adapter tooling in `atlas.connectors`. Legacy modules such as `atlas.roles` and `atlas.agent` remain as shims that emit `DeprecationWarning`s.
+- Reward evaluation moved to `atlas.evaluation`; import `Evaluator` and judge primitives from there instead of `atlas.reward`.
+- Prompt generation no longer depends on `PromptRewriteEngine`. Call `atlas.prompts.build_student_prompts` / `build_teacher_prompts`, or provide explicit templates under `student.prompts` and `teacher.prompts` in your Atlas config.
+- The JSONL exporter now resides in `atlas.cli`. Invoke it via `arc-atlas` or `python -m atlas.cli.export`; compatibility aliases (`atlas.export`, `atlas-export`, `python -m atlas.export.jsonl`) still function but are slated for removal in a future major release.
+- Core dataclasses (`Plan`, `Step`, `Result`, etc.) remain available via `atlas.types`; this module is the supported convenience layer for consuming runtime schema objects in downstream integrations.
 
 ---
 

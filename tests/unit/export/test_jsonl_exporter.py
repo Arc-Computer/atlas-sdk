@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from atlas.export.jsonl import DEFAULT_TRAJECTORY_LIMIT, ExportStats, export_sessions
+from atlas.cli.jsonl_writer import DEFAULT_TRAJECTORY_LIMIT, ExportStats, export_sessions
 
 
 class FakeStore:
@@ -48,7 +48,7 @@ def populated_store():
             },
         ]
     }
-    validation_payload = {"valid": True, "rationale": "Looks good"}
+    validation_payload = {"valid": True, "guidance": "Looks good"}
     reward_payload = {
         "score": 0.91,
         "judges": [

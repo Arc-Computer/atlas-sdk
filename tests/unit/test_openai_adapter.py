@@ -3,7 +3,7 @@ import pytest
 
 pytest.importorskip("litellm")
 
-from atlas.agent.openai_adapter import OpenAIAdapter
+from atlas.connectors.openai import OpenAIAdapter
 from atlas.config.models import LLMParameters, OpenAIAdapterConfig
 
 

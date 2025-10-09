@@ -1,10 +1,10 @@
 import io
 
-from atlas.data_models.intermediate_step import IntermediateStepPayload
-from atlas.data_models.intermediate_step import IntermediateStepType
-from atlas.data_models.intermediate_step import StreamEventData
-from atlas.orchestration.execution_context import ExecutionContext
-from atlas.telemetry import ConsoleTelemetryStreamer
+from atlas.runtime.models import IntermediateStepPayload
+from atlas.runtime.models import IntermediateStepType
+from atlas.runtime.models import StreamEventData
+from atlas.runtime.orchestration.execution_context import ExecutionContext
+from atlas.runtime.telemetry import ConsoleTelemetryStreamer
 from atlas.runtime.schema import AtlasRewardBreakdown
 from atlas.types import Plan
 from atlas.types import Result
@@ -63,7 +63,7 @@ def test_console_streamer_renders_events_and_summary():
                     "trace": "trace",
                     "output": "complete",
                     "evaluation": {
-                        "validation": {"valid": True, "rationale": "looks good"},
+                        "validation": {"valid": True, "guidance": "looks good"},
                         "reward": {"score": 0.8, "uncertainty": 0.1, "judges": [1]},
                     },
                 }

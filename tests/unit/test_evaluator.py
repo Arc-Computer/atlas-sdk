@@ -3,11 +3,11 @@ import json
 from typing import Dict
 
 from atlas.config.models import LLMParameters, RIMConfig
-from atlas.reward.evaluator import Evaluator
-from atlas.reward.judge import Judge, JudgeContext
+from atlas.evaluation.evaluator import Evaluator
+from atlas.evaluation.judges.base import Judge, JudgeContext
 from atlas.types import Step
 from atlas.utils.llm_client import LLMResponse
-from atlas.orchestration.execution_context import ExecutionContext
+from atlas.runtime.orchestration.execution_context import ExecutionContext
 
 
 class _StubClient:

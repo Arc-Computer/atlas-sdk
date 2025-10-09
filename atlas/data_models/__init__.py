@@ -1,15 +1,25 @@
-"""Data model exports used across Atlas."""
+"""Deprecated data model exports."""
 
-from atlas.data_models.intermediate_step import IntermediateStep
-from atlas.data_models.intermediate_step import IntermediateStepPayload
-from atlas.data_models.intermediate_step import IntermediateStepState
-from atlas.data_models.intermediate_step import IntermediateStepType
-from atlas.data_models.invocation_node import InvocationNode
+from __future__ import annotations
+
+import warnings
+
+from atlas.runtime.models.intermediate_step import (
+    IntermediateStep,
+    IntermediateStepPayload,
+    IntermediateStepType,
+    StreamEventData,
+)
+
+warnings.warn(
+    "atlas.data_models is deprecated; import from atlas.runtime.models",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 __all__ = [
     "IntermediateStep",
     "IntermediateStepPayload",
-    "IntermediateStepState",
     "IntermediateStepType",
-    "InvocationNode",
+    "StreamEventData",
 ]

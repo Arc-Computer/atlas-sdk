@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import List
 
@@ -61,15 +62,24 @@ def main() -> None:
         task_path = DEFAULT_TASK_PATH
     payload = load_arc_task(args.task_id, task_path)
     prompt = arc_task_to_prompt(payload)
+    # Determine whether telemetry streaming will run so we can avoid duplicating output.
+    stream_override: bool | None = True if args.stream_progress else None
+    will_stream = args.stream_progress or (
+        stream_override is None and bool(getattr(sys.stdout, "isatty", lambda: False)())
+    )
+
     result = core.run(
         task=prompt,
         config_path=str(args.config),
-        stream_progress=args.stream_progress,
+        stream_progress=stream_override,
     )
     print("\n=== Review Plan ===")
     print(_render_plan([step.description for step in result.plan.steps]))
-    print("\n=== Final Answer ===")
-    print(result.final_answer)
+    if not will_stream:
+        print("\n=== Final Answer ===")
+        print(result.final_answer)
+    else:
+        print("\n(See streamed output above for the final answer.)")
 
 
 if __name__ == "__main__":

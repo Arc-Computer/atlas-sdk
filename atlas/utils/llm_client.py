@@ -150,7 +150,7 @@ class LLMClient:
         if not payload:
             return
         try:
-            from atlas.orchestration.execution_context import ExecutionContext  # noqa: WPS433
+            from atlas.runtime.orchestration.execution_context import ExecutionContext  # noqa: WPS433
             context = ExecutionContext.get()
         except Exception:  # pragma: no cover - context not initialised
             return
