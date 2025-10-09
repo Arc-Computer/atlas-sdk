@@ -141,7 +141,15 @@ class BYOABridgeLLM(BaseChatModel):
             parts.append(f"{message.type.upper()}: {content}")
         return "\n\n".join(parts)
     def _build_metadata(self, messages: Sequence[BaseMessage]) -> Dict[str, Any]:
-        return {}
+        try:
+            serialized_messages = [self._serialize_message(message) for message in messages]
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Failed to serialise messages for metadata: %s", exc)
+            serialized_messages = []
+        return {
+            "messages": serialized_messages,
+            "tools": self._tool_metadata,
+        }
     def _parse_response(self, response: Any) -> Tuple[str, List[ToolCall]]:
         if isinstance(response, str):
             try:

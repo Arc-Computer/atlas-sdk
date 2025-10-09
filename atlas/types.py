@@ -1,4 +1,5 @@
 from typing import Any, List, Optional, Union
+from typing import Literal
 
 from pydantic import BaseModel, Field
 from pydantic import ConfigDict
@@ -18,6 +19,7 @@ class Step(BaseModel):
 
 class Plan(BaseModel):
     steps: List[Step]
+    execution_mode: Literal["stepwise", "single_shot"] = "stepwise"
 
 
 class StepEvaluation(BaseModel):

@@ -120,6 +120,7 @@ class ExecutionContext:
         *,
         timings: dict[str, float] | None = None,
         reward_skipped: bool | None = None,
+        status: str | None = None,
     ) -> None:
         entry = self._step_metadata(step_id)
         if hasattr(evaluation, "to_dict"):
@@ -131,6 +132,8 @@ class ExecutionContext:
             attempt_entry["timings_ms"] = dict(timings)
         if reward_skipped is not None:
             attempt_entry["reward_skipped"] = bool(reward_skipped)
+        if status is not None:
+            attempt_entry["status"] = status
         entry.setdefault("attempts", []).append(attempt_entry)
 
     def append_guidance(self, step_id: int, guidance: str) -> None:

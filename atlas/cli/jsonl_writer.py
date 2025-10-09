@@ -280,9 +280,15 @@ async def _assemble_session(
         step_id = step_payload.get("step_id")
         if isinstance(step_id, int):
             context_entry: dict[str, Any] = {"output_text": output_value}
-            cached = metadata.get("cached_data")
-            if cached is not None:
-                context_entry["cached_data"] = cached
+            artifacts = metadata.get("artifacts")
+            if artifacts is not None:
+                context_entry["artifacts"] = artifacts
+            status = metadata.get("status")
+            if status is not None:
+                context_entry["status"] = status
+            notes = metadata.get("notes")
+            if notes:
+                context_entry["notes"] = notes
             context_outputs[step_id] = context_entry
 
     session_payload = {
@@ -385,6 +391,13 @@ def _build_step_payload(
         "attempts": attempts,
         "guidance": [str(item) for item in guidance],
     }
+
+    artifacts = metadata.get("artifacts")
+    if artifacts is not None and "artifacts" not in step_payload:
+        step_payload["artifacts"] = artifacts
+    runtime_meta = metadata.get("runtime")
+    if runtime_meta and "runtime" not in step_payload:
+        step_payload["runtime"] = runtime_meta
 
     for key, value in metadata.items():
         if key not in step_payload:

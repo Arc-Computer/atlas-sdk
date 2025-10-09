@@ -39,6 +39,8 @@ class _StepExecutionOutcome:
     attempts: int
     context_entry: Dict[str, Any] | None
     reward_skipped: bool
+    status: str
+    artifacts: Dict[str, Any]
 
 
 class Orchestrator:
@@ -71,8 +73,27 @@ class Orchestrator:
         )
         initial_plan = await self._student.acreate_plan(task)
         reviewed_plan = await self._teacher.areview_plan(task, initial_plan)
+        plan_payload = reviewed_plan.model_dump()
+        execution_mode = getattr(reviewed_plan, "execution_mode", "stepwise")
         context.metadata["task"] = task
-        context.metadata["plan"] = reviewed_plan.model_dump()
+        context.metadata["plan"] = plan_payload
+        context.metadata["execution_mode"] = execution_mode
+        if execution_mode == "single_shot":
+            context.metadata["single_shot"] = True
+            summaries = self._build_single_shot_summaries(reviewed_plan)
+            collected = self._teacher.collect_results(summaries)
+            context.metadata["single_shot_summaries"] = collected
+            final_answer = await self._student.asynthesize_final_answer(task, collected)
+            manager.push_intermediate_step(
+                IntermediateStepPayload(
+                    UUID=orchestration_id,
+                    event_type=IntermediateStepType.WORKFLOW_END,
+                    name="orchestration",
+                    data=StreamEventData(output=final_answer),
+                )
+            )
+            return Result(final_answer=final_answer, plan=reviewed_plan, step_results=[])
+
         levels = self._determine_levels(reviewed_plan)
         context_outputs: Dict[int, Dict[str, Any]] = {}
         step_summaries: List[Dict[str, Any]] = []
@@ -91,7 +112,10 @@ class Orchestrator:
                     {
                         "step_id": step.id,
                         "description": step.description,
+                        "status": outcome.status,
                         "output": result.output,
+                        "artifacts": outcome.artifacts,
+                        "notes": result.metadata.get("notes"),
                         "trace": result.trace,
                         "evaluation": evaluation.to_dict(),
                         "metadata": result.metadata,
@@ -153,7 +177,10 @@ class Orchestrator:
                         {
                             "step_id": step.id,
                             "description": step.description,
+                            "status": outcome.status,
                             "output": result.output,
+                            "artifacts": outcome.artifacts,
+                            "notes": result.metadata.get("notes"),
                             "trace": result.trace,
                             "evaluation": evaluation.to_dict(),
                             "metadata": result.metadata,
@@ -235,17 +262,21 @@ class Orchestrator:
                 )
                 raise
 
+            structured_output = self._obtain_structured_output(student_result)
+            status = student_result.status
+            artifacts = student_result.artifacts
+
             validation_start = time.perf_counter()
             validation = await self._teacher.avalidate_step(step, student_result.trace, student_result.output)
             attempt_timings["validation_ms"] = self._elapsed_ms(validation_start)
             validation_valid = bool(validation.get("valid"))
 
-            reward_skipped = not validation_valid
-            reward: AtlasRewardBreakdown
-            reward_ms: float | None = None
             step_meta = execution_context.metadata.get("steps", {}).get(step.id, {})
             prior_guidance = list(step_meta.get("guidance", []))
-            if validation_valid:
+
+            reward_skipped = True
+            reward: AtlasRewardBreakdown
+            if validation_valid and status == "ok":
                 judge_context = JudgeContext(
                     task=task,
                     step=step,
@@ -257,58 +288,65 @@ class Orchestrator:
                 )
                 reward_start = time.perf_counter()
                 reward = await self._evaluator.ajudge(judge_context)
-                reward_ms = self._elapsed_ms(reward_start)
-                attempt_timings["reward_ms"] = reward_ms
+                attempt_timings["reward_ms"] = self._elapsed_ms(reward_start)
+                reward_skipped = False
             else:
-                reward = self._build_validation_failed_reward()
+                reason = "validation_failed" if not validation_valid else f"status_{status}"
+                reward = self._build_placeholder_reward(reason)
 
-            cached_data, cache_source = self._extract_structured_data(student_result)
-            augmented_metadata = self._augment_step_metadata(
-                student_result.metadata,
-                cached_data,
-                cache_source,
-                attempt_timings,
-                reward_skipped,
-            )
-            student_result.metadata = augmented_metadata
             evaluation = StepEvaluation(validation=validation, reward=reward)
+            should_retry = self._should_retry(status, validation, reward, attempts)
 
-            should_retry = self._should_retry(validation, reward, attempts)
-            guidance_ms: float | None = None
             if should_retry:
                 guidance_start = time.perf_counter()
-                guidance_text = await self._teacher.agenerate_guidance(step, evaluation.to_dict())
-                guidance_ms = self._elapsed_ms(guidance_start)
-                attempt_timings["guidance_ms"] = guidance_ms
+                guidance_payload = evaluation.to_dict()
+                guidance_payload["status"] = status
+                guidance_payload["artifacts"] = artifacts
+                guidance_payload["structured_output"] = structured_output
+                guidance_text = await self._teacher.agenerate_guidance(step, guidance_payload)
+                attempt_timings["guidance_ms"] = self._elapsed_ms(guidance_start)
                 execution_context.append_guidance(step.id, guidance_text)
                 guidance.append(guidance_text)
 
             total_elapsed = sum(attempt_timings.values())
             attempt_timings["total_ms"] = round(total_elapsed, 3)
+
+            augmented_metadata = self._augment_step_metadata(
+                student_result.metadata,
+                structured_output,
+                attempt_timings,
+                reward_skipped,
+            )
+            student_result.metadata = augmented_metadata
+
             execution_context.register_step_attempt(
                 step.id,
                 attempts,
                 evaluation,
                 timings=attempt_timings,
                 reward_skipped=reward_skipped,
+                status=status,
             )
 
             context_entry = None
-            if validation_valid:
-                context_entry = self._build_context_entry(student_result, cached_data, cache_source)
+            if not reward_skipped:
+                context_entry = self._build_context_entry(structured_output, student_result.output)
 
             event_output = {
                 "trace": student_result.trace,
-                "output": student_result.output,
+                "output": structured_output,
                 "evaluation": evaluation.to_dict(),
                 "metadata": augmented_metadata,
                 "runtime": {
                     "reward_skipped": reward_skipped,
                     "timings_ms": attempt_timings,
                 },
+                "status": status,
+                "artifacts": self._ensure_jsonable(artifacts),
             }
             if context_entry is not None:
                 event_output["context_entry"] = context_entry
+
             manager.push_intermediate_step(
                 IntermediateStepPayload(
                     UUID=attempt_id,
@@ -317,6 +355,7 @@ class Orchestrator:
                     data=StreamEventData(output=event_output),
                 )
             )
+
             if not should_retry:
                 return _StepExecutionOutcome(
                     result=student_result,
@@ -324,18 +363,43 @@ class Orchestrator:
                     attempts=attempts,
                     context_entry=context_entry,
                     reward_skipped=reward_skipped,
+                    status=status,
+                    artifacts=artifacts,
                 )
-
-    def _should_retry(self, validation: Dict[str, Any], reward: AtlasRewardBreakdown, attempts: int) -> bool:
+    def _should_retry(
+        self,
+        status: str,
+        validation: Dict[str, Any],
+        reward: AtlasRewardBreakdown,
+        attempts: int,
+    ) -> bool:
         if attempts > self._orchestration.max_retries + 1:
             return False
+        if status == "skipped":
+            return False
         if not validation.get("valid", False):
+            return attempts <= self._orchestration.max_retries
+        if status != "ok":
             return attempts <= self._orchestration.max_retries
         return reward.score < self._rim_retry_threshold and attempts <= self._orchestration.max_retries
 
     def _determine_levels(self, plan: Plan) -> List[List[int]]:
         graph = DependencyGraph(plan)
         return graph.topological_levels()
+
+    def _build_single_shot_summaries(self, plan: Plan) -> List[Dict[str, Any]]:
+        summaries: List[Dict[str, Any]] = []
+        for step in plan.steps:
+            summaries.append(
+                {
+                    "step_id": step.id,
+                    "description": step.description,
+                    "status": "pending",
+                    "artifacts": {},
+                    "notes": None,
+                }
+            )
+        return summaries
 
     def _lookup_step(self, plan: Plan, step_id: int) -> Step:
         for step in plan.steps:
@@ -355,93 +419,70 @@ class Orchestrator:
             reward=reward,
         )
 
-    def _build_validation_failed_reward(self) -> AtlasRewardBreakdown:
+    def _build_placeholder_reward(self, reason: str) -> AtlasRewardBreakdown:
         return AtlasRewardBreakdown(
             score=0.0,
             judges=[],
-            rationale="validation_failed",
-            raw={"skipped": True, "reason": "teacher_validation_failed"},
+            rationale=reason,
+            raw={"skipped": True, "reason": reason},
         )
 
     def _serialise_context_for_event(self, context_outputs: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
         return {str(step_id): self._ensure_jsonable(payload) for step_id, payload in context_outputs.items()}
 
-    def _extract_structured_data(self, student_result: StudentStepResult) -> tuple[Any | None, str | None]:
-        metadata = student_result.metadata or {}
-        candidate_keys = (
-            "cached_data",
-            "structured_data",
-            "structured_output",
-            "structured",
-            "parsed_output",
-            "artifacts",
-            "cache",
-        )
-        for key in candidate_keys:
-            if key in metadata:
-                parsed = self._decode_structured_candidate(metadata[key])
-                if parsed is not None:
-                    return parsed, f"metadata.{key}"
-        parsed_output = self._decode_structured_candidate(student_result.output)
-        if parsed_output is not None:
-            return parsed_output, "output_json"
-        return None, None
-
-    def _decode_structured_candidate(self, value: Any) -> Any | None:
-        if value is None:
-            return None
-        if isinstance(value, (dict, list)):
-            return value
-        if hasattr(value, "model_dump"):
-            try:
-                return value.model_dump()
-            except Exception:
-                return None
-        if isinstance(value, str):
-            stripped = value.strip()
-            if stripped.startswith("{") or stripped.startswith("["):
-                try:
-                    parsed = json.loads(stripped)
-                except json.JSONDecodeError:
-                    return None
-                if isinstance(parsed, (dict, list)):
-                    return parsed
-        return None
+    def _obtain_structured_output(self, result: StudentStepResult) -> Dict[str, Any]:
+        stored = result.metadata.get("structured_output") if isinstance(result.metadata, dict) else None
+        if isinstance(stored, dict):
+            return stored
+        try:
+            parsed = json.loads(result.output)
+        except json.JSONDecodeError as exc:
+            raise ValueError("Executor output is not valid JSON.") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("Executor output must decode to a JSON object.")
+        return parsed
 
     def _augment_step_metadata(
         self,
         metadata: Dict[str, Any] | None,
-        cached_data: Any | None,
-        cache_source: str | None,
+        structured_output: Dict[str, Any],
         timings: Dict[str, float],
         reward_skipped: bool,
     ) -> Dict[str, Any]:
         base: Dict[str, Any] = {}
         if metadata:
             base.update(metadata)
+        status = structured_output.get("status")
+        if status is not None:
+            base["status"] = status
+        notes = structured_output.get("notes")
+        if notes is not None:
+            base["notes"] = notes
+        artifacts = structured_output.get("artifacts") or {}
+        base["artifacts"] = self._ensure_jsonable(artifacts)
+        base["structured_output"] = self._ensure_jsonable(structured_output)
         runtime_meta = base.get("runtime")
         if not isinstance(runtime_meta, dict):
             runtime_meta = {}
         runtime_meta["reward_skipped"] = reward_skipped
         runtime_meta["timings_ms"] = {key: float(value) for key, value in timings.items()}
-        if cache_source:
-            runtime_meta["cache_source"] = cache_source
         base["runtime"] = runtime_meta
-        if cached_data is not None:
-            base["cached_data"] = self._ensure_jsonable(cached_data)
         return self._ensure_jsonable(base)
 
     def _build_context_entry(
         self,
-        student_result: StudentStepResult,
-        cached_data: Any | None,
-        cache_source: str | None,
+        structured_output: Dict[str, Any],
+        output_text: str,
     ) -> Dict[str, Any]:
-        entry: Dict[str, Any] = {"output_text": student_result.output}
-        if cached_data is not None:
-            entry["cached_data"] = self._ensure_jsonable(cached_data)
-        if cache_source:
-            entry["cache_source"] = cache_source
+        entry: Dict[str, Any] = {
+            "output_text": output_text,
+            "status": structured_output.get("status"),
+            "artifacts": self._ensure_jsonable(structured_output.get("artifacts") or {}),
+        }
+        notes = structured_output.get("notes")
+        if notes:
+            entry["notes"] = notes
+        entry["structured_output"] = self._ensure_jsonable(structured_output)
         return entry
 
     def _ensure_jsonable(self, value: Any, depth: int = 0) -> Any:

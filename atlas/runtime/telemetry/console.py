@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import datetime
-import json
 import sys
 import threading
-from typing import Any
-from typing import Iterable
-from typing import TextIO
+from typing import Any, Dict, Optional, TextIO, Tuple
 
 from atlas.runtime.models import IntermediateStep
 from atlas.runtime.models import IntermediateStepType
@@ -22,10 +19,11 @@ class ConsoleTelemetryStreamer:
         self._execution_context: ExecutionContext | None = None
         self._task_name = ""
         self._session_started_at: datetime.datetime | None = None
-        self._step_guidance: dict[int, list[str]] = {}
+        self._attempt_starts: dict[Tuple[int, int], datetime.datetime] = {}
+        self._pending_guidance: dict[Tuple[int, int], str] = {}
         self._step_attempts: dict[int, int] = {}
         self._step_names: dict[int, str] = {}
-        self._plan_rendered = False
+        self._execution_mode: str = "stepwise"
 
     def attach(self, execution_context: ExecutionContext) -> None:
         self.detach()
@@ -46,199 +44,202 @@ class ConsoleTelemetryStreamer:
 
     def session_completed(self, result: Result) -> None:
         duration = self._session_duration()
-        status_line = f"=== Atlas task completed in {duration} ==="
-        self._write(status_line)
-        self._render_summary(result)
+        self._write(f"=== Atlas task completed in {duration} ===")
+        self._render_completion_summary(result)
 
     def session_failed(self, error: BaseException) -> None:
         duration = self._session_duration()
-        status_line = f"=== Atlas task failed after {duration}: {error} ==="
-        self._write(status_line)
+        self._write(f"=== Atlas task failed after {duration}: {error} ===")
 
     def _session_duration(self) -> str:
         if self._session_started_at is None:
-            return "0s"
+            return "0.0s"
         delta = datetime.datetime.now() - self._session_started_at
-        seconds = delta.total_seconds()
-        return f"{seconds:.1f}s"
+        return f"{delta.total_seconds():.1f}s"
 
     def _write(self, text: str) -> None:
         with self._lock:
             print(text, file=self._output, flush=True)
 
-    def _coerce_evaluation(self, evaluation: Any) -> dict[str, Any]:
-        if hasattr(evaluation, "to_dict"):
-            return evaluation.to_dict()
-        if isinstance(evaluation, dict):
-            return evaluation
-        return {}
-
-    def _render_summary(self, result: Result) -> None:
-        self._write("Final answer:")
-        for line in result.final_answer.splitlines() or [""]:
-            self._write(f"  {line}")
-        rim_scores = []
-        for step in result.step_results:
-            evaluation = self._coerce_evaluation(step.evaluation)
-            reward = evaluation.get("reward")
-            score = reward.get("score") if isinstance(reward, dict) else None
-            if isinstance(score, (int, float)):
-                rim_scores.append(score)
-            attempts = step.attempts
-            label = self._step_names.get(step.step_id) or f"step {step.step_id}"
-            score_text = f"{score:.2f}" if isinstance(score, (int, float)) else "n/a"
-            self._write(f"- {label} | attempts: {attempts} | score: {score_text}")
-        if rim_scores:
-            best = max(rim_scores)
-            avg = sum(rim_scores) / len(rim_scores)
-            self._write(f"RIM scores | max: {best:.2f} | avg: {avg:.2f}")
-
     def _handle_event(self, event: IntermediateStep) -> None:
-        lines = self._render_event(event)
-        for line in lines:
-            self._write(line)
+        event_type = event.event_type
+        if event_type == IntermediateStepType.WORKFLOW_START:
+            self._handle_workflow_start(event)
+        elif event_type == IntermediateStepType.TASK_START:
+            self._handle_task_start(event)
+        elif event_type == IntermediateStepType.TASK_END:
+            self._handle_task_end(event)
 
-    def _maybe_render_plan(self) -> list[str]:
-        if self._plan_rendered and self._execution_context is not None:
-            return []
+    def _handle_workflow_start(self, event: IntermediateStep) -> None:
+        data = event.payload.data
+        payload_input = data.input if data is not None else None
+        if isinstance(payload_input, dict):
+            mode = payload_input.get("execution_mode")
+            if isinstance(mode, str):
+                self._execution_mode = mode
+        self._capture_plan_metadata()
+
+    def _handle_task_start(self, event: IntermediateStep) -> None:
+        data = event.payload.data
+        payload_input = data.input if data is not None else None
+        if not isinstance(payload_input, dict):
+            return
+        self._capture_plan_metadata()
+        step_id, description = self._extract_step_info(payload_input.get("step"))
+        if step_id is None:
+            return
+        attempt = payload_input.get("attempt")
+        if not isinstance(attempt, int):
+            attempt = self._step_attempts.get(step_id, 0) + 1
+        self._step_attempts[step_id] = attempt
+        self._step_names.setdefault(step_id, description)
+        self._attempt_starts[(step_id, attempt)] = datetime.datetime.now()
+        guidance_notes = payload_input.get("guidance") or []
+        if isinstance(guidance_notes, list) and guidance_notes:
+            last_note = guidance_notes[-1]
+            if isinstance(last_note, str):
+                self._pending_guidance[(step_id, attempt)] = self._shorten(last_note, 120)
+
+    def _handle_task_end(self, event: IntermediateStep) -> None:
+        step_id = self._step_id_from_event(event)
+        if step_id is None:
+            return
+        attempt = self._step_attempts.get(step_id, 1)
+        description = self._step_names.get(step_id, f"step {step_id}")
+        payload_output = event.payload.data.output if event.payload.data is not None else None
+        if isinstance(payload_output, dict) and "error" in payload_output:
+            reason = self._shorten(str(payload_output.get("error", "")), 80)
+            self._write(
+                f"STEP {step_id}: {description} | actor=student | attempt={attempt} | validation=ERROR ({reason})"
+            )
+            return
+        evaluation = self._coerce_dict(payload_output.get("evaluation") if isinstance(payload_output, dict) else {})
+        validation = self._coerce_dict(evaluation.get("validation"))
+        status = payload_output.get("status") if isinstance(payload_output, dict) else None
+        valid = bool(validation.get("valid")) and status == "ok"
+        rationale = validation.get("rationale") or status or ""
+        reason = self._shorten(str(rationale), 80)
+        runtime_payload = self._coerce_dict(payload_output.get("runtime") if isinstance(payload_output, dict) else {})
+        timings = self._coerce_dict(runtime_payload.get("timings_ms"))
+        duration_ms = timings.get("total_ms")
+        if duration_ms is None:
+            start_time = self._attempt_starts.get((step_id, attempt))
+            if start_time is not None:
+                duration_ms = (datetime.datetime.now() - start_time).total_seconds() * 1000
+        duration_text = f"{duration_ms:.1f}ms" if isinstance(duration_ms, (int, float)) else "n/a"
+        validation_label = "PASS" if valid else "FAIL"
+        line = (
+            f"STEP {step_id}: {description} | actor=student | attempt={attempt} | "
+            f"validation={validation_label} ({reason}) | duration={duration_text}"
+        )
+        self._write(line)
+        guidance_summary = self._pending_guidance.pop((step_id, attempt), None)
+        if guidance_summary:
+            self._write(
+                f"STEP {step_id}: {description} | actor=teacher | attempt={attempt} | guidance={guidance_summary}"
+            )
+        self._attempt_starts.pop((step_id, attempt), None)
+
+    def _capture_plan_metadata(self) -> None:
         if self._execution_context is None:
-            return []
+            return
         metadata = self._execution_context.metadata
         plan = metadata.get("plan")
-        if not plan:
-            return []
-        steps = plan.get("steps") or []
-        if not steps:
-            return []
-        self._plan_rendered = True
-        lines = ["Plan ready with steps:"]
-        for entry in steps:
+        if not isinstance(plan, dict):
+            return
+        for entry in plan.get("steps", []):
             step_id = entry.get("id")
             description = entry.get("description") or ""
             if isinstance(step_id, int):
                 self._step_names.setdefault(step_id, description)
-                lines.append(f"  {step_id}. {description}")
-        return lines
 
-    def _extract_step_info(self, payload: dict[str, Any]) -> tuple[int | None, str]:
-        step = payload.get("step")
-        if isinstance(step, dict):
-            step_id = step.get("id")
+    def _extract_step_info(self, step_payload: Any) -> Tuple[Optional[int], str]:
+        if not isinstance(step_payload, dict):
+            return None, ""
+        step_id = step_payload.get("id")
+        description = step_payload.get("description") or ""
+        if isinstance(step_id, int):
+            return step_id, description
+        return None, description
+
+    def _step_id_from_event(self, event: IntermediateStep) -> Optional[int]:
+        name = event.payload.name or ""
+        if name.startswith("step_"):
+            try:
+                return int(name.split("_", maxsplit=1)[1])
+            except ValueError:
+                return None
+        return None
+
+    def _render_completion_summary(self, result: Result) -> None:
+        execution_mode = self._execution_mode
+        if self._execution_context is not None:
+            metadata = self._execution_context.metadata
+            execution_mode = metadata.get("execution_mode", execution_mode)
+            plan_payload = metadata.get("plan")
+        else:
+            metadata = {}
+            plan_payload = None
+        if execution_mode == "single_shot":
+            self._write("Single-shot mode executed; step loop skipped.")
+        else:
+            self._render_plan(plan_payload)
+        self._write("Final Answer:")
+        final_lines = result.final_answer.splitlines() or [""]
+        for line in final_lines:
+            self._write(f"  {line}")
+        attempt_summary, judge_calls = self._compute_metrics(result)
+        runtime = self._session_duration()
+        summary_line = (
+            f"Summary | execution_mode={execution_mode} | total_runtime={runtime} | judge_calls={judge_calls}"
+        )
+        self._write(summary_line)
+        if attempt_summary:
+            self._write(f"  attempts: {attempt_summary}")
+
+    def _render_plan(self, plan_payload: Any) -> None:
+        if not isinstance(plan_payload, dict):
+            return
+        steps = plan_payload.get("steps") or []
+        if not steps:
+            return
+        self._write("Plan:")
+        for entry in steps:
+            if not isinstance(entry, dict):
+                continue
+            step_id = entry.get("id")
+            description = entry.get("description") or ""
             if isinstance(step_id, int):
-                description = step.get("description") or ""
-                if description:
-                    self._step_names.setdefault(step_id, description)
-                return step_id, description
-        return None, ""
+                self._write(f"  {step_id}. {description}")
 
-    def _render_guidance(self, step_id: int | None, guidance: Iterable[str]) -> list[str]:
-        if step_id is None:
-            return []
-        notes = list(guidance)
-        previous = self._step_guidance.get(step_id, [])
-        new_notes = [note for note in notes if note not in previous]
-        self._step_guidance[step_id] = notes
-        return [f"  guidance: {note}" for note in new_notes]
+    def _compute_metrics(self, result: Result) -> Tuple[str, int]:
+        attempt_counts: dict[int, int] = {}
+        for step_result in result.step_results:
+            attempt_counts[step_result.step_id] = step_result.attempts
+        steps_meta = {}
+        if self._execution_context is not None:
+            steps_meta = self._execution_context.metadata.get("steps", {}) or {}
+        if not attempt_counts and steps_meta:
+            for step_id, meta in steps_meta.items():
+                attempts = len(meta.get("attempts", []))
+                if attempts:
+                    attempt_counts[step_id] = attempts
+        judge_calls = 0
+        for meta in steps_meta.values():
+            for attempt in meta.get("attempts", []):
+                if not attempt.get("reward_skipped", False):
+                    judge_calls += 1
+        attempt_summary = ", ".join(
+            f"{step_id}={count}" for step_id, count in sorted(attempt_counts.items())
+        )
+        return attempt_summary, judge_calls
 
-    def _format_json(self, value: Any) -> str:
-        try:
-            return json.dumps(value, ensure_ascii=False)
-        except TypeError:
-            return str(value)
+    def _coerce_dict(self, value: Any) -> Dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        return {}
 
-    def _shorten(self, text: str, limit: int = 120) -> str:
+    def _shorten(self, text: str, limit: int = 80) -> str:
         if len(text) <= limit:
             return text
         return text[: limit - 1] + "…"
-
-    def _render_event(self, event: IntermediateStep) -> list[str]:
-        data = event.payload.data
-        payload_input = data.input if data is not None else None
-        payload_output = data.output if data is not None else None
-        event_type = event.event_type
-        lines: list[str] = []
-        if event_type == IntermediateStepType.WORKFLOW_START:
-            lines.append("[workflow] orchestration started")
-            lines.extend(self._maybe_render_plan())
-        elif event_type == IntermediateStepType.WORKFLOW_END:
-            if payload_output:
-                text = self._format_json(payload_output)
-                lines.append(f"[workflow] completed: {self._shorten(text)}")
-        elif event_type == IntermediateStepType.TASK_START:
-            input_payload = payload_input if isinstance(payload_input, dict) else {}
-            step_id, description = self._extract_step_info(input_payload)
-            attempt = input_payload.get("attempt")
-            if step_id is not None and isinstance(attempt, int):
-                self._step_attempts[step_id] = attempt
-            plan_lines = self._maybe_render_plan()
-            lines.extend(plan_lines)
-            label = description or (f"step_{step_id}" if step_id is not None else "step")
-            stored_label = self._step_names.get(step_id, label) if step_id is not None else label
-            attempt_text = f"attempt {attempt}" if isinstance(attempt, int) else "attempt"
-            if isinstance(attempt, int) and attempt > 1:
-                attempt_text = f"retry {attempt}"
-            prefix = f"[step {step_id}]" if step_id is not None else "[step]"
-            lines.append(f"{prefix} {attempt_text} started: {stored_label}")
-            guidance_lines = self._render_guidance(step_id, input_payload.get("guidance") or [])
-            lines.extend(guidance_lines)
-        elif event_type == IntermediateStepType.TASK_END:
-            step_id = None
-            if event.payload.name and event.payload.name.startswith("step_"):
-                try:
-                    step_id = int(event.payload.name.split("_", maxsplit=1)[1])
-                except ValueError:
-                    step_id = None
-            if step_id is not None:
-                label = self._step_names.get(step_id)
-            else:
-                label = None
-            if not label:
-                label = event.payload.name or "step"
-            summary = self._summarise_step_result(payload_output)
-            lines.append(f"[step {step_id}] completed: {label}".strip())
-            lines.extend(summary)
-        elif event_type == IntermediateStepType.TOOL_START:
-            name = event.payload.name or "tool"
-            arguments = self._format_json(payload_input) if payload_input is not None else ""
-            lines.append(f"[tool] {name} call -> {self._shorten(arguments)}")
-        elif event_type == IntermediateStepType.TOOL_END:
-            name = event.payload.name or "tool"
-            result_text = self._format_json(payload_output) if payload_output is not None else ""
-            lines.append(f"[tool] {name} result <- {self._shorten(result_text)}")
-        else:
-            generic = event.payload.name or event_type.value
-            lines.append(f"[{event_type.value.lower()}] {generic}")
-        return [line for line in lines if line]
-
-    def _summarise_step_result(self, payload_output: Any) -> list[str]:
-        if not isinstance(payload_output, dict):
-            return []
-        if "error" in payload_output:
-            return [f"  error: {payload_output['error']}"]
-        lines: list[str] = []
-        evaluation = payload_output.get("evaluation")
-        evaluation_dict = self._coerce_evaluation(evaluation)
-        if evaluation_dict:
-            validation = evaluation_dict.get("validation")
-            if isinstance(validation, dict) and "valid" in validation:
-                status = "approved" if validation.get("valid") else "rejected"
-                lines.append(f"  validation: {status}")
-                rationale = validation.get("rationale")
-                if rationale:
-                    lines.append(f"  rationale: {self._shorten(str(rationale))}")
-            reward = evaluation_dict.get("reward")
-            if isinstance(reward, dict):
-                score = reward.get("score")
-                if isinstance(score, (int, float)):
-                    lines.append(f"  reward score: {score:.2f}")
-                uncertainty = reward.get("uncertainty")
-                if isinstance(uncertainty, (int, float)):
-                    lines.append(f"  reward uncertainty: {uncertainty:.2f}")
-                judges = reward.get("judges")
-                if isinstance(judges, list) and judges:
-                    lines.append(f"  judges: {len(judges)}")
-        output_text = payload_output.get("output")
-        if output_text:
-            formatted = self._format_json(output_text)
-            lines.append(f"  output: {self._shorten(formatted)}")
-        return lines

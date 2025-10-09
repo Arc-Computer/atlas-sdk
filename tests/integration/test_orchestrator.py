@@ -1,3 +1,4 @@
+import json
 import pytest
 from typing import Any
 
@@ -32,40 +33,46 @@ class FakeStudent:
         attempts = self._attempts.get(step.id, 0) + 1
         self._attempts[step.id] = attempts
         metadata: dict[str, Any] = {"attempt": attempts, "step_id": step.id}
+        notes: str | None = None
         if step.id == 1:
-            output = "success-a" if attempts >= 2 else "pending-a"
+            success = attempts >= 2
+            status = "ok" if success else "needs_input"
+            artifacts = {"dataset": "A", "rows": [1, 2, 3]} if success else {}
             tool_id = "call-1"
-            if output.startswith("success"):
-                metadata["structured_data"] = {"dataset": "A", "rows": [1, 2, 3]}
+            if not success:
+                notes = "Waiting for confirmed dataset A before proceeding."
         elif step.id == 2:
-            output = "success-b"
+            status = "ok"
+            artifacts = {"dataset": "B", "rows": [4, 5]}
             tool_id = "call-2"
-            metadata["structured_output"] = {"dataset": "B", "rows": [4, 5]}
         else:
             entry_a = context.get(1, {})
             entry_b = context.get(2, {})
-            if isinstance(entry_a, dict):
-                part_a = entry_a.get("output_text", "")
-            else:
-                part_a = entry_a
-            if isinstance(entry_b, dict):
-                part_b = entry_b.get("output_text", "")
-            else:
-                part_b = entry_b
-            cache_a = entry_a.get("cached_data", {}) if isinstance(entry_a, dict) else {}
-            cache_b = entry_b.get("cached_data", {}) if isinstance(entry_b, dict) else {}
+            artifacts_a = entry_a.get("artifacts", {}) if isinstance(entry_a, dict) else {}
+            artifacts_b = entry_b.get("artifacts", {}) if isinstance(entry_b, dict) else {}
+            output_a = entry_a.get("output_text", "") if isinstance(entry_a, dict) else str(entry_a)
+            output_b = entry_b.get("output_text", "") if isinstance(entry_b, dict) else str(entry_b)
             metadata["context_snapshot"] = {1: entry_a, 2: entry_b}
             self.observed_context = metadata["context_snapshot"]
-            output = f"summary:{part_a}|{part_b}"
-            if cache_a or cache_b:
-                metadata["cached_data"] = {"upstream": {"a": cache_a, "b": cache_b}}
+            status = "ok"
+            artifacts = {"summary": {"a": artifacts_a, "b": artifacts_b}}
+            notes = f"Combined outputs: {output_a}|{output_b}"
             tool_id = "call-3"
+        structured_output = {"status": status, "artifacts": artifacts}
+        if notes:
+            structured_output["notes"] = notes
+        output_text = json.dumps(structured_output, ensure_ascii=False)
+        metadata["status"] = status
+        metadata["artifacts"] = artifacts
+        metadata["structured_output"] = structured_output
+        if notes:
+            metadata["notes"] = notes
         tool_calls = [{"name": "search", "args": {"query": step.description}, "id": tool_id}]
         messages = [
             AIMessage(content="calling tool", tool_calls=tool_calls),
             ToolMessage(content='{"result": 1}', tool_call_id=tool_id),
         ]
-        return StudentStepResult(trace="trace", output=output, messages=messages, attempts=attempts, metadata=metadata)
+        return StudentStepResult(trace="trace", output=output_text, messages=messages, attempts=attempts, metadata=metadata, status=status, artifacts=artifacts)
 
     async def asynthesize_final_answer(self, task: str, step_summaries):
         outputs = [entry["output"] for entry in step_summaries]
@@ -77,11 +84,12 @@ class FakeTeacher:
         return plan
 
     async def avalidate_step(self, step: Step, trace: str, output: str):
-        if step.id == 1:
-            return {"valid": output.startswith("success"), "rationale": ""}
-        if step.id == 2:
-            return {"valid": output.startswith("success"), "rationale": ""}
-        return {"valid": output.startswith("summary:"), "rationale": ""}
+        payload = json.loads(output) if output else {}
+        status = payload.get("status") if isinstance(payload, dict) else None
+        artifacts = payload.get("artifacts") if isinstance(payload, dict) else {}
+        has_artifacts = isinstance(artifacts, dict) and bool(artifacts)
+        valid = status == "ok" and has_artifacts
+        return {"valid": valid, "rationale": ""}
 
     async def agenerate_guidance(self, step: Step, evaluation):
         return "retry with missing references"
@@ -151,17 +159,20 @@ async def test_orchestrator_retries_and_records_context():
     assert len(step_meta["attempts"]) == 2
     assert step_meta["guidance"] == ["retry with missing references"]
     attempt_1 = step_meta["attempts"][0]
+    assert attempt_1["status"] == "needs_input"
     assert attempt_1["reward_skipped"] is True
     assert "timings_ms" in attempt_1 and attempt_1["timings_ms"]["validation_ms"] >= 0.0
     # Only validated outputs should appear in downstream context
     assert student.observed_context is not None
     assert student.observed_context[1]["output_text"] == "success-a"
-    assert "cached_data" in student.observed_context[1]
-    assert student.observed_context[2]["cached_data"]["dataset"] == "B"
+    assert "artifacts" in student.observed_context[1]
+    assert student.observed_context[2]["artifacts"]["dataset"] == "B"
     # Judges should only run on successful attempts
     assert len(evaluator.invocations) == 3
     assert all(inv.output.startswith(("success", "summary")) for inv in evaluator.invocations)
     # Structured data should persist into step metadata and results
     results_by_step = {entry.step_id: entry for entry in result.step_results}
-    assert results_by_step[1].metadata["cached_data"]["dataset"] == "A"
+    assert results_by_step[1].metadata["artifacts"]["dataset"] == "A"
+    assert results_by_step[3].metadata["status"] == "ok"
+    assert "summary" in results_by_step[3].metadata["artifacts"]
     assert results_by_step[3].metadata["runtime"]["reward_skipped"] is False

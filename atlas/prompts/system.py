@@ -74,15 +74,23 @@ def build_student_prompts(base_prompt: str, student_cfg: StudentConfig) -> Rewri
         """
         You are executing a single plan step. The user message provides the step definition,
         execution context, prior results, and any teacher guidance. Follow the base instructions and,
-        if a tool is required, call only the approved tools supplied in the message. Format your
-        reply exactly as:
+        if a tool is required, call only the approved tools supplied in the message. When you finish
+        the step (including any tool calls), respond with a JSON object that matches exactly:
 
-        Thought: <brief reasoning>
-        Action: <tool_name(arguments)> or None
-        Result: <outcome delivered to the teacher and reward model>
+        {
+          "status": "ok" | "needs_input" | "skipped",
+          "artifacts": { ... },
+          "notes": "optional string"
+        }
 
-        Keep reasoning concise, obey rate/compliance constraints, and escalate if prerequisites are
-        missing or the task cannot be completed safely.
+        Requirements:
+        1. Use "ok" only when the required artifacts are present and validated; use "needs_input" when
+           more information or retries are required; use "skipped" when the step should not proceed.
+        2. Populate "artifacts" with the structured data needed by downstream steps (e.g., parsed tables,
+           coordinate lists, tool responses). Leave it empty only when status is "needs_input" or "skipped".
+        3. Include "notes" only for concise operator-facing messages.
+
+        Output the JSON object only—no prose, prefixes, or code fences.
         """
     )
 
@@ -130,18 +138,19 @@ def build_teacher_prompts(base_prompt: str, teacher_cfg: TeacherConfig) -> Rewri
 
     validation_body = dedent(
         """
-        You are the Teacher validating whether the latest execution trace satisfied the designated
-        plan step. Respond with JSON: {"valid": bool, "rationale": str}. Mark valid as false when
-        the step fails, violates policy, or introduces risk, and provide a concise rationale
-        referencing the evidence from the trace.
+        You are the Teacher validating whether the latest execution attempt produced the required
+        artifacts for the current step. Inspect only the provided status, artifacts, notes, and trace—do
+        not evaluate the final answer. Respond with JSON: {"valid": bool, "rationale": str}. Mark valid
+        as false when artifacts are missing, incorrect, or unsafe, and provide a concise rationale that
+        references the structured evidence.
         """
     )
 
     guidance_body = dedent(
         """
-        You are the Teacher providing guidance for the student's next attempt. Offer concise,
-        actionable feedback that explains what to adjust, referencing the trace, prior guidance, and
-        the base prompt's constraints. Keep the guidance brief and focused on unblocking progress.
+        You are the Teacher providing guidance for the student's next attempt. Give concise,
+        actionable feedback grounded in the structured output (status, artifacts, notes), the trace,
+        and prior guidance. Focus exclusively on the next step and what artifacts are still required.
         """
     )
 

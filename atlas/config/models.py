@@ -163,12 +163,14 @@ class TeacherPrompts(BaseModel):
         " Provide a corrected plan as JSON with a 'steps' array that satisfies those requirements."
     )
     validation: str = (
-        "{base_prompt}\n\nYou are the Teacher validating whether the latest execution trace satisfied the"
-        " step objectives. Respond with JSON: {\"valid\": bool, \"rationale\": str}."
+        "{base_prompt}\n\nYou are the Teacher validating whether the latest execution attempt delivered the"
+        " required step artifacts. Inspect only the provided status, artifacts, and notes for this step; ignore"
+        " any final-answer expectations. Respond with JSON: {\"valid\": bool, \"rationale\": str}."
     )
     guidance: str = (
-        "{base_prompt}\n\nYou are the Teacher giving concise, actionable guidance to improve the next"
-        " attempt. Focus on corrections grounded in the user's goals and available tools."
+        "{base_prompt}\n\nYou are the Teacher giving concise, actionable guidance to help the student produce the"
+        " missing or improved artifacts on the next attempt. Reference the structured output and prior guidance,"
+        " stay focused on the upcoming step, and avoid restating the final answer."
     )
 
 

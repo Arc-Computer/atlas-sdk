@@ -9,6 +9,8 @@ from typing import Any
 from typing import Dict
 from typing import List
 from typing import Tuple
+from typing import Literal
+from typing import cast
 
 from atlas.config.models import TeacherConfig
 from atlas.prompts import RewrittenTeacherPrompts
@@ -56,7 +58,12 @@ class Teacher:
             return plan
         if response.reasoning:
             self._record_reasoning("teacher", "plan_review", response.reasoning)
-        reviewed = Plan.model_validate(self._normalise_plan_payload(payload))
+        normalised = self._normalise_plan_payload(payload)
+        reviewed = Plan.model_validate(normalised)
+        execution_mode = self._coerce_execution_mode(normalised.get("execution_mode"))
+        if execution_mode is None:
+            execution_mode = self._infer_execution_mode(reviewed)
+        reviewed = reviewed.model_copy(update={"execution_mode": execution_mode})
         self._plan_cache[cache_key] = (now, reviewed)
         self._consume_reasoning_metadata("teacher", "plan_review")
         return reviewed
@@ -65,11 +72,12 @@ class Teacher:
         context = ExecutionContext.get()
         context.metadata["active_actor"] = "teacher"
         context.metadata["_reasoning_origin"] = ("teacher", "validation")
+        structured_output = self._parse_executor_output(output)
         messages = [
             {"role": "system", "content": self._validation_prompt},
             {
                 "role": "user",
-                "content": json.dumps(self._build_validation_payload(step, trace, output), ensure_ascii=False)
+                "content": json.dumps(self._build_validation_payload(step, trace, structured_output), ensure_ascii=False)
                 + "\nReturn json.",
             },
         ]
@@ -83,6 +91,16 @@ class Teacher:
             result["reasoning"] = response.reasoning
             self._record_reasoning("teacher", f"validation:{step.id}", response.reasoning)
         self._consume_reasoning_metadata("teacher", "validation")
+        artifacts = structured_output.get("artifacts") if isinstance(structured_output, dict) else {}
+        status = structured_output.get("status") if isinstance(structured_output, dict) else None
+        if not result["valid"] and status == "ok" and isinstance(artifacts, dict) and artifacts:
+            note = "Auto-validated: required artifacts detected."
+            rationale = result.get("rationale") or ""
+            result["rationale"] = f"{rationale} {note}".strip()
+            result["valid"] = True
+            result["auto_validated"] = True
+        result["status"] = status
+        result["artifacts"] = artifacts if isinstance(artifacts, dict) else {}
         return result
 
     async def agenerate_guidance(self, step: Step, evaluation: Dict[str, Any]) -> str:
@@ -114,18 +132,39 @@ class Teacher:
     def collect_results(self, step_outputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return sorted(step_outputs, key=lambda item: item.get("step_id", 0))
 
-    def _build_validation_payload(self, step: Step, trace: str, output: str) -> Dict[str, Any]:
-        return {
+    def _build_validation_payload(
+        self,
+        step: Step,
+        trace: str,
+        structured_output: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        artifacts = structured_output.get("artifacts") if isinstance(structured_output, dict) else {}
+        if not isinstance(artifacts, dict):
+            artifacts = {}
+        payload = {
             "step": step.model_dump(),
             "trace": trace,
-            "output": output,
+            "status": structured_output.get("status"),
+            "artifacts": artifacts,
+            "notes": structured_output.get("notes"),
+            "executor_output": structured_output,
         }
+        return payload
 
     def _build_guidance_payload(self, step: Step, evaluation: Dict[str, Any]) -> Dict[str, Any]:
-        return {
+        payload = {
             "step": step.model_dump(),
             "evaluation": evaluation,
+            "status": evaluation.get("status"),
+            "artifacts": evaluation.get("artifacts"),
         }
+        structured_output = evaluation.get("structured_output")
+        if structured_output is not None:
+            payload["structured_output"] = structured_output
+        notes = evaluation.get("notes")
+        if notes is not None:
+            payload["notes"] = notes
+        return payload
 
     def _cache_key(self, task: str, plan: Plan) -> str:
         return json.dumps({"task": task, "plan": plan.model_dump()}, sort_keys=True)
@@ -143,6 +182,11 @@ class Teacher:
         if not isinstance(payload, dict):
             return payload
         payload.pop("total_estimated_time", None)
+        mode = self._coerce_execution_mode(payload.get("execution_mode"))
+        if mode is not None:
+            payload["execution_mode"] = mode
+        elif "execution_mode" in payload:
+            payload.pop("execution_mode", None)
         steps = payload.get("steps")
         if isinstance(steps, list):
             for step in steps:
@@ -154,6 +198,59 @@ class Teacher:
                     if "tool_params" not in step:
                         step["tool_params"] = None
         return payload
+
+    def _parse_executor_output(self, output: str) -> Dict[str, Any]:
+        if not output:
+            return {}
+        try:
+            parsed = json.loads(output)
+        except (TypeError, json.JSONDecodeError):
+            return {}
+        if isinstance(parsed, dict):
+            return parsed
+        return {}
+
+    def _coerce_execution_mode(self, value: Any) -> Literal["stepwise", "single_shot"] | None:
+        if not isinstance(value, str):
+            return None
+        lowered = value.strip().lower()
+        if lowered in {"stepwise", "single_shot"}:
+            return cast(Literal["stepwise", "single_shot"], lowered)
+        return None
+
+    def _infer_execution_mode(self, plan: Plan) -> Literal["stepwise", "single_shot"]:
+        return "single_shot" if self._plan_is_trivial(plan) else "stepwise"
+
+    def _plan_is_trivial(self, plan: Plan) -> bool:
+        if not plan.steps:
+            return True
+        if len(plan.steps) > 2:
+            return False
+        for step in plan.steps:
+            if step.tool:
+                return False
+            if step.tool_params:
+                return False
+            if step.depends_on:
+                return False
+            if not self._is_simple_description(step.description):
+                return False
+        return True
+
+    def _is_simple_description(self, description: str) -> bool:
+        if not isinstance(description, str):
+            return False
+        text = description.strip()
+        if not text:
+            return False
+        if len(text) > 80:
+            return False
+        if "\n" in text:
+            return False
+        for char in (";", "|", "{", "}", "[", "]"):
+            if char in text:
+                return False
+        return True
 
     def _record_reasoning(self, actor: str, key: str, payload: Dict[str, Any]) -> None:
         if not payload:

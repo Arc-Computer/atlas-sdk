@@ -43,6 +43,8 @@ class StudentStepResult:
     messages: List[BaseMessage]
     metadata: Dict[str, Any] = field(default_factory=dict)
     attempts: int = 1
+    status: str = "ok"
+    artifacts: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -199,11 +201,24 @@ class Student:
                         },
                     }
                 )
+        structured_output = None
+        structured_output = self._parse_executor_output_message(output_message)
+        artifacts = structured_output.get("artifacts", {})
+        status = structured_output.get("status", "ok")
+        notes = structured_output.get("notes")
+        metadata["status"] = status
+        metadata["artifacts"] = artifacts
+        if notes is not None:
+            metadata["notes"] = notes
+        metadata["structured_output"] = structured_output
+        output_payload = json.dumps(structured_output, ensure_ascii=False)
         return StudentStepResult(
             trace=trace,
-            output=str(output_message.content),
+            output=output_payload,
             messages=final_state.messages,
             metadata=metadata,
+            status=status,
+            artifacts=artifacts,
         )
 
     async def asynthesize_final_answer(self, task: str, step_results: List[Dict[str, Any]]) -> str:
@@ -284,9 +299,11 @@ class Student:
 
     def _compose_synthesis_prompt(self, task: str, step_results: List[Dict[str, Any]]) -> str:
         serialized_results = json.dumps(step_results, ensure_ascii=False, indent=2)
+        execution_mode = ExecutionContext.get().metadata.get("execution_mode", "stepwise")
         return "\n\n".join([
             self._prompts.synthesizer,
             f"Original Task: {task.strip()}",
+            f"Execution Mode: {execution_mode}",
             f"Completed Steps: {serialized_results}",
         ])
 
@@ -304,7 +321,7 @@ class Student:
             f"Tool: {step.tool or 'none'}",
             f"Tool Parameters: {json.dumps(step.tool_params or {}, ensure_ascii=False)}",
             f"Dependencies: {step.depends_on}",
-            f"Validated Prior Results (output_text + cached_data when available): {context_block}",
+            f"Validated Prior Results (artifacts when available): {context_block}",
             f"Guidance History: {guidance_block}",
         ]
         user_message = "\n".join(payload)
@@ -379,6 +396,31 @@ class Student:
             return json.loads(cleaned)
         except json.JSONDecodeError as exc:
             raise ValueError(f"Failed to parse JSON response: {cleaned[:200]}") from exc
+
+    def _parse_executor_output_message(self, message: BaseMessage) -> Dict[str, Any]:
+        parsed = self._parse_json_response(message.content)
+        if not isinstance(parsed, dict):
+            raise ValueError("Executor output must be a JSON object with status, artifacts, and optional notes.")
+        status_value = parsed.get("status")
+        if not isinstance(status_value, str):
+            raise ValueError("Executor output requires a string status field.")
+        status = status_value.strip().lower()
+        if status not in {"ok", "needs_input", "skipped"}:
+            raise ValueError(f"Executor status '{status_value}' is not supported. Use ok, needs_input, or skipped.")
+        artifacts = parsed.get("artifacts") or {}
+        if not isinstance(artifacts, dict):
+            raise ValueError("Executor output 'artifacts' field must be a JSON object.")
+        notes = parsed.get("notes")
+        if notes is not None and not isinstance(notes, str):
+            raise ValueError("Executor output 'notes' field must be a string when provided.")
+        normalised = dict(parsed)
+        normalised["status"] = status
+        normalised["artifacts"] = artifacts
+        if notes is None:
+            normalised.pop("notes", None)
+        else:
+            normalised["notes"] = notes
+        return normalised
 
     def _consume_reasoning_metadata(self, actor: str, stage: str) -> List[Dict[str, Any]]:
         context = ExecutionContext.get()
