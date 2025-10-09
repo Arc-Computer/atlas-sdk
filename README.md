@@ -1,6 +1,13 @@
 # Atlas SDK
 
-Atlas SDK lets you wrap any Bring-Your-Own-Agent (BYOA) into a guided Teacher → Student → Reward loop. The toolkit focuses on sequential, high-trust workflows: you supply an HTTP endpoint, a Python function, or an OpenAI-compatible agent; Atlas handles planning, orchestration, evaluation, and persistence.
+Atlas is infrastructure for continual learning in LLM agents. It wraps any agent (OpenAI, Claude, Gemini, local models, or your own stack) with a closed-loop Student → Teacher → Reward system so the agent improves from every interaction. The runtime SDK handles planning, orchestration, evaluation, telemetry, and exportable traces; the same data feeds Atlas core’s online and offline optimisation workflows.
+
+[![PyPI version](https://img.shields.io/pypi/v/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
+
+```bash
+pip install arc-atlas
+```
 
 ---
 
