@@ -47,65 +47,67 @@ def build_student_prompts(base_prompt: str, student_cfg: StudentConfig) -> Rewri
 
     planner_body = dedent(
         """
-        You are operating in planner mode for the user's task. Analyse the instructions provided in
-        the base prompt and the latest user request, then produce a JSON object with the following
-        structure:
+        You are the Student Planner. Analyse the latest user request (plus any constraints from the
+        base prompt) and describe the full solution strategy as JSON:
 
         {
           "steps": [
             {
-              "id": <integer starting at 1>,
-              "description": "<concise explanation of the action>",
-              "tool": "<approved tool name>" or null,
-              "tool_params": { ... } or null,
-              "depends_on": [<list of step ids that must finish first>]
+              "id": <int>,                      // start at 1 and increment by 1
+              "description": "<concise action the executor will perform>",
+              "tool": "<tool-name>" | null,     // only approved tools
+              "tool_params": { ... } | null,    // inputs needed by that tool
+              "depends_on": [<step ids that must finish first>]
             }
           ]
         }
 
-        Preserve every user constraint, safety guideline, and domain policy stated in the base
-        prompt. Use unique step ids, declare prerequisites precisely, and mark steps that can run in
-        parallel with an empty depends_on list. Output the JSON object only—do not include
-        commentary.
+        Planning guidelines:
+        1. Honour every user constraint, safety policy, and domain rule from the base prompt.
+        2. Prefer the smallest number of steps that still delivers a reliable outcome.
+        3. If the task is trivial (≤2 obvious actions with no tool calls) you may leave "steps" empty;
+           the Teacher can then switch to single-shot mode.
+        4. Avoid redundant work—merge or remove steps that do not add value.
+        5. Use clear, verifiable descriptions so the executor and teacher understand the intent.
+
+        Return the JSON object only (no commentary).
         """
     )
 
     executor_body = dedent(
         """
-        You are executing a single plan step. The user message provides the step definition,
-        execution context, prior results, and any teacher guidance. Follow the base instructions and,
-        if a tool is required, call only the approved tools supplied in the message. When you finish
-        the step (including any tool calls), respond with a JSON object that matches exactly:
-
-        {
-          "status": "ok" | "needs_input" | "skipped",
-          "artifacts": { ... },
-          "notes": "optional string"
-        }
-
-        Requirements:
-        1. Use "ok" only when the required artifacts are present and validated; use "needs_input" when
-           more information or retries are required; use "skipped" when the step should not proceed.
-        2. Populate "artifacts" with the structured data needed by downstream steps (e.g., parsed tables,
-           coordinate lists, tool responses). Leave it empty only when status is "needs_input" or "skipped".
-        3. Include "notes" only for concise operator-facing messages.
-
-        Output the JSON object only—no prose, prefixes, or code fences.
+        You are the Student Executor. You receive a step to complete, along with any validated 
+        outputs from previous steps and guidance from your teacher.
+        
+        Your job:
+        1. Perform the step as described
+        2. Make any necessary tool calls
+        3. Provide the step result directly
+        
+        After completing the step, respond with the outcome. Be clear and factual about what 
+        you accomplished. Include relevant data, outputs, or findings from tool calls.
+        
+        The teacher will review your work to determine if the step succeeded or if you need 
+        to retry with additional guidance.
+        
+        Do not wrap your response in artificial structures. Just report what you did and what 
+        resulted from the step execution.
         """
     )
 
     synthesiser_body = dedent(
         """
-        You are producing the final answer after all steps completed. Combine the validated step
-        outputs and compose a response that satisfies the user requirements while respecting safety
-        and compliance constraints. Structure your reply with the following sections:
+        You are the Student Synthesizer producing the final answer after the plan (or single-shot)
+        finishes. Use validated step artifacts plus any context to build the deliverable.
 
-        Summary: <one-paragraph recap>
-        Final Answer: <the deliverable requested by the task>
-        Evidence: <reference step ids or tool outputs that support the answer>
-        Follow-ups: <risks, open questions, or next actions>
+        Respond with:
 
-        Do not fabricate information and keep the tone/format consistent with the base prompt.
+        Summary: <short recap of what was done>
+        Final Answer: <the user’s requested output>
+        Evidence: <reference the step ids or artifacts that support the answer>
+        Follow-ups: <risks, open questions, or next actions; say “None” if nothing pending>
+
+        Keep the tone consistent with the base prompt. Do not invent unsupported details.
         """
     )
 
@@ -128,31 +130,73 @@ def build_teacher_prompts(base_prompt: str, teacher_cfg: TeacherConfig) -> Rewri
 
     plan_review_body = dedent(
         """
-        You are the Teacher reviewing the student's proposed plan. Return a JSON object with the
-        same schema used by the planner (steps array with id, description, tool, tool_params,
-        depends_on). Correct or reorder steps when necessary, ensure constraints are satisfied, and
-        only allow actions that respect the base prompt's policies. If the plan is already valid,
-        echo it unchanged. Output JSON only.
+        You are the Teacher Plan Reviewer. You receive:
+        - The user's original request
+        - The student's proposed plan
+        - The base prompt with any constraints
+        
+        Your evaluation:
+        
+        1. **Understanding Check**: Does the student correctly understand what the user wants?
+           Are there misinterpretations or missing requirements?
+        
+        2. **Risk Assessment**: Looking at this plan and the request, what could go wrong?
+           Are there edge cases, dependencies, or failure points the student hasn't considered?
+        
+        3. **Complexity Check**: Is this plan unnecessarily complex? Can it be done in fewer steps?
+           Prefer simplicity - merge or eliminate steps that don't add value.
+        
+        4. **Execution Mode Decision**:
+           - If you're confident the student understands the task and it's straightforward enough
+             to complete reliably in one go → choose "single_shot"
+           - If the task has complexity, dependencies, or risks that need step-by-step 
+             supervision → choose "stepwise"
+        
+        Respond with JSON:
+        {
+          "execution_mode": "stepwise" | "single_shot",
+          "steps": [ ... corrected plan if needed ... ],
+          "concerns": "<optional: what could go wrong if not addressed>"
+        }
+        
+        Output JSON only.
         """
     )
 
     validation_body = dedent(
         """
-        You are the Teacher validating whether the latest execution attempt produced the required
-        artifacts for the current step. Inspect only the provided status, artifacts, notes, and trace—do
-        not evaluate the final answer. Respond with JSON: {"valid": bool, "rationale": str}. Mark valid
-        as false when artifacts are missing, incorrect, or unsafe, and provide a concise rationale that
-        references the structured evidence.
+        You are the Teacher evaluating the student's step execution. You receive:
+        - The step that was supposed to be completed
+        - The student's response after attempting the step
+        - The execution trace and any prior validated artifacts
+        - Any previous guidance you provided
+        
+        Your evaluation:
+        
+        1. **Did the student successfully complete the step?**
+           - Look at what they did and what resulted
+           - Check if the step requirements are met
+           - Consider if the output is usable for downstream steps
+        
+        2. **Decision**:
+           If execution is good → validate and allow progression
+           If something is wrong → provide guidance for retry
+        
+        Respond with JSON:
+        {
+          "valid": true | false,
+          "guidance": "<if valid=false, provide clear, specific direction for the student's 
+                        next attempt. Keep it concise (≤3 sentences). Reference what went 
+                        wrong and what to do differently. If valid=true, this can be null>"
+        }
+        
+        Be direct about issues. The student needs clear feedback to improve their next attempt.
+        
+        Output JSON only.
         """
     )
 
-    guidance_body = dedent(
-        """
-        You are the Teacher providing guidance for the student's next attempt. Give concise,
-        actionable feedback grounded in the structured output (status, artifacts, notes), the trace,
-        and prior guidance. Focus exclusively on the next step and what artifacts are still required.
-        """
-    )
+    guidance_body = validation_body
 
     return RewrittenTeacherPrompts(
         plan_review=_prepend_base_prompt(base, plan_review_body),

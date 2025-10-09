@@ -63,7 +63,7 @@ def test_console_streamer_renders_events_and_summary():
                     "trace": "trace",
                     "output": "complete",
                     "evaluation": {
-                        "validation": {"valid": True, "rationale": "looks good"},
+                        "validation": {"valid": True, "guidance": "looks good"},
                         "reward": {"score": 0.8, "uncertainty": 0.1, "judges": [1]},
                     },
                 }

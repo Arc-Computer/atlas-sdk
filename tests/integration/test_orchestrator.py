@@ -33,17 +33,21 @@ class FakeStudent:
         attempts = self._attempts.get(step.id, 0) + 1
         self._attempts[step.id] = attempts
         metadata: dict[str, Any] = {"attempt": attempts, "step_id": step.id}
-        notes: str | None = None
+        reason: str | None = None
         if step.id == 1:
             success = attempts >= 2
             status = "ok" if success else "needs_input"
-            artifacts = {"dataset": "A", "rows": [1, 2, 3]} if success else {}
+            artifacts = {"rows": [1, 2, 3]} if success else {}
+            deliverable = {"dataset": "A"} if success else None
             tool_id = "call-1"
             if not success:
-                notes = "Waiting for confirmed dataset A before proceeding."
+                reason = "Waiting for confirmed dataset A before proceeding."
+            else:
+                reason = "Dataset A loaded."
         elif step.id == 2:
             status = "ok"
-            artifacts = {"dataset": "B", "rows": [4, 5]}
+            artifacts = {"rows": [4, 5]}
+            deliverable = {"dataset": "B"}
             tool_id = "call-2"
         else:
             entry_a = context.get(1, {})
@@ -55,24 +59,49 @@ class FakeStudent:
             metadata["context_snapshot"] = {1: entry_a, 2: entry_b}
             self.observed_context = metadata["context_snapshot"]
             status = "ok"
-            artifacts = {"summary": {"a": artifacts_a, "b": artifacts_b}}
-            notes = f"Combined outputs: {output_a}|{output_b}"
+            artifacts = {"a": artifacts_a, "b": artifacts_b}
+            deliverable = {"summary": f"{output_a}|{output_b}"}
+            reason = "Combined intermediate datasets."
             tool_id = "call-3"
-        structured_output = {"status": status, "artifacts": artifacts}
-        if notes:
-            structured_output["notes"] = notes
+        if step.id in (1, 2) and 'deliverable' not in locals():
+            deliverable = {"dataset": step.description.split()[-1].upper()}
+        structured_output = {
+            "status": status,
+            "result": {
+                "deliverable": deliverable,
+                "artifacts": artifacts,
+            },
+        }
+        if reason:
+            structured_output["reason"] = reason
         output_text = json.dumps(structured_output, ensure_ascii=False)
+        structured_output["text"] = output_text
         metadata["status"] = status
         metadata["artifacts"] = artifacts
+        metadata["deliverable"] = deliverable
+        if reason:
+            metadata["reason"] = reason
+        metadata["result"] = {
+            "deliverable": deliverable,
+            "artifacts": artifacts,
+        }
         metadata["structured_output"] = structured_output
-        if notes:
-            metadata["notes"] = notes
+        metadata["text"] = output_text
         tool_calls = [{"name": "search", "args": {"query": step.description}, "id": tool_id}]
         messages = [
             AIMessage(content="calling tool", tool_calls=tool_calls),
             ToolMessage(content='{"result": 1}', tool_call_id=tool_id),
         ]
-        return StudentStepResult(trace="trace", output=output_text, messages=messages, attempts=attempts, metadata=metadata, status=status, artifacts=artifacts)
+        return StudentStepResult(
+            trace="trace",
+            output=output_text,
+            messages=messages,
+            attempts=attempts,
+            metadata=metadata,
+            status=status,
+            artifacts=artifacts,
+            deliverable=deliverable,
+        )
 
     async def asynthesize_final_answer(self, task: str, step_summaries):
         outputs = [entry["output"] for entry in step_summaries]
@@ -83,13 +112,22 @@ class FakeTeacher:
     async def areview_plan(self, task: str, plan: Plan) -> Plan:
         return plan
 
-    async def avalidate_step(self, step: Step, trace: str, output: str):
-        payload = json.loads(output) if output else {}
-        status = payload.get("status") if isinstance(payload, dict) else None
-        artifacts = payload.get("artifacts") if isinstance(payload, dict) else {}
+    async def avalidate_step(
+        self,
+        step: Step,
+        trace: str,
+        structured_output: dict[str, Any],
+        prior_results: dict[int, Any],
+        prior_guidance,
+        attempt_guidance,
+    ):
+        status = structured_output.get("status")
+        result_payload = structured_output.get("result") if isinstance(structured_output, dict) else {}
+        artifacts = result_payload.get("artifacts") if isinstance(result_payload, dict) else {}
         has_artifacts = isinstance(artifacts, dict) and bool(artifacts)
         valid = status == "ok" and has_artifacts
-        return {"valid": valid, "rationale": ""}
+        guidance = None if valid else "retry with missing references"
+        return {"valid": valid, "guidance": guidance, "status": status, "artifacts": artifacts}
 
     async def agenerate_guidance(self, step: Step, evaluation):
         return "retry with missing references"
@@ -104,8 +142,11 @@ class FakeEvaluator:
 
     async def ajudge(self, context: JudgeContext):
         self.invocations.append(context)
-        output = context.output or ""
-        if output.startswith("success") or output.startswith("summary"):
+        payload = json.loads(context.output) if context.output else {}
+        status = payload.get("status") if isinstance(payload, dict) else None
+        result_payload = payload.get("result") if isinstance(payload, dict) else {}
+        deliverable = result_payload.get("deliverable") if isinstance(result_payload, dict) else None
+        if status == "ok" and deliverable:
             score = 0.9
         else:
             score = 0.2
@@ -164,15 +205,17 @@ async def test_orchestrator_retries_and_records_context():
     assert "timings_ms" in attempt_1 and attempt_1["timings_ms"]["validation_ms"] >= 0.0
     # Only validated outputs should appear in downstream context
     assert student.observed_context is not None
-    assert student.observed_context[1]["output_text"] == "success-a"
-    assert "artifacts" in student.observed_context[1]
-    assert student.observed_context[2]["artifacts"]["dataset"] == "B"
+    ctx_one = student.observed_context[1]
+    ctx_two = student.observed_context[2]
+    assert ctx_one["status"] == "ok"
+    assert ctx_one["deliverable"]["dataset"] == "A"
+    assert ctx_two["artifacts"]["rows"] == [4, 5]
     # Judges should only run on successful attempts
     assert len(evaluator.invocations) == 3
-    assert all(inv.output.startswith(("success", "summary")) for inv in evaluator.invocations)
+    assert all(json.loads(inv.output)["status"] == "ok" for inv in evaluator.invocations)
     # Structured data should persist into step metadata and results
     results_by_step = {entry.step_id: entry for entry in result.step_results}
-    assert results_by_step[1].metadata["artifacts"]["dataset"] == "A"
+    assert results_by_step[1].metadata["deliverable"]["dataset"] == "A"
     assert results_by_step[3].metadata["status"] == "ok"
-    assert "summary" in results_by_step[3].metadata["artifacts"]
+    assert "summary" in results_by_step[3].metadata["deliverable"]["summary"]
     assert results_by_step[3].metadata["runtime"]["reward_skipped"] is False

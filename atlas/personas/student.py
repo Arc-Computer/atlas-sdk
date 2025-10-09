@@ -45,6 +45,7 @@ class StudentStepResult:
     attempts: int = 1
     status: str = "ok"
     artifacts: Dict[str, Any] = field(default_factory=dict)
+    deliverable: Any | None = None
 
 
 @dataclass
@@ -201,17 +202,27 @@ class Student:
                         },
                     }
                 )
-        structured_output = None
-        structured_output = self._parse_executor_output_message(output_message)
-        artifacts = structured_output.get("artifacts", {})
+        structured_output = self._normalise_executor_message(output_message)
+        artifacts = structured_output.get("artifacts") or {}
+        if not isinstance(artifacts, dict):
+            artifacts = {}
+        deliverable = structured_output.get("deliverable")
         status = structured_output.get("status", "ok")
-        notes = structured_output.get("notes")
+        guidance_reason = structured_output.get("reason")
+        raw_text = structured_output.get("text")
+        result_payload = structured_output.get("result", {})
+        if not isinstance(result_payload, dict):
+            result_payload = {"deliverable": deliverable, "artifacts": artifacts}
         metadata["status"] = status
         metadata["artifacts"] = artifacts
-        if notes is not None:
-            metadata["notes"] = notes
+        metadata["deliverable"] = deliverable
+        metadata["result"] = result_payload
         metadata["structured_output"] = structured_output
-        output_payload = json.dumps(structured_output, ensure_ascii=False)
+        if guidance_reason is not None:
+            metadata["reason"] = guidance_reason
+        if raw_text is not None:
+            metadata["text"] = raw_text
+        output_payload = raw_text if isinstance(raw_text, str) else json.dumps(structured_output, ensure_ascii=False)
         return StudentStepResult(
             trace=trace,
             output=output_payload,
@@ -219,6 +230,7 @@ class Student:
             metadata=metadata,
             status=status,
             artifacts=artifacts,
+            deliverable=deliverable,
         )
 
     async def asynthesize_final_answer(self, task: str, step_results: List[Dict[str, Any]]) -> str:
@@ -397,30 +409,86 @@ class Student:
         except json.JSONDecodeError as exc:
             raise ValueError(f"Failed to parse JSON response: {cleaned[:200]}") from exc
 
-    def _parse_executor_output_message(self, message: BaseMessage) -> Dict[str, Any]:
-        parsed = self._parse_json_response(message.content)
-        if not isinstance(parsed, dict):
-            raise ValueError("Executor output must be a JSON object with status, artifacts, and optional notes.")
-        status_value = parsed.get("status")
-        if not isinstance(status_value, str):
-            raise ValueError("Executor output requires a string status field.")
-        status = status_value.strip().lower()
-        if status not in {"ok", "needs_input", "skipped"}:
-            raise ValueError(f"Executor status '{status_value}' is not supported. Use ok, needs_input, or skipped.")
-        artifacts = parsed.get("artifacts") or {}
-        if not isinstance(artifacts, dict):
-            raise ValueError("Executor output 'artifacts' field must be a JSON object.")
-        notes = parsed.get("notes")
-        if notes is not None and not isinstance(notes, str):
-            raise ValueError("Executor output 'notes' field must be a string when provided.")
-        normalised = dict(parsed)
-        normalised["status"] = status
-        normalised["artifacts"] = artifacts
-        if notes is None:
-            normalised.pop("notes", None)
-        else:
-            normalised["notes"] = notes
+    def _normalise_executor_message(self, message: BaseMessage) -> Dict[str, Any]:
+        raw_text = self._coerce_message_text(message)
+        parsed: Dict[str, Any] | None = None
+        if isinstance(raw_text, str):
+            parsed = self._maybe_parse_executor_json(raw_text)
+        status = "ok"
+        deliverable: Any = raw_text
+        artifacts: Dict[str, Any] = {}
+        reason: str | None = None
+        result_payload: Dict[str, Any] = {}
+        if isinstance(parsed, dict):
+            candidate_status = parsed.get("status")
+            if isinstance(candidate_status, str):
+                status = candidate_status.strip().lower() or status
+            candidate_result = parsed.get("result")
+            if isinstance(candidate_result, dict):
+                result_payload = candidate_result
+                if "deliverable" in candidate_result:
+                    deliverable = candidate_result.get("deliverable")
+                artifacts_candidate = candidate_result.get("artifacts")
+                if isinstance(artifacts_candidate, dict):
+                    artifacts = artifacts_candidate
+            candidate_reason = parsed.get("reason")
+            if isinstance(candidate_reason, str):
+                reason = candidate_reason
+        if not result_payload:
+            result_payload = {"deliverable": deliverable, "artifacts": artifacts}
+        normalised = {
+            "status": status,
+            "deliverable": deliverable,
+            "artifacts": artifacts,
+            "result": result_payload,
+            "text": raw_text,
+        }
+        if reason is not None:
+            normalised["reason"] = reason
         return normalised
+
+    def _coerce_message_text(self, message: BaseMessage) -> str:
+        content = getattr(message, "content", "")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: List[str] = []
+            for item in content:
+                if isinstance(item, str):
+                    parts.append(item)
+                elif isinstance(item, dict):
+                    text = item.get("text")
+                    if isinstance(text, str):
+                        parts.append(text)
+                    else:
+                        parts.append(json.dumps(item, ensure_ascii=False))
+                else:
+                    parts.append(str(item))
+            return "".join(parts).strip()
+        if isinstance(content, dict):
+            return json.dumps(content, ensure_ascii=False)
+        return str(content)
+
+    def _maybe_parse_executor_json(self, text: str) -> Dict[str, Any] | None:
+        cleaned = text.strip()
+        if not cleaned:
+            return None
+        if cleaned.startswith("```"):
+            stripped = cleaned[3:]
+            if stripped.lstrip().startswith("json"):
+                stripped = stripped.lstrip()[4:]
+            cleaned = stripped.strip()
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3].strip()
+        if not cleaned.startswith("{"):
+            return None
+        try:
+            parsed = json.loads(cleaned)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(parsed, dict):
+            return parsed
+        return None
 
     def _consume_reasoning_metadata(self, actor: str, stage: str) -> List[Dict[str, Any]]:
         context = ExecutionContext.get()

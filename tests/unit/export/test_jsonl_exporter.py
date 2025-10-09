@@ -48,7 +48,7 @@ def populated_store():
             },
         ]
     }
-    validation_payload = {"valid": True, "rationale": "Looks good"}
+    validation_payload = {"valid": True, "guidance": "Looks good"}
     reward_payload = {
         "score": 0.91,
         "judges": [

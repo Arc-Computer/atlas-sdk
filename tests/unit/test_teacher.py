@@ -45,7 +45,7 @@ def test_teacher_live_contracts():
         )
         prompts = RewrittenTeacherPrompts(
             plan_review="You review plans and respond with JSON containing a 'steps' array.",
-            validation="You validate execution traces and reply with JSON {\"valid\": bool, \"rationale\": str}.",
+            validation="You validate execution traces and reply with JSON {\"valid\": bool, \"guidance\": str | null}.",
             guidance="You provide concise corrective guidance.",
         )
         teacher = Teacher(config, prompts)
@@ -55,12 +55,26 @@ def test_teacher_live_contracts():
         assert isinstance(reviewed, Plan)
         assert reviewed.steps
         step = Step(id=1, description="draft summary", depends_on=[])
-        validation = await teacher.avalidate_step(step, "trace log", "output content")
-        assert set(validation.keys()) >= {"valid", "rationale"}
+        structured_output = {
+            "status": "ok",
+            "result": {"deliverable": "draft summary", "artifacts": {"tokens": 128}},
+            "deliverable": "draft summary",
+            "artifacts": {"tokens": 128},
+            "text": "draft summary ready",
+        }
+        validation = await teacher.avalidate_step(
+            step,
+            "trace log",
+            structured_output,
+            prior_results={},
+            prior_guidance=[],
+            attempt_guidance=[],
+        )
+        assert set(validation.keys()) >= {"valid", "guidance"}
         assert isinstance(validation["valid"], bool)
-        assert validation["rationale"].strip()
-        guidance = await teacher.agenerate_guidance(step, {"score": 0.5})
-        assert guidance.strip()
+        assert validation["guidance"] is None or isinstance(validation["guidance"], str)
+        guidance = await teacher.agenerate_guidance(step, {"validation": {"guidance": "Take another pass."}})
+        assert guidance == "Take another pass."
 
     asyncio.run(runner())
 
@@ -75,7 +89,7 @@ class _FakeTeacherClient:
             if "steps" in user_payload:
                 payload = {"steps": [{"id": 1, "description": "draft summary", "depends_on": [], "tool": None, "tool_params": None}]}
             else:
-                payload = {"valid": True, "rationale": "looks good"}
+                payload = {"valid": True, "guidance": "looks good"}
             return LLMResponse(content=json.dumps(payload), raw={}, reasoning=self.reasoning)
         return LLMResponse(content="Provide more detail.", raw={}, reasoning=self.reasoning)
 
@@ -92,7 +106,7 @@ def test_teacher_records_reasoning_metadata():
         )
         prompts = RewrittenTeacherPrompts(
             plan_review="Respond with JSON containing a 'steps' array.",
-            validation="Return JSON {\"valid\": bool, \"rationale\": str}.",
+            validation="Return JSON {\"valid\": bool, \"guidance\": str | null}.",
             guidance="Return short guidance.",
         )
         teacher = Teacher(config, prompts)
@@ -100,9 +114,26 @@ def test_teacher_records_reasoning_metadata():
         plan = Plan(steps=[Step(id=1, description="draft summary", depends_on=[])])
         reviewed = await teacher.areview_plan("Summarize findings", plan)
         assert reviewed.steps[0].description == "draft summary"
-        validation = await teacher.avalidate_step(plan.steps[0], "trace", "output")
+        structured_output = {
+            "status": "ok",
+            "result": {"deliverable": "draft summary", "artifacts": {"tokens": 12}},
+            "deliverable": "draft summary",
+            "artifacts": {"tokens": 12},
+            "text": "draft summary ready",
+        }
+        validation = await teacher.avalidate_step(
+            plan.steps[0],
+            "trace",
+            structured_output,
+            prior_results={},
+            prior_guidance=[],
+            attempt_guidance=[],
+        )
         assert validation["reasoning"]["reasoning_content"][0]["text"] == "check constraints"
-        guidance = await teacher.agenerate_guidance(plan.steps[0], {"score": 0.5})
+        guidance = await teacher.agenerate_guidance(
+            plan.steps[0],
+            {"validation": {"guidance": "Provide more detail."}},
+        )
         assert guidance == "Provide more detail."
         store = ExecutionContext.get().metadata.get("reasoning_traces", {})
         assert "teacher" in store and store["teacher"], "Teacher reasoning should be recorded"

@@ -41,6 +41,7 @@ class _StepExecutionOutcome:
     reward_skipped: bool
     status: str
     artifacts: Dict[str, Any]
+    deliverable: Any | None = None
 
 
 class Orchestrator:
@@ -115,7 +116,8 @@ class Orchestrator:
                         "status": outcome.status,
                         "output": result.output,
                         "artifacts": outcome.artifacts,
-                        "notes": result.metadata.get("notes"),
+                        "deliverable": result.deliverable,
+                        "reason": result.metadata.get("reason"),
                         "trace": result.trace,
                         "evaluation": evaluation.to_dict(),
                         "metadata": result.metadata,
@@ -180,7 +182,8 @@ class Orchestrator:
                             "status": outcome.status,
                             "output": result.output,
                             "artifacts": outcome.artifacts,
-                            "notes": result.metadata.get("notes"),
+                            "deliverable": result.deliverable,
+                            "reason": result.metadata.get("reason"),
                             "trace": result.trace,
                             "evaluation": evaluation.to_dict(),
                             "metadata": result.metadata,
@@ -262,17 +265,25 @@ class Orchestrator:
                 )
                 raise
 
-            structured_output = self._obtain_structured_output(student_result)
-            status = student_result.status
-            artifacts = student_result.artifacts
-
-            validation_start = time.perf_counter()
-            validation = await self._teacher.avalidate_step(step, student_result.trace, student_result.output)
-            attempt_timings["validation_ms"] = self._elapsed_ms(validation_start)
-            validation_valid = bool(validation.get("valid"))
-
             step_meta = execution_context.metadata.get("steps", {}).get(step.id, {})
             prior_guidance = list(step_meta.get("guidance", []))
+
+            structured_output = self._obtain_structured_output(student_result)
+            status = structured_output.get("status") or student_result.status
+            artifacts = student_result.artifacts
+            deliverable = student_result.deliverable
+
+            validation_start = time.perf_counter()
+            validation = await self._teacher.avalidate_step(
+                step,
+                student_result.trace,
+                structured_output,
+                context_outputs,
+                prior_guidance,
+                guidance,
+            )
+            attempt_timings["validation_ms"] = self._elapsed_ms(validation_start)
+            validation_valid = bool(validation.get("valid"))
 
             reward_skipped = True
             reward: AtlasRewardBreakdown
@@ -297,16 +308,13 @@ class Orchestrator:
             evaluation = StepEvaluation(validation=validation, reward=reward)
             should_retry = self._should_retry(status, validation, reward, attempts)
 
+            guidance_text = validation.get("guidance") if isinstance(validation, dict) else None
             if should_retry:
-                guidance_start = time.perf_counter()
-                guidance_payload = evaluation.to_dict()
-                guidance_payload["status"] = status
-                guidance_payload["artifacts"] = artifacts
-                guidance_payload["structured_output"] = structured_output
-                guidance_text = await self._teacher.agenerate_guidance(step, guidance_payload)
-                attempt_timings["guidance_ms"] = self._elapsed_ms(guidance_start)
-                execution_context.append_guidance(step.id, guidance_text)
-                guidance.append(guidance_text)
+                guidance_message = guidance_text if isinstance(guidance_text, str) else ""
+                attempt_timings["guidance_ms"] = 0.0
+                if guidance_message:
+                    execution_context.append_guidance(step.id, guidance_message)
+                    guidance.append(guidance_message)
 
             total_elapsed = sum(attempt_timings.values())
             attempt_timings["total_ms"] = round(total_elapsed, 3)
@@ -343,6 +351,7 @@ class Orchestrator:
                 },
                 "status": status,
                 "artifacts": self._ensure_jsonable(artifacts),
+                "deliverable": self._ensure_jsonable(deliverable),
             }
             if context_entry is not None:
                 event_output["context_entry"] = context_entry
@@ -365,6 +374,7 @@ class Orchestrator:
                     reward_skipped=reward_skipped,
                     status=status,
                     artifacts=artifacts,
+                    deliverable=deliverable,
                 )
     def _should_retry(
         self,
@@ -373,13 +383,15 @@ class Orchestrator:
         reward: AtlasRewardBreakdown,
         attempts: int,
     ) -> bool:
-        if attempts > self._orchestration.max_retries + 1:
+        max_attempts = self._orchestration.max_retries + 1
+        if attempts > max_attempts:
             return False
-        if status == "skipped":
+        status_value = (status or "").strip().lower()
+        if status_value == "skipped":
             return False
         if not validation.get("valid", False):
             return attempts <= self._orchestration.max_retries
-        if status != "ok":
+        if status_value and status_value not in {"ok", "success", "completed"}:
             return attempts <= self._orchestration.max_retries
         return reward.score < self._rim_retry_threshold and attempts <= self._orchestration.max_retries
 
@@ -396,7 +408,8 @@ class Orchestrator:
                     "description": step.description,
                     "status": "pending",
                     "artifacts": {},
-                    "notes": None,
+                    "deliverable": None,
+                    "reason": None,
                 }
             )
         return summaries
@@ -455,11 +468,16 @@ class Orchestrator:
         status = structured_output.get("status")
         if status is not None:
             base["status"] = status
-        notes = structured_output.get("notes")
-        if notes is not None:
-            base["notes"] = notes
-        artifacts = structured_output.get("artifacts") or {}
+        result_payload = structured_output.get("result") or {}
+        if not isinstance(result_payload, dict):
+            result_payload = {}
+        artifacts = result_payload.get("artifacts") or {}
         base["artifacts"] = self._ensure_jsonable(artifacts)
+        base["deliverable"] = self._ensure_jsonable(result_payload.get("deliverable"))
+        reason = structured_output.get("reason")
+        if reason is not None:
+            base["reason"] = reason
+        base["result"] = self._ensure_jsonable(result_payload)
         base["structured_output"] = self._ensure_jsonable(structured_output)
         runtime_meta = base.get("runtime")
         if not isinstance(runtime_meta, dict):
@@ -477,11 +495,12 @@ class Orchestrator:
         entry: Dict[str, Any] = {
             "output_text": output_text,
             "status": structured_output.get("status"),
-            "artifacts": self._ensure_jsonable(structured_output.get("artifacts") or {}),
+            "artifacts": self._ensure_jsonable((structured_output.get("result") or {}).get("artifacts") or {}),
+            "deliverable": self._ensure_jsonable((structured_output.get("result") or {}).get("deliverable")),
         }
-        notes = structured_output.get("notes")
-        if notes:
-            entry["notes"] = notes
+        reason = structured_output.get("reason")
+        if reason:
+            entry["reason"] = reason
         entry["structured_output"] = self._ensure_jsonable(structured_output)
         return entry
 

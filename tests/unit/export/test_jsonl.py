@@ -59,7 +59,7 @@ class FakeDatabase:
                 "trace": "AI: finished",
                 "output": "atlas summary",
                 "evaluation": {
-                    "validation": {"valid": True, "rationale": "looks good"},
+                    "validation": {"valid": True, "guidance": "looks good"},
                     "reward": {
                         "score": 0.92,
                         "judges": [

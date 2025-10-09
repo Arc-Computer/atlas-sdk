@@ -8,6 +8,7 @@ import time
 from typing import Any
 from typing import Dict
 from typing import List
+from typing import Sequence
 from typing import Tuple
 from typing import Literal
 from typing import cast
@@ -68,63 +69,92 @@ class Teacher:
         self._consume_reasoning_metadata("teacher", "plan_review")
         return reviewed
 
-    async def avalidate_step(self, step: Step, trace: str, output: str) -> Dict[str, Any]:
+    async def avalidate_step(
+        self,
+        step: Step,
+        trace: str,
+        structured_output: Dict[str, Any],
+        prior_results: Dict[int, Any],
+        prior_guidance: Sequence[str],
+        attempt_guidance: Sequence[str],
+    ) -> Dict[str, Any]:
         context = ExecutionContext.get()
         context.metadata["active_actor"] = "teacher"
         context.metadata["_reasoning_origin"] = ("teacher", "validation")
-        structured_output = self._parse_executor_output(output)
         messages = [
             {"role": "system", "content": self._validation_prompt},
             {
                 "role": "user",
-                "content": json.dumps(self._build_validation_payload(step, trace, structured_output), ensure_ascii=False)
+                "content": json.dumps(
+                    self._build_validation_payload(
+                        step,
+                        trace,
+                        structured_output,
+                        prior_results,
+                        prior_guidance,
+                        attempt_guidance,
+                    ),
+                    ensure_ascii=False,
+                )
                 + "\nReturn json.",
             },
         ]
         response = await self._client.acomplete(messages, response_format={"type": "json_object"})
         parsed = json.loads(response.content)
-        result = {
+        result: Dict[str, Any] = {
             "valid": bool(parsed.get("valid", False)),
-            "rationale": parsed.get("rationale", ""),
+            "guidance": parsed.get("guidance"),
         }
         if response.reasoning:
-            result["reasoning"] = response.reasoning
             self._record_reasoning("teacher", f"validation:{step.id}", response.reasoning)
+            result["reasoning"] = response.reasoning
         self._consume_reasoning_metadata("teacher", "validation")
-        artifacts = structured_output.get("artifacts") if isinstance(structured_output, dict) else {}
-        status = structured_output.get("status") if isinstance(structured_output, dict) else None
-        if not result["valid"] and status == "ok" and isinstance(artifacts, dict) and artifacts:
-            note = "Auto-validated: required artifacts detected."
-            rationale = result.get("rationale") or ""
-            result["rationale"] = f"{rationale} {note}".strip()
-            result["valid"] = True
-            result["auto_validated"] = True
-        result["status"] = status
-        result["artifacts"] = artifacts if isinstance(artifacts, dict) else {}
+        result["status"] = structured_output.get("status")
+        artifacts = structured_output.get("artifacts")
+        if artifacts is not None:
+            result["artifacts"] = artifacts
+        deliverable = structured_output.get("deliverable")
+        if deliverable is not None:
+            result["deliverable"] = deliverable
+        text_output = structured_output.get("text")
+        if text_output is not None:
+            result["text"] = text_output
+        reason = structured_output.get("reason")
+        if reason is not None:
+            result["reason"] = reason
         return result
 
     async def agenerate_guidance(self, step: Step, evaluation: Dict[str, Any]) -> str:
         context = ExecutionContext.get()
         context.metadata["active_actor"] = "teacher"
         context.metadata["_reasoning_origin"] = ("teacher", "guidance")
-        messages = [
-            {"role": "system", "content": self._guidance_prompt},
-            {
-                "role": "user",
-                "content": json.dumps(self._build_guidance_payload(step, evaluation), ensure_ascii=False),
-            },
-        ]
-        response = await self._client.acomplete(messages)
-        if response.reasoning:
-            self._record_reasoning("teacher", f"guidance:{step.id}", response.reasoning)
+        guidance = None
+        if isinstance(evaluation, dict):
+            validation_payload = evaluation.get("validation") if "validation" in evaluation else evaluation
+            if isinstance(validation_payload, dict):
+                candidate = validation_payload.get("guidance")
+                if isinstance(candidate, str):
+                    guidance = candidate
         self._consume_reasoning_metadata("teacher", "guidance")
-        return response.content
+        if guidance is None:
+            guidance = ""
+        return guidance
 
     def review_plan(self, task: str, plan: Plan) -> Plan:
         return self._run_async(self.areview_plan(task, plan))
 
-    def validate_step(self, step: Step, trace: str, output: str) -> Dict[str, Any]:
-        return self._run_async(self.avalidate_step(step, trace, output))
+    def validate_step(
+        self,
+        step: Step,
+        trace: str,
+        structured_output: Dict[str, Any],
+        prior_results: Dict[int, Any],
+        prior_guidance: Sequence[str],
+        attempt_guidance: Sequence[str],
+    ) -> Dict[str, Any]:
+        return self._run_async(
+            self.avalidate_step(step, trace, structured_output, prior_results, prior_guidance, attempt_guidance)
+        )
 
     def generate_guidance(self, step: Step, evaluation: Dict[str, Any]) -> str:
         return self._run_async(self.agenerate_guidance(step, evaluation))
@@ -137,33 +167,24 @@ class Teacher:
         step: Step,
         trace: str,
         structured_output: Dict[str, Any],
+        prior_results: Dict[int, Any],
+        prior_guidance: Sequence[str],
+        attempt_guidance: Sequence[str],
     ) -> Dict[str, Any]:
-        artifacts = structured_output.get("artifacts") if isinstance(structured_output, dict) else {}
-        if not isinstance(artifacts, dict):
-            artifacts = {}
         payload = {
             "step": step.model_dump(),
             "trace": trace,
             "status": structured_output.get("status"),
-            "artifacts": artifacts,
-            "notes": structured_output.get("notes"),
-            "executor_output": structured_output,
+            "student_response": structured_output.get("text"),
+            "deliverable": self._jsonify(structured_output.get("deliverable")),
+            "artifacts": self._jsonify(structured_output.get("artifacts")),
+            "result": self._jsonify(structured_output.get("result")),
+            "reason": structured_output.get("reason"),
+            "structured_output": self._jsonify(structured_output),
+            "validated_context": self._jsonify(prior_results),
+            "prior_guidance": list(prior_guidance),
+            "attempt_guidance": list(attempt_guidance),
         }
-        return payload
-
-    def _build_guidance_payload(self, step: Step, evaluation: Dict[str, Any]) -> Dict[str, Any]:
-        payload = {
-            "step": step.model_dump(),
-            "evaluation": evaluation,
-            "status": evaluation.get("status"),
-            "artifacts": evaluation.get("artifacts"),
-        }
-        structured_output = evaluation.get("structured_output")
-        if structured_output is not None:
-            payload["structured_output"] = structured_output
-        notes = evaluation.get("notes")
-        if notes is not None:
-            payload["notes"] = notes
         return payload
 
     def _cache_key(self, task: str, plan: Plan) -> str:
@@ -198,17 +219,6 @@ class Teacher:
                     if "tool_params" not in step:
                         step["tool_params"] = None
         return payload
-
-    def _parse_executor_output(self, output: str) -> Dict[str, Any]:
-        if not output:
-            return {}
-        try:
-            parsed = json.loads(output)
-        except (TypeError, json.JSONDecodeError):
-            return {}
-        if isinstance(parsed, dict):
-            return parsed
-        return {}
 
     def _coerce_execution_mode(self, value: Any) -> Literal["stepwise", "single_shot"] | None:
         if not isinstance(value, str):
@@ -268,3 +278,24 @@ class Teacher:
             return
         remaining = [entry for entry in queue if entry.get("origin") != (actor, stage)]
         context.metadata["_llm_reasoning_queue"] = remaining
+
+    def _jsonify(self, value: Any, depth: int = 0) -> Any:
+        if depth > 6:
+            return str(value)
+        if value is None:
+            return None
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, dict):
+            return {str(key): self._jsonify(item, depth + 1) for key, item in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [self._jsonify(item, depth + 1) for item in value]
+        if hasattr(value, "model_dump"):
+            try:
+                dumped = value.model_dump()
+            except Exception:
+                return str(value)
+            return self._jsonify(dumped, depth + 1)
+        if hasattr(value, "__dict__"):
+            return self._jsonify(vars(value), depth + 1)
+        return str(value)

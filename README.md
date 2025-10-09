@@ -210,7 +210,7 @@ Each line in the output is an `AtlasSessionTrace` record:
       "description": "...",
       "tool": "summariser",
       "reward": {"score": 0.92, "judges": [...]},
-      "validation": {"valid": true, "rationale": "..."},
+      "validation": {"valid": true, "guidance": null},
       "guidance": ["..."],
       "context": {"prior_results": {"1": "..."}}
     }

@@ -395,6 +395,9 @@ def _build_step_payload(
     artifacts = metadata.get("artifacts")
     if artifacts is not None and "artifacts" not in step_payload:
         step_payload["artifacts"] = artifacts
+    deliverable = metadata.get("deliverable")
+    if deliverable is not None and "deliverable" not in step_payload:
+        step_payload["deliverable"] = deliverable
     runtime_meta = metadata.get("runtime")
     if runtime_meta and "runtime" not in step_payload:
         step_payload["runtime"] = runtime_meta

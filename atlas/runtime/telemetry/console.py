@@ -116,9 +116,16 @@ class ConsoleTelemetryStreamer:
         evaluation = self._coerce_dict(payload_output.get("evaluation") if isinstance(payload_output, dict) else {})
         validation = self._coerce_dict(evaluation.get("validation"))
         status = payload_output.get("status") if isinstance(payload_output, dict) else None
-        valid = bool(validation.get("valid")) and status == "ok"
-        rationale = validation.get("rationale") or status or ""
-        reason = self._shorten(str(rationale), 80)
+        if status is None:
+            status = validation.get("status")
+        valid = bool(validation.get("valid"))
+        guidance_text = validation.get("guidance")
+        if not isinstance(guidance_text, str):
+            guidance_text = ""
+        display_reason = status or ""
+        if not valid:
+            display_reason = guidance_text or display_reason
+        reason = self._shorten(str(display_reason), 80)
         runtime_payload = self._coerce_dict(payload_output.get("runtime") if isinstance(payload_output, dict) else {})
         timings = self._coerce_dict(runtime_payload.get("timings_ms"))
         duration_ms = timings.get("total_ms")
