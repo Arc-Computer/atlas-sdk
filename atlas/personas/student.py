@@ -135,7 +135,7 @@ class Student:
     async def aexecute_step(
         self,
         step: Step,
-        context: Dict[int, str],
+        context: Dict[int, Any],
         guidance: Sequence[str] | None = None,
         recursion_limit: int = 8,
     ) -> StudentStepResult:
@@ -251,7 +251,7 @@ class Student:
     def execute_step(
         self,
         step: Step,
-        context: Dict[int, str],
+        context: Dict[int, Any],
         guidance: Sequence[str] | None = None,
         recursion_limit: int = 8,
     ) -> StudentStepResult:
@@ -293,7 +293,7 @@ class Student:
     def _build_execution_messages(
         self,
         step: Step,
-        context: Dict[int, str],
+        context: Dict[int, Any],
         guidance: Sequence[str] | None,
     ) -> List[BaseMessage]:
         context_block = json.dumps(context, ensure_ascii=False, indent=2)
@@ -304,8 +304,8 @@ class Student:
             f"Tool: {step.tool or 'none'}",
             f"Tool Parameters: {json.dumps(step.tool_params or {}, ensure_ascii=False)}",
             f"Dependencies: {step.depends_on}",
-            f"Context: {context_block}",
-            f"Guidance: {guidance_block}",
+            f"Validated Prior Results (output_text + cached_data when available): {context_block}",
+            f"Guidance History: {guidance_block}",
         ]
         user_message = "\n".join(payload)
         return [

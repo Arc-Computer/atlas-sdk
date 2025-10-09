@@ -21,7 +21,7 @@ class JudgeContext:
     trace: str
     output: str
     attempt: int = 1
-    prior_results: Dict[int, str] | None = None
+    prior_results: Dict[int, Any] | None = None
     guidance: Sequence[str] | None = None
 
 

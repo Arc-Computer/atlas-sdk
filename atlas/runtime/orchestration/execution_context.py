@@ -112,13 +112,26 @@ class ExecutionContext:
         steps = metadata.setdefault("steps", {})
         return steps.setdefault(step_id, {"attempts": [], "guidance": []})
 
-    def register_step_attempt(self, step_id: int, attempt: int, evaluation: "StepEvaluation | dict") -> None:
+    def register_step_attempt(
+        self,
+        step_id: int,
+        attempt: int,
+        evaluation: "StepEvaluation | dict",
+        *,
+        timings: dict[str, float] | None = None,
+        reward_skipped: bool | None = None,
+    ) -> None:
         entry = self._step_metadata(step_id)
         if hasattr(evaluation, "to_dict"):
             payload = typing.cast("StepEvaluation", evaluation).to_dict()
         else:
             payload = typing.cast(dict, evaluation)
-        entry.setdefault("attempts", []).append({"attempt": attempt, "evaluation": payload})
+        attempt_entry: dict[str, typing.Any] = {"attempt": attempt, "evaluation": payload}
+        if timings:
+            attempt_entry["timings_ms"] = dict(timings)
+        if reward_skipped is not None:
+            attempt_entry["reward_skipped"] = bool(reward_skipped)
+        entry.setdefault("attempts", []).append(attempt_entry)
 
     def append_guidance(self, step_id: int, guidance: str) -> None:
         entry = self._step_metadata(step_id)

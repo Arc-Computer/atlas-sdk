@@ -275,10 +275,15 @@ async def _assemble_session(
     for step_row in steps:
         step_payload = _build_step_payload(step_row, plan_lookup, context_outputs)
         step_payloads.append(step_payload)
-        output_value = step_payload.get("output")
+        output_value = step_payload.get("output") or ""
+        metadata = step_payload.get("metadata") or {}
         step_id = step_payload.get("step_id")
         if isinstance(step_id, int):
-            context_outputs[step_id] = output_value
+            context_entry: dict[str, Any] = {"output_text": output_value}
+            cached = metadata.get("cached_data")
+            if cached is not None:
+                context_entry["cached_data"] = cached
+            context_outputs[step_id] = context_entry
 
     session_payload = {
         "task": detailed.get("task", ""),

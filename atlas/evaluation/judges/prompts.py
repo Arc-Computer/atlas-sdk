@@ -21,7 +21,7 @@ CONTEXT
 - Declared Dependencies: {dependencies}
 - Attempt Number: {attempt}
 - Teacher Guidance History: {guidance}
-- Peer Step Outputs / Prior Results: {prior_results}
+- Peer Step Results (output_text + cached_data when available): {prior_results}
 - Execution Trace:
 {student_trace}
 - Student Output:
@@ -65,7 +65,7 @@ CONTEXT
 {student_trace}
 - Student Output:
 {student_output}
-- Peer Step Outputs / Prior Results: {prior_results}
+- Peer Step Results (output_text + cached_data when available): {prior_results}
 
 INSTRUCTIONS
 1. Derive three to five principles that measure guidance quality: specificity, actionability, risk mitigation,
