@@ -40,6 +40,50 @@ Atlas returns an `atlas.types.Result` containing the final answer, the reviewed 
 
 ---
 
+## Run with Docker
+
+The repo ships with a ready-to-go Compose stack under `docker/`:
+
+```bash
+# 1. Ensure your project .env includes the required keys (Compose reads it automatically):
+#    OPENAI_API_KEY=sk-...
+#    GOOGLE_API_KEY=...
+# 2. Build the SDK image and start Postgres + the demo agent
+docker compose -f docker/docker-compose.yaml up --build
+```
+
+- `postgres` starts a local PostgreSQL instance with a persisted volume (`atlas_pg_data`).
+- `atlas` builds the SDK, installs it in editable mode, and runs the ARC demo by default.
+- Pass a custom command to run other configs:  
+  `docker compose -f docker/docker-compose.yaml run --rm atlas python -m atlas.cli.main --help`
+
+The container mounts your repo at `/workspace`, so you can edit code locally and rerun without rebuilding. The default entrypoint is `docker/entrypoint.sh`; override it by supplying arguments after the service name (they replace the demo command).
+
+---
+
+## Using `pip install arc-atlas`
+
+When you install the SDK from PyPI you still need a PostgreSQL URL if you want persistence. The easiest path is to reuse the bundled Compose file:
+
+```bash
+pip install arc-atlas
+docker compose -f docker/docker-compose.yaml up -d postgres
+
+# Either export these for the current shell or ensure they're present in .env
+export STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas_arc_demo
+export OPENAI_API_KEY=sk-...
+# Optional Process/Helpfulness judges
+export GOOGLE_API_KEY=...
+
+python -m atlas.core.run --config path/to/config.yaml --task "Summarise the Atlas SDK"
+```
+
+- `docker-compose` exposes Postgres on host port `5433`; keep the URL in sync if you change the mapping.
+- You can point `storage.database_url` inside your YAML config or rely on the `STORAGE__DATABASE_URL` environment variable shown above.
+- If storage is optional for your workflow, set `storage: null` in the config—runs will skip persistence but still execute end-to-end.
+
+---
+
 ## Exporting Runtime Sessions
 
 Atlas persists full execution traces whenever PostgreSQL storage is configured. Convert those sessions into training-ready
