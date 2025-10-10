@@ -7,6 +7,8 @@ from typing import Any
 from typing import Dict
 from typing import Iterable
 from typing import List
+from typing import Sequence
+from uuid import UUID
 
 try:
     import asyncpg
@@ -230,6 +232,128 @@ class Database:
             )
         return [dict(row) for row in rows]
 
+    async def create_persona_memory(self, record: Dict[str, Any]) -> None:
+        """Create or update a persona memory row."""
+        pool = self._require_pool()
+        instruction_payload = self._serialize_json(record["instruction"])
+        reward_payload = self._serialize_json(record.get("reward_snapshot"))
+        async with pool.acquire() as connection:
+            await connection.execute(
+                """
+                INSERT INTO persona_memory (
+                    memory_id,
+                    agent_name,
+                    tenant_id,
+                    persona,
+                    trigger_fingerprint,
+                    instruction,
+                    source_session_id,
+                    reward_snapshot,
+                    retry_count,
+                    status
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                ON CONFLICT (memory_id) DO UPDATE SET
+                    agent_name = EXCLUDED.agent_name,
+                    tenant_id = EXCLUDED.tenant_id,
+                    persona = EXCLUDED.persona,
+                    trigger_fingerprint = EXCLUDED.trigger_fingerprint,
+                    instruction = EXCLUDED.instruction,
+                    source_session_id = EXCLUDED.source_session_id,
+                    reward_snapshot = EXCLUDED.reward_snapshot,
+                    retry_count = EXCLUDED.retry_count,
+                    status = EXCLUDED.status,
+                    updated_at = NOW()
+                """,
+                record["memory_id"],
+                record["agent_name"],
+                record["tenant_id"],
+                record["persona"],
+                record["trigger_fingerprint"],
+                instruction_payload,
+                record.get("source_session_id"),
+                reward_payload,
+                record.get("retry_count"),
+                record["status"],
+            )
+
+    async def fetch_persona_memories(
+        self,
+        agent_name: str,
+        tenant_id: str,
+        persona: str,
+        fingerprint: str,
+        statuses: Sequence[str] | None = None,
+    ) -> List[Dict[str, Any]]:
+        """Fetch persona memories for a persona/fingerprint tuple ordered by creation time."""
+        pool = self._require_pool()
+        if statuses is not None and len(statuses) == 0:
+            return []
+        query = (
+            "SELECT memory_id, agent_name, tenant_id, persona, trigger_fingerprint, instruction,"
+            " source_session_id, reward_snapshot, retry_count, status, created_at, updated_at"
+            " FROM persona_memory"
+            " WHERE agent_name = $1 AND tenant_id = $2 AND persona = $3 AND trigger_fingerprint = $4"
+        )
+        params: list[Any] = [agent_name, tenant_id, persona, fingerprint]
+        if statuses is not None:
+            params.append(statuses)
+            query += f" AND status = ANY(${len(params)})"
+        query += " ORDER BY created_at ASC"
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(query, *params)
+        results: list[Dict[str, Any]] = []
+        for row in rows:
+            record = dict(row)
+            record["instruction"] = self._deserialize_json(record.get("instruction"))
+            record["reward_snapshot"] = self._deserialize_json(record.get("reward_snapshot"))
+            results.append(record)
+        return results
+
+    async def update_persona_memory_status(
+        self,
+        memory_id: UUID,
+        status: str,
+        *,
+        reward_snapshot: Dict[str, Any] | None = None,
+        retry_count: int | None = None,
+    ) -> None:
+        """Update persona memory status and optional reward metadata."""
+        pool = self._require_pool()
+        params: list[Any] = [memory_id, status]
+        set_clauses = ["status = $2", "updated_at = NOW()"]
+        if reward_snapshot is not None:
+            params.append(self._serialize_json(reward_snapshot))
+            set_clauses.append(f"reward_snapshot = ${len(params)}")
+        if retry_count is not None:
+            params.append(retry_count)
+            set_clauses.append(f"retry_count = ${len(params)}")
+        query = f"UPDATE persona_memory SET {', '.join(set_clauses)} WHERE memory_id = $1"
+        async with pool.acquire() as connection:
+            await connection.execute(query, *params)
+
+    async def log_persona_memory_usage(
+        self,
+        memory_id: UUID,
+        session_id: int,
+        reward: Dict[str, Any] | None,
+        retries: int | None,
+    ) -> None:
+        """Record usage of a persona memory within a session."""
+        pool = self._require_pool()
+        reward_payload = self._serialize_json(reward)
+        async with pool.acquire() as connection:
+            await connection.execute(
+                """
+                INSERT INTO persona_memory_usage (memory_id, session_id, reward, retry_count)
+                VALUES ($1, $2, $3, $4)
+                """,
+                memory_id,
+                session_id,
+                reward_payload,
+                retries,
+            )
+
     def _require_pool(self) -> asyncpg.Pool:
         if self._pool is None:
             raise RuntimeError("Database connection has not been established")
@@ -244,3 +368,13 @@ class Database:
             return json.dumps(data, default=str)
         except (TypeError, ValueError):
             return json.dumps(str(data))
+
+    @staticmethod
+    def _deserialize_json(data: Any) -> Any:
+        """Convert JSON payloads retrieved from the database into Python objects."""
+        if data is None or isinstance(data, (dict, list)):
+            return data
+        try:
+            return json.loads(data)
+        except (TypeError, ValueError):
+            return data
