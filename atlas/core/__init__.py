@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 from typing import Any
 from typing import List
@@ -22,11 +23,13 @@ from atlas.runtime.orchestration.orchestrator import Orchestrator
 from atlas.runtime.persona_memory import (
     PersonaMemoryKey,
     build_fingerprint,
+    extract_candidates,
     extract_fingerprint_inputs,
     get_cache,
     is_cache_disabled,
     merge_prompt,
     normalize_instructions,
+    write_candidates,
 )
 from atlas.evaluation.evaluator import Evaluator
 from atlas.personas.student import Student
@@ -35,6 +38,8 @@ from atlas.runtime.storage.database import Database
 from atlas.runtime.telemetry import ConsoleTelemetryStreamer
 from atlas.runtime.telemetry.langchain_callback import configure_langchain_callbacks
 from atlas.types import Result
+
+logger = logging.getLogger(__name__)
 
 
 class TelemetryPublisherProtocol(Protocol):
@@ -69,6 +74,7 @@ async def arun(
     execution_context.metadata["persona_fingerprint"] = persona_fingerprint
     execution_context.metadata["persona_memories"] = {}
     execution_context.metadata["applied_persona_memories"] = {}
+    execution_context.metadata["new_persona_candidates"] = []
     persona_cache = get_cache()
     cache_disabled = is_cache_disabled(config)
     if stream_progress is not None:
@@ -171,6 +177,16 @@ async def arun(
         result = await orchestrator.arun(task)
         if database and session_id is not None:
             await _persist_results(database, session_id, execution_context, result, events)
+            candidate_ids: List[str] = []
+            try:
+                candidate_specs = extract_candidates(execution_context, result)
+                if candidate_specs:
+                    created = await write_candidates(database, session_id, candidate_specs)
+                    candidate_ids = [str(identifier) for identifier in created]
+            except Exception as learning_exc:  # pragma: no cover - diagnostic path
+                logger.exception("Failed to generate persona memory candidates", exc_info=learning_exc)
+            finally:
+                execution_context.metadata["new_persona_candidates"] = candidate_ids
             await _log_persona_memory_usage(database, session_id, execution_context)
             await database.finalize_session(session_id, result.final_answer, "succeeded")
             if publisher is not None:
