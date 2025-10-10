@@ -108,6 +108,7 @@ async def arun(
             metadata = execution_context.metadata.get("session_metadata")
             session_id = await database.create_session(task, metadata=metadata)
             if persona_fingerprint:
+                persona_memories = execution_context.metadata.setdefault("persona_memories", {})
                 statuses = ["active"]
                 use_cache = not cache_disabled
                 personas = [
@@ -137,8 +138,6 @@ async def arun(
                     "session-started",
                     {"session_id": session_id, "task": task},
                 )
-        student_prompts = build_student_prompts(base_prompt, config.student)
-        teacher_prompts = build_teacher_prompts(base_prompt, config.teacher)
         instructions_map = {persona: normalize_instructions(records) for persona, records in persona_memories.items() if records}
         applied_memories = execution_context.metadata["applied_persona_memories"]
 
@@ -150,15 +149,17 @@ async def arun(
             applied_memories[persona_id] = list(dict.fromkeys(ids))
             return merge_prompt(prompt_text, instructions)
 
+        base_student_prompts = build_student_prompts(base_prompt, config.student)
+        base_teacher_prompts = build_teacher_prompts(base_prompt, config.teacher)
         student_prompts = RewrittenStudentPrompts(
-            planner=_apply_instructions("student_planner", student_prompts.planner),
-            executor=_apply_instructions("student_executor", student_prompts.executor),
-            synthesizer=_apply_instructions("student_synthesizer", student_prompts.synthesizer),
+            planner=_apply_instructions("student_planner", base_student_prompts.planner),
+            executor=_apply_instructions("student_executor", base_student_prompts.executor),
+            synthesizer=_apply_instructions("student_synthesizer", base_student_prompts.synthesizer),
         )
         teacher_prompts = RewrittenTeacherPrompts(
-            plan_review=_apply_instructions("teacher_plan_review", teacher_prompts.plan_review),
-            validation=_apply_instructions("teacher_validation", teacher_prompts.validation),
-            guidance=_apply_instructions("teacher_guidance", teacher_prompts.guidance),
+            plan_review=_apply_instructions("teacher_plan_review", base_teacher_prompts.plan_review),
+            validation=_apply_instructions("teacher_validation", base_teacher_prompts.validation),
+            guidance=_apply_instructions("teacher_guidance", base_teacher_prompts.guidance),
         )
         execution_context.metadata["prompt_rewrite"] = {
             "student": student_prompts.__dict__,
