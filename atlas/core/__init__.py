@@ -19,6 +19,7 @@ from atlas.prompts import (
 )
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.runtime.orchestration.orchestrator import Orchestrator
+from atlas.runtime.persona_memory import PersonaMemoryKey, build_fingerprint, extract_fingerprint_inputs, get_cache, is_cache_disabled
 from atlas.evaluation.evaluator import Evaluator
 from atlas.personas.student import Student
 from atlas.personas.teacher import Teacher
@@ -52,6 +53,15 @@ async def arun(
     configure_langchain_callbacks()
     if session_metadata:
         execution_context.metadata["session_metadata"] = session_metadata
+    else:
+        execution_context.metadata.setdefault("session_metadata", {})
+    fingerprint_inputs = extract_fingerprint_inputs(task, config, execution_context)
+    execution_context.metadata["persona_fingerprint_inputs"] = fingerprint_inputs
+    persona_fingerprint = build_fingerprint(fingerprint_inputs)
+    execution_context.metadata["persona_fingerprint"] = persona_fingerprint
+    execution_context.metadata.setdefault("persona_memories", {})
+    persona_cache = get_cache()
+    cache_disabled = is_cache_disabled(config)
     if stream_progress is not None:
         stream_enabled = stream_progress
     else:
@@ -97,6 +107,32 @@ async def arun(
             await database.connect()
             metadata = execution_context.metadata.get("session_metadata")
             session_id = await database.create_session(task, metadata=metadata)
+            if persona_fingerprint:
+                persona_memories = execution_context.metadata.setdefault("persona_memories", {})
+                statuses = ["active"]
+                use_cache = not cache_disabled
+                personas = [
+                    "student_planner",
+                    "student_executor",
+                    "student_synthesizer",
+                    "teacher_plan_review",
+                    "teacher_validation",
+                    "teacher_guidance",
+                ]
+                for persona_id in personas:
+                    key = PersonaMemoryKey(
+                        agent_name=fingerprint_inputs.agent_name,
+                        tenant_id=fingerprint_inputs.tenant_id,
+                        fingerprint=persona_fingerprint,
+                        persona=persona_id,
+                    )
+                    records = await persona_cache.get_or_load(
+                        database,
+                        key,
+                        statuses,
+                        use_cache=use_cache,
+                    )
+                    persona_memories[persona_id] = records
             if publisher is not None and session_id is not None:
                 publisher.publish_control_event(
                     "session-started",
