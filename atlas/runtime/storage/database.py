@@ -218,8 +218,58 @@ class Database:
                     "attempt_details": attempts_by_step.get(step_id, []),
                     "guidance_notes": guidance_by_step.get(step_id, []),
                 }
-            )
+                )
         return results
+
+    async def fetch_persona_usage(self, memory_ids: Sequence[UUID], limit: int | None = None) -> dict[UUID, list[dict[str, Any]]]:
+        if not memory_ids:
+            return {}
+        pool = self._require_pool()
+        query = (
+            "SELECT memory_id, reward, retry_count, applied_at"
+            " FROM persona_memory_usage"
+            " WHERE memory_id = ANY($1::uuid[])"
+        )
+        if limit is not None and limit > 0:
+            query += " ORDER BY applied_at DESC LIMIT $2"
+            params = (list(memory_ids), limit)
+        else:
+            query += " ORDER BY applied_at DESC"
+            params = (list(memory_ids),)
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(query, *params)
+        usage: dict[UUID, list[dict[str, Any]]] = {}
+        for row in rows:
+            reward = self._deserialize_json(row["reward"])
+            usage.setdefault(row["memory_id"], []).append(
+                {
+                    "reward": reward,
+                    "retry_count": row.get("retry_count"),
+                    "applied_at": row.get("applied_at"),
+                }
+            )
+        return usage
+
+    async def update_persona_status(self, memory_ids: Sequence[UUID], status: str) -> None:
+        if not memory_ids:
+            return
+        pool = self._require_pool()
+        async with pool.acquire() as connection:
+            await connection.execute(
+                "UPDATE persona_memory SET status = $2, updated_at = NOW() WHERE memory_id = ANY($1::uuid[])",
+                list(memory_ids),
+                status,
+            )
+
+    async def update_persona_instruction(self, memory_id: UUID, instruction: Dict[str, Any]) -> None:
+        payload = self._serialize_json(instruction)
+        pool = self._require_pool()
+        async with pool.acquire() as connection:
+            await connection.execute(
+                "UPDATE persona_memory SET instruction = $2, updated_at = NOW() WHERE memory_id = $1",
+                memory_id,
+                payload,
+            )
 
     async def fetch_trajectory_events(self, session_id: int, limit: int = 200) -> List[dict[str, Any]]:
         pool = self._require_pool()

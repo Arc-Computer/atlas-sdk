@@ -6,6 +6,7 @@ import asyncio
 import logging
 import sys
 from typing import Any
+from typing import Dict
 from typing import List
 from typing import Protocol
 
@@ -26,9 +27,11 @@ from atlas.runtime.persona_memory import (
     extract_candidates,
     extract_fingerprint_inputs,
     get_cache,
+    get_promotion_settings,
     is_cache_disabled,
     merge_prompt,
     normalize_instructions,
+    promote_and_compact,
     write_candidates,
 )
 from atlas.evaluation.evaluator import Evaluator
@@ -75,6 +78,7 @@ async def arun(
     execution_context.metadata["persona_memories"] = {}
     execution_context.metadata["applied_persona_memories"] = {}
     execution_context.metadata["new_persona_candidates"] = []
+    execution_context.metadata["persona_promotion_result"] = None
     persona_cache = get_cache()
     cache_disabled = is_cache_disabled(config)
     if stream_progress is not None:
@@ -188,6 +192,29 @@ async def arun(
                 logger.exception("Failed to generate persona memory candidates", exc_info=learning_exc)
             finally:
                 execution_context.metadata["new_persona_candidates"] = candidate_ids
+            promotion_payload: Dict[str, Any] | None = None
+            try:
+                promotion_settings = get_promotion_settings(config)
+                promotion_result = await promote_and_compact(
+                    database,
+                    fingerprint_inputs,
+                    persona_fingerprint,
+                    promotion_settings,
+                )
+                if promotion_result.invalidate_personas:
+                    for persona_id in promotion_result.invalidate_personas:
+                        key = PersonaMemoryKey(
+                            agent_name=fingerprint_inputs.agent_name,
+                            tenant_id=fingerprint_inputs.tenant_id,
+                            fingerprint=persona_fingerprint,
+                            persona=persona_id,
+                        )
+                        persona_cache.invalidate(key)
+                promotion_payload = promotion_result.to_dict()
+            except Exception as promotion_exc:  # pragma: no cover - diagnostic path
+                logger.exception("Failed to promote persona memories", exc_info=promotion_exc)
+            finally:
+                execution_context.metadata["persona_promotion_result"] = promotion_payload
             await _log_persona_memory_usage(database, session_id, execution_context)
             await database.finalize_session(session_id, result.final_answer, "succeeded")
             if publisher is not None:
