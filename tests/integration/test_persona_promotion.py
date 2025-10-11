@@ -24,12 +24,13 @@ from atlas.config.models import (
     StudentPrompts,
     TeacherConfig,
 )
+from atlas.prompts import RewrittenStudentPrompts, RewrittenTeacherPrompts
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.runtime.persona_memory import get_cache
 from atlas.runtime.storage.database import Database
 from atlas.types import Plan, Result
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.postgres]
 
 
 def _schema_statements() -> List[str]:
@@ -58,9 +59,15 @@ class StubStudent:
     def __init__(self, *args, **kwargs) -> None:
         pass
 
+    def update_prompts(self, student_prompts: RewrittenStudentPrompts) -> None:
+        pass
+
 
 class StubTeacher:
     def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    def update_prompts(self, prompts: RewrittenTeacherPrompts) -> None:
         pass
 
 
@@ -71,9 +78,12 @@ class StubEvaluator:
 
 class NoOpOrchestrator:
     def __init__(self, *args, **kwargs) -> None:
+        self._persona_refresh = kwargs.get("persona_refresh")
         self.result = Result(final_answer="promotion complete", plan=Plan(steps=[]), step_results=[])
 
     async def arun(self, task: str) -> Result:
+        if self._persona_refresh is not None:
+            await self._persona_refresh()
         ExecutionContext.get().metadata.setdefault("steps", {})
         return self.result
 
@@ -196,7 +206,7 @@ async def test_persona_promotion_flow(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(core, "Student", StubStudent)
     monkeypatch.setattr(core, "Teacher", StubTeacher)
     monkeypatch.setattr(core, "Evaluator", StubEvaluator)
-    monkeypatch.setattr(core, "Orchestrator", lambda *args, **kwargs: NoOpOrchestrator())
+    monkeypatch.setattr(core, "Orchestrator", lambda *args, **kwargs: NoOpOrchestrator(*args, **kwargs))
 
     promotion_start = time.perf_counter()
     result = await core.arun(

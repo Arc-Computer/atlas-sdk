@@ -19,9 +19,15 @@ class StubStudent:
     def __init__(self, *args, **kwargs):
         pass
 
+    def update_prompts(self, student_prompts: RewrittenStudentPrompts) -> None:
+        pass
+
 
 class StubTeacher:
     def __init__(self, *args, **kwargs):
+        pass
+
+    def update_prompts(self, prompts: RewrittenTeacherPrompts) -> None:
         pass
 
 
@@ -32,6 +38,7 @@ class StubEvaluator:
 
 class StubOrchestrator:
     def __init__(self, *args, **kwargs):
+        self._persona_refresh = kwargs.get("persona_refresh")
         reward = AtlasRewardBreakdown(score=1.0)
         evaluation = StepEvaluation(validation={}, reward=reward)
         self.result = Result(
@@ -41,6 +48,8 @@ class StubOrchestrator:
         )
 
     async def arun(self, task: str) -> Result:
+        if self._persona_refresh is not None:
+            await self._persona_refresh()
         return self.result
 
 
@@ -73,7 +82,7 @@ def test_core_run_assembles_pipeline(monkeypatch):
         monkeypatch.setattr(core, "Student", StubStudent)
         monkeypatch.setattr(core, "Teacher", StubTeacher)
         monkeypatch.setattr(core, "Evaluator", StubEvaluator)
-        monkeypatch.setattr(core, "Orchestrator", lambda *args, **kwargs: StubOrchestrator())
+        monkeypatch.setattr(core, "Orchestrator", lambda *args, **kwargs: StubOrchestrator(*args, **kwargs))
 
         monkeypatch.setattr(
             core,

@@ -150,7 +150,9 @@ def test_export_sessions_writes_expected_payload(populated_store, tmp_path):
     assert record["plan"]["steps"][0]["description"] == "Collect supporting documents"
     assert record["steps"][0]["description"] == "Collect supporting documents"
     assert record["steps"][0]["reward"]["score"] == pytest.approx(0.91)
-    assert record["steps"][1]["context"]["prior_results"]["1"] == "documents collected"
+    prior_results = record["steps"][1]["context"]["prior_results"]
+    assert prior_results["1"]["output_text"] == "documents collected"
+    assert record["steps"][1]["context"]["prior_results_text"]["1"] == "documents collected"
     assert record["steps"][1]["depends_on"] == [1]
     assert record["steps"][1]["attempt_history"][1]["evaluation"]["reward"]["score"] == pytest.approx(0.82)
     assert record["steps"][1]["guidance"] == ["focus on key points", "wrap up"]

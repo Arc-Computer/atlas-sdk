@@ -19,7 +19,7 @@ from atlas.runtime.persona_memory import PersonaMemoryKey, build_fingerprint, ex
 from atlas.runtime.persona_memory.fingerprint import FingerprintInputs
 from atlas.runtime.storage.database import Database
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.postgres]
 
 
 def _apply_schema_sync() -> List[str]:

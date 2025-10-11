@@ -26,7 +26,7 @@ from atlas.prompts import RewrittenStudentPrompts, RewrittenTeacherPrompts
 from atlas.runtime.storage.database import Database
 from atlas.types import Plan, Result
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.postgres]
 
 
 class StubAdapter:
@@ -38,9 +38,15 @@ class StubStudent:
     def __init__(self, *args, **kwargs) -> None:
         pass
 
+    def update_prompts(self, student_prompts: RewrittenStudentPrompts) -> None:
+        pass
+
 
 class StubTeacher:
     def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    def update_prompts(self, prompts: RewrittenTeacherPrompts) -> None:
         pass
 
 
@@ -51,9 +57,12 @@ class StubEvaluator:
 
 class StubOrchestrator:
     def __init__(self, *args, **kwargs) -> None:
+        self._persona_refresh = kwargs.get("persona_refresh")
         self.result = Result(final_answer="persona run complete", plan=Plan(steps=[]), step_results=[])
 
     async def arun(self, task: str) -> Result:
+        if self._persona_refresh is not None:
+            await self._persona_refresh()
         return self.result
 
 
@@ -182,7 +191,7 @@ async def test_persona_memory_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setattr(core, "Student", StubStudent)
     monkeypatch.setattr(core, "Teacher", StubTeacher)
     monkeypatch.setattr(core, "Evaluator", StubEvaluator)
-    monkeypatch.setattr(core, "Orchestrator", lambda *args, **kwargs: StubOrchestrator())
+    monkeypatch.setattr(core, "Orchestrator", lambda *args, **kwargs: StubOrchestrator(*args, **kwargs))
     monkeypatch.setattr(
         core,
         "build_student_prompts",

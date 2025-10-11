@@ -147,6 +147,23 @@ class ConsoleTelemetryStreamer:
             )
         self._attempt_starts.pop((step_id, attempt), None)
 
+        reward_payload = self._coerce_dict(evaluation.get("reward"))
+        score_value = reward_payload.get("score")
+        score_text = f"{float(score_value):.2f}" if isinstance(score_value, (int, float)) else "n/a"
+        judges = reward_payload.get("judges")
+        rim_scores: list[str] = []
+        if isinstance(judges, list):
+            for index, judge in enumerate(judges, start=1):
+                judge_payload = self._coerce_dict(judge)
+                identifier = judge_payload.get("identifier") or f"judge{index}"
+                judge_score = judge_payload.get("score")
+                if isinstance(judge_score, (int, float)):
+                    rim_scores.append(f"{identifier}:{float(judge_score):.2f}")
+        rim_display = ", ".join(rim_scores) if rim_scores else "none"
+        self._write(
+            f"STEP {step_id}: retry {attempt} | reward score: {score_text} | RIM scores: {rim_display}"
+        )
+
     def _capture_plan_metadata(self) -> None:
         if self._execution_context is None:
             return
@@ -210,7 +227,7 @@ class ConsoleTelemetryStreamer:
         steps = plan_payload.get("steps") or []
         if not steps:
             return
-        self._write("Plan:")
+        self._write(f"Plan ready ({len(steps)} steps):")
         for entry in steps:
             if not isinstance(entry, dict):
                 continue

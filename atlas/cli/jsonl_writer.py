@@ -376,7 +376,23 @@ def _build_step_payload(
     if depends_on is not None and "depends_on" not in metadata:
         metadata["depends_on"] = list(depends_on)
 
-    prior_results = {str(key): value for key, value in context_outputs.items()}
+    prior_results: dict[str, Any] = {}
+    prior_results_text: dict[str, str] = {}
+    for key, value in context_outputs.items():
+        key_str = str(key)
+        prior_results[key_str] = value
+        if isinstance(value, dict):
+            text_value = value.get("output_text")
+            if text_value is None:
+                text_value = value
+        else:
+            text_value = value
+        if isinstance(text_value, (dict, list)):
+            prior_results_text[key_str] = json.dumps(text_value, ensure_ascii=False)
+        elif text_value is None:
+            prior_results_text[key_str] = ""
+        else:
+            prior_results_text[key_str] = str(text_value)
 
     step_payload = {
         "step_id": step_id,
@@ -386,7 +402,7 @@ def _build_step_payload(
         "reward": _build_reward_payload(reward_payload),
         "tool": _extract_plan_field(plan_step, "tool"),
         "tool_params": _coerce_dict(_extract_plan_field(plan_step, "tool_params")),
-        "context": {"prior_results": prior_results},
+        "context": {"prior_results": prior_results, "prior_results_text": prior_results_text},
         "validation": _coerce_dict(validation_payload),
         "attempts": attempts,
         "guidance": [str(item) for item in guidance],
