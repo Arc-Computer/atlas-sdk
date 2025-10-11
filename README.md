@@ -5,6 +5,8 @@ Atlas is infrastructure for continual learning in LLM agents. It wraps any agent
 [![PyPI version](https://img.shields.io/pypi/v/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
 
+![Atlas SDK hero](public/atlas-sdk.jpeg)
+
 ```bash
 pip install arc-atlas
 ```
