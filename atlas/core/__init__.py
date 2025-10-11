@@ -163,8 +163,9 @@ async def arun(
             applied_memories = execution_context.metadata.setdefault("applied_persona_memories", {})
             applied_memories.clear()
             instructions_map: Dict[str, List[Any]] = {}
+            trial_instructions_map: Dict[str, List[Any]] = {}
             if database and persona_fingerprint:
-                statuses = ["active"]
+                statuses = ["active", "candidate"]
                 use_cache = not cache_disabled
                 for persona_id in personas:
                     key = PersonaMemoryKey(
@@ -182,16 +183,38 @@ async def arun(
                     persona_memories[persona_id] = records
                     normalized = normalize_instructions(records)
                     if normalized:
-                        instructions_map[persona_id] = normalized
+                        actives: List[Any] = []
+                        trials: List[Any] = []
+                        for inst in normalized:
+                            if inst.status == "candidate":
+                                trials.append(inst)
+                            else:
+                                actives.append(inst)
+                        if actives:
+                            instructions_map[persona_id] = actives
+                        if trials:
+                            trial_instructions_map[persona_id] = trials
             else:
                 execution_context.metadata["persona_memories"] = persona_memories
 
             def _apply_instructions(persona_id: str, prompt_text: str) -> str:
-                instructions = instructions_map.get(persona_id) or []
+                instructions = (instructions_map.get(persona_id) or []) + (trial_instructions_map.get(persona_id) or [])
                 if not instructions:
                     return prompt_text
-                ids = [inst.memory_id for inst in instructions if inst.memory_id is not None]
-                applied_memories[persona_id] = list(dict.fromkeys(ids))
+                applied_entries: List[Dict[str, Any]] = []
+                seen: Dict[Any, None] = {}
+                for inst in instructions:
+                    identifier = inst.memory_id
+                    if identifier is None or identifier in seen:
+                        continue
+                    seen[identifier] = None
+                    applied_entries.append(
+                        {
+                            "memory_id": identifier,
+                            "status": inst.status or "active",
+                        }
+                    )
+                applied_memories[persona_id] = applied_entries
                 return merge_prompt(prompt_text, instructions)
 
             student_prompts = RewrittenStudentPrompts(
@@ -371,11 +394,22 @@ async def _log_persona_memory_usage(
     usage_metrics = _collect_persona_usage_metrics(context, result)
     default_metric = usage_metrics.get("__default__")
     logged: set[Any] = set()
-    for persona_id, memory_ids in applied.items():
+    for persona_id, entries in applied.items():
         metric = usage_metrics.get(persona_id, default_metric) if usage_metrics else default_metric
         reward_payload = metric["reward"] if metric else None
         retry_count = metric["retries"] if metric else None
-        for memory_id in memory_ids:
+        normalised_ids = []
+        if isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict):
+                    candidate_id = entry.get("memory_id")
+                    if candidate_id is not None:
+                        normalised_ids.append(candidate_id)
+                else:
+                    normalised_ids.append(entry)
+        else:
+            normalised_ids = entries
+        for memory_id in normalised_ids:
             if memory_id and memory_id not in logged:
                 await database.log_persona_memory_usage(
                     memory_id,

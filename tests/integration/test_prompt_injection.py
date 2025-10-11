@@ -109,26 +109,27 @@ async def test_prompt_injection_and_logging(monkeypatch: pytest.MonkeyPatch) -> 
 
     persona_payloads: Dict[str, List[Dict[str, Any]]] = {
         "student_planner": [
-            {"instruction": {"prepend": "Planner persona preface."}},
-            {"instruction": "Always include citations."},
+            {"instruction": {"prepend": "Planner persona preface."}, "status": "active"},
+            {"instruction": "Always include citations.", "status": "active"},
         ],
         "student_executor": [
-            {"instruction": {"append": "Report tool usage explicitly."}},
+            {"instruction": {"append": "Report tool usage explicitly."}, "status": "active"},
+            {"instruction": {"append": "Trial persona augmentation."}, "status": "candidate"},
         ],
         "student_synthesizer": [
-            {"instruction": {"replace": "Provide a concise bullet summary reflecting persona memory."}},
+            {"instruction": {"replace": "Provide a concise bullet summary reflecting persona memory."}, "status": "active"},
         ],
         "teacher_plan_review": [
-            {"instruction": {"prepend": "Demand risk assessment before approval."}},
+            {"instruction": {"prepend": "Demand risk assessment before approval."}, "status": "active"},
         ],
         "teacher_validation": [
-            {"instruction": {"append": "Request additional evidence when uncertain."}},
+            {"instruction": {"append": "Request additional evidence when uncertain."}, "status": "active"},
         ],
         "teacher_guidance": [
-            {"instruction": "Offer constructive encouragement in guidance."},
+            {"instruction": "Offer constructive encouragement in guidance.", "status": "active"},
         ],
     }
-    persona_memory_ids: Dict[str, List[Any]] = {persona: [] for persona in persona_payloads}
+    persona_memory_ids: Dict[str, List[Dict[str, Any]]] = {persona: [] for persona in persona_payloads}
 
     pool = database._require_pool()  # noqa: SLF001 - integration test setup
     async with pool.acquire() as connection:
@@ -140,7 +141,7 @@ async def test_prompt_injection_and_logging(monkeypatch: pytest.MonkeyPatch) -> 
     for persona, instructions in persona_payloads.items():
         for payload in instructions:
             memory_id = uuid4()
-            persona_memory_ids[persona].append(memory_id)
+            persona_memory_ids[persona].append({"memory_id": memory_id, "status": payload.get("status", "active")})
             await database.create_persona_memory(
                 {
                     "memory_id": memory_id,
@@ -152,7 +153,7 @@ async def test_prompt_injection_and_logging(monkeypatch: pytest.MonkeyPatch) -> 
                     "source_session_id": None,
                     "reward_snapshot": None,
                     "retry_count": None,
-                    "status": "active",
+                    "status": payload.get("status", "active"),
                 }
             )
     await database.disconnect()
@@ -197,7 +198,8 @@ async def test_prompt_injection_and_logging(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert student_prompts.planner.lstrip().startswith("Planner persona preface.")
     assert "Always include citations." in student_prompts.planner
-    assert student_prompts.executor.rstrip().endswith("Report tool usage explicitly.")
+    assert "Report tool usage explicitly." in student_prompts.executor
+    assert "Trial persona augmentation." in student_prompts.executor
     assert student_prompts.synthesizer.strip() == "Provide a concise bullet summary reflecting persona memory."
     assert teacher_prompts.plan_review.lstrip().startswith("Demand risk assessment before approval.")
     assert teacher_prompts.validation.rstrip().endswith("Request additional evidence when uncertain.")
@@ -206,8 +208,11 @@ async def test_prompt_injection_and_logging(monkeypatch: pytest.MonkeyPatch) -> 
     context = ExecutionContext.get()
     applied = context.metadata.get("applied_persona_memories")
     assert applied is not None
-    for persona, ids in persona_memory_ids.items():
-        assert applied.get(persona) == ids
+    for persona, expected_entries in persona_memory_ids.items():
+        actual = applied.get(persona)
+        assert isinstance(actual, list)
+        normalised = [{"memory_id": entry.get("memory_id"), "status": entry.get("status") or "active"} for entry in actual]
+        assert normalised == expected_entries
 
     verification_db = Database(storage_config)
     await verification_db.connect()
@@ -221,6 +226,6 @@ async def test_prompt_injection_and_logging(monkeypatch: pytest.MonkeyPatch) -> 
             session_id,
         )
     await verification_db.disconnect()
-    expected_ids = sorted({memory_id for ids in persona_memory_ids.values() for memory_id in ids})
+    expected_ids = sorted({entry["memory_id"] for entries in persona_memory_ids.values() for entry in entries})
     logged_ids = sorted(row["memory_id"] for row in rows)
     assert logged_ids == expected_ids
