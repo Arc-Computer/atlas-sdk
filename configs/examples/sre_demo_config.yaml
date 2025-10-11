@@ -1,0 +1,80 @@
+agent:
+  type: python
+  name: streaming-sre-agent
+  system_prompt: |
+    You are the Atlas incident diagnosis agent. You receive production SRE telemetry
+    (logs, metadata, prior attempts) and must output the most likely root cause,
+    confidence, and supporting rationale. Optimise for clear, actionable diagnoses
+    that map to the service owner's runbooks.
+  import_path: examples.streaming_sre_demo.sre_agent
+  attribute: diagnose_incident
+  working_directory: ./
+  allow_generator: false
+
+student:
+  prompts:
+    planner: |
+      You receive an incident payload containing structured JSON logs. Extract the key
+      signals, outline the diagnostic steps, and identify what evidence is missing.
+      Keep the plan short (max 3 steps) and align to SRE runbooks.
+    executor: |
+      You are analysing an SRE incident. Review the log bundle, correlate with known failure
+      modes, and prepare a JSON payload describing the hypothesised root cause, its signals,
+      and confidence. If the evidence is insufficient, call for guidance.
+    synthesizer: |
+      Summarise the final diagnosis for the incident owner. Highlight the root cause, the
+      strongest supporting signal, and the recommended next action.
+  max_plan_tokens: 768
+  max_step_tokens: 1024
+  max_synthesis_tokens: 768
+  tool_choice: auto
+
+teacher:
+  llm:
+    provider: openai
+    model: gpt-5
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.1
+    max_output_tokens: 768
+  max_review_tokens: 1536
+  plan_cache_seconds: 60
+  guidance_max_tokens: 384
+  validation_max_tokens: 384
+
+orchestration:
+  max_retries: 1
+  step_timeout_seconds: 600
+  rim_guidance_tag: rim_feedback
+  emit_intermediate_steps: true
+
+rim:
+  small_model:
+    provider: openai
+    model: gpt-4o-mini
+    api_key_env: OPENAI_API_KEY
+    max_output_tokens: 512
+  large_model:
+    provider: openai
+    model: gpt-4o
+    api_key_env: OPENAI_API_KEY
+    max_output_tokens: 768
+  active_judges:
+    process: true
+    helpfulness: true
+  variance_threshold: 0.12
+  uncertainty_threshold: 0.25
+
+storage:
+  database_url: postgresql://atlas:atlas@localhost:5433/atlas_arc_demo
+  min_connections: 1
+  max_connections: 5
+  statement_timeout_seconds: 30
+
+metadata:
+  persona_memory:
+    promotion_samples: 2
+    promotion_threshold: 0.05
+    cache_disabled: false
+    persona_caps:
+      student_executor: 5
+      teacher_validation: 3
