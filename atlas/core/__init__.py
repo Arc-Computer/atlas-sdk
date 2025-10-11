@@ -411,13 +411,13 @@ def _collect_persona_usage_metrics(context: ExecutionContext, result: Result | N
     usage_metrics: dict[str, dict[str, Any]] = {}
 
     default_reward = fmean(all_scores) if all_scores else None
-    default_attempts = int(round(fmean(all_attempts))) if all_attempts else None
+    default_attempts = round(fmean(all_attempts)) if all_attempts else None
 
     for persona_id in set(list(persona_scores.keys()) + list(persona_attempts.keys())):
         rewards = persona_scores.get(persona_id) or []
         attempts = persona_attempts.get(persona_id) or []
         persona_reward = fmean(rewards) if rewards else default_reward
-        persona_attempt = int(round(fmean(attempts))) if attempts else default_attempts
+        persona_attempt = round(fmean(attempts)) if attempts else default_attempts
         usage_metrics[persona_id] = {
             "reward": {"score": float(persona_reward)} if persona_reward is not None else None,
             "retries": persona_attempt,
