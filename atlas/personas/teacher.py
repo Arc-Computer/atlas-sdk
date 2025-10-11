@@ -30,6 +30,19 @@ class Teacher:
         self._validation_prompt = prompts.validation
         self._guidance_prompt = prompts.guidance
 
+    def update_prompts(self, prompts: RewrittenTeacherPrompts) -> None:
+        """Replace teacher prompts and clear any cached plan reviews."""
+        if (
+            self._plan_prompt == prompts.plan_review
+            and self._validation_prompt == prompts.validation
+            and self._guidance_prompt == prompts.guidance
+        ):
+            return
+        self._plan_prompt = prompts.plan_review
+        self._validation_prompt = prompts.validation
+        self._guidance_prompt = prompts.guidance
+        self._plan_cache.clear()
+
     async def areview_plan(self, task: str, plan: Plan) -> Plan:
         cache_key = self._cache_key(task, plan)
         now = time.time()

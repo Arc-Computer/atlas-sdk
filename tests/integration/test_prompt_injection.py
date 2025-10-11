@@ -19,7 +19,7 @@ from atlas.runtime.persona_memory import build_fingerprint, extract_fingerprint_
 from atlas.runtime.storage.database import Database
 from atlas.types import Plan, Result
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.postgres]
 
 
 def _apply_schema_statements() -> List[str]:
@@ -51,6 +51,9 @@ class CapturingStudent:
         self.prompts = student_prompts
         CapturingStudent.instances.append(self)
 
+    def update_prompts(self, student_prompts: RewrittenStudentPrompts) -> None:
+        self.prompts = student_prompts
+
 
 class CapturingTeacher:
     instances: List["CapturingTeacher"] = []
@@ -58,6 +61,9 @@ class CapturingTeacher:
     def __init__(self, config: TeacherConfig, prompts: RewrittenTeacherPrompts) -> None:
         self.prompts = prompts
         CapturingTeacher.instances.append(self)
+
+    def update_prompts(self, prompts: RewrittenTeacherPrompts) -> None:
+        self.prompts = prompts
 
 
 class StubEvaluator:
@@ -67,9 +73,12 @@ class StubEvaluator:
 
 class StubOrchestrator:
     def __init__(self, *args, **kwargs) -> None:
+        self._persona_refresh = kwargs.get("persona_refresh")
         self.result = Result(final_answer="prompt injection complete", plan=Plan(steps=[]), step_results=[])
 
     async def arun(self, task: str) -> Result:
+        if self._persona_refresh is not None:
+            await self._persona_refresh()
         return self.result
 
 
@@ -172,7 +181,7 @@ async def test_prompt_injection_and_logging(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(core, "Student", CapturingStudent)
     monkeypatch.setattr(core, "Teacher", CapturingTeacher)
     monkeypatch.setattr(core, "Evaluator", StubEvaluator)
-    monkeypatch.setattr(core, "Orchestrator", lambda *args, **kwargs: StubOrchestrator())
+    monkeypatch.setattr(core, "Orchestrator", lambda *args, **kwargs: StubOrchestrator(*args, **kwargs))
 
     task_name = "prompt-injection-task"
     run_start = time.perf_counter()

@@ -7,6 +7,8 @@ import json
 import time
 from dataclasses import dataclass
 from typing import Any
+from typing import Awaitable
+from typing import Callable
 from typing import Dict
 from typing import List
 from typing import Sequence
@@ -52,6 +54,7 @@ class Orchestrator:
         evaluator: Evaluator,
         orchestration_config: OrchestrationConfig,
         rim_config: RIMConfig,
+        persona_refresh: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._teacher = teacher
         self._student = student
@@ -59,6 +62,7 @@ class Orchestrator:
         self._orchestration = orchestration_config
         self._rim_config = rim_config
         self._rim_retry_threshold = getattr(rim_config, "retry_threshold", 0.6)
+        self._persona_refresh = persona_refresh
 
     async def arun(self, task: str) -> Result:
         context = ExecutionContext.get()
@@ -80,6 +84,8 @@ class Orchestrator:
         context.metadata["plan"] = plan_payload
         context.metadata["original_plan"] = plan_payload
         context.metadata["execution_mode"] = execution_mode
+        if self._persona_refresh is not None:
+            await self._persona_refresh()
         if execution_mode == "single_shot":
             context.metadata["single_shot"] = True
             single_step = self._build_single_shot_step(task, reviewed_plan)

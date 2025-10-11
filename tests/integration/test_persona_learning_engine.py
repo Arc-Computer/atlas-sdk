@@ -25,12 +25,12 @@ from atlas.config.models import (
     TeacherConfig,
 )
 from atlas.runtime.orchestration.execution_context import ExecutionContext
-from atlas.runtime.persona_memory import get_cache
+from atlas.runtime.persona_memory import build_fingerprint, extract_fingerprint_inputs, get_cache
 from atlas.runtime.schema import AtlasRewardBreakdown
 from atlas.runtime.storage.database import Database
 from atlas.types import Plan, Result, StepEvaluation, StepResult
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.postgres]
 
 
 def _apply_schema_statements() -> List[str]:
@@ -59,9 +59,15 @@ class StubStudent:
     def __init__(self, *args, **kwargs) -> None:
         pass
 
+    def update_prompts(self, student_prompts: RewrittenStudentPrompts) -> None:
+        pass
+
 
 class StubTeacher:
     def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    def update_prompts(self, prompts: RewrittenTeacherPrompts) -> None:
         pass
 
 
@@ -72,6 +78,7 @@ class StubEvaluator:
 
 class FailingThenRecoveringOrchestrator:
     def __init__(self, *args, **kwargs) -> None:
+        self._persona_refresh = kwargs.get("persona_refresh")
         reward = AtlasRewardBreakdown(score=0.8)
         evaluation = StepEvaluation(validation={}, reward=reward)
         self.result = Result(
@@ -109,6 +116,8 @@ class FailingThenRecoveringOrchestrator:
                 "guidance": ["Provide more numerical detail."],
             }
         }
+        if self._persona_refresh is not None:
+            await self._persona_refresh()
         return self.result
 
 
@@ -127,8 +136,6 @@ async def test_persona_learning_engine_generates_candidates(monkeypatch: pytest.
             tenant_id,
         )
         await connection.execute("DELETE FROM persona_memory WHERE tenant_id = $1", tenant_id)
-    await database.disconnect()
-
     get_cache().clear()
     monkeypatch.delenv("ATLAS_PERSONA_MEMORY_CACHE_DISABLED", raising=False)
     agent_config = AdapterConfig(type=AdapterType.HTTP, name=agent_name, system_prompt="Base prompt", tools=[])
@@ -154,12 +161,37 @@ async def test_persona_learning_engine_generates_candidates(monkeypatch: pytest.
         },
     )()
 
+    context = ExecutionContext.get()
+    context.reset()
+    context.metadata["session_metadata"] = {"tenant_id": tenant_id, "tags": ["trial"]}
+    fingerprint_inputs = extract_fingerprint_inputs("seed-task", shared_config, context)
+    fingerprint = build_fingerprint(fingerprint_inputs)
+    context.reset()
+
+    active_memory_id = uuid4()
+    await database.create_persona_memory(
+        {
+            "memory_id": active_memory_id,
+            "agent_name": agent_name,
+            "tenant_id": tenant_id,
+            "persona": "student_executor",
+            "trigger_fingerprint": fingerprint,
+            "instruction": {"append": "Provide extra numerical detail."},
+            "source_session_id": None,
+            "reward_snapshot": {"score": 0.3},
+            "retry_count": 2,
+            "status": "active",
+        }
+    )
+
+    await database.disconnect()
+
     monkeypatch.setattr(core, "load_config", lambda path: shared_config)
     monkeypatch.setattr(core, "create_from_atlas_config", lambda config: StubAdapter())
     monkeypatch.setattr(core, "Student", StubStudent)
     monkeypatch.setattr(core, "Teacher", StubTeacher)
     monkeypatch.setattr(core, "Evaluator", StubEvaluator)
-    monkeypatch.setattr(core, "Orchestrator", lambda *args, **kwargs: FailingThenRecoveringOrchestrator())
+    monkeypatch.setattr(core, "Orchestrator", lambda *args, **kwargs: FailingThenRecoveringOrchestrator(*args, **kwargs))
 
     task_name = "learning-engine-task"
 
@@ -189,9 +221,19 @@ async def test_persona_learning_engine_generates_candidates(monkeypatch: pytest.
             "FROM persona_memory WHERE memory_id = $1",
             candidate_uuid,
         )
+        usage_row = await connection.fetchrow(
+            "SELECT reward, retry_count FROM persona_memory_usage WHERE memory_id = $1 ORDER BY id DESC LIMIT 1",
+            active_memory_id,
+        )
     await verification_db.disconnect()
 
     assert row is not None
+    assert usage_row is not None
+    reward_payload = Database._deserialize_json(usage_row["reward"])
+    assert reward_payload is not None
+    assert pytest.approx(reward_payload.get("score", 0.0), rel=1e-3) == 0.8
+    assert usage_row["retry_count"] == 2
+
     assert row["agent_name"] == agent_name
     assert row["tenant_id"] == tenant_id
     assert row["persona"] == "student_executor"

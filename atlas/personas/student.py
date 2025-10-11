@@ -79,6 +79,27 @@ class Student:
         )
         self._llm_stream_state: Dict[str, Dict[str, Any]] = {}
 
+    def update_prompts(self, student_prompts: RewrittenStudentPrompts) -> None:
+        """Refresh student prompts and rebuild execution graph to honour new instructions."""
+        if (
+            self._prompts.planner == student_prompts.planner
+            and self._prompts.executor == student_prompts.executor
+            and self._prompts.synthesizer == student_prompts.synthesizer
+        ):
+            return
+        self._prompts = student_prompts
+        self._graph = None
+        self._graph_builder = ToolCallAgentGraph(
+            llm=self._bridge_llm,
+            tools=self._tools,
+            system_prompt=self._prompts.executor,
+            callbacks=None,
+            detailed_logs=False,
+            log_response_max_chars=1000,
+            handle_tool_errors=True,
+            return_direct=None,
+        )
+
     async def acreate_plan(self, task: str) -> Plan:
         context = ExecutionContext.get()
         manager = context.intermediate_step_manager
