@@ -23,6 +23,7 @@ from atlas.prompts import (
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.runtime.orchestration.orchestrator import Orchestrator
 from atlas.runtime.persona_memory import (
+    FingerprintInputs,
     PersonaMemoryKey,
     build_fingerprint,
     extract_candidates,

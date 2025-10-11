@@ -24,6 +24,7 @@ from atlas.config.models import (
     StudentPrompts,
     TeacherConfig,
 )
+from atlas.prompts import RewrittenStudentPrompts, RewrittenTeacherPrompts
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.runtime.persona_memory import build_fingerprint, extract_fingerprint_inputs, get_cache
 from atlas.runtime.schema import AtlasRewardBreakdown
