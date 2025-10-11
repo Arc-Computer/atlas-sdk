@@ -13,6 +13,7 @@ class PersonaMemoryInstruction:
     memory_id: Any
     created_at: Any
     payload: Any
+    status: str | None = None
 
 
 def _render_instruction(base_prompt: str, instruction: Any) -> str:
@@ -68,6 +69,7 @@ def normalize_instructions(records: Iterable[Dict[str, Any]]) -> List[PersonaMem
                 memory_id=record.get("memory_id"),
                 created_at=record.get("created_at"),
                 payload=record.get("instruction"),
+                status=record.get("status"),
             )
         )
     return result
