@@ -20,13 +20,31 @@ DEFAULT_MODEL = os.getenv("SRE_AGENT_MODEL", "gpt-5")
 DEFAULT_TEMPERATURE = float(os.getenv("SRE_AGENT_TEMPERATURE", "1.0"))
 
 
+def _extract_json_block(text: str) -> dict[str, Any]:
+    if not text:
+        return {}
+    start = text.find("{")
+    while start != -1:
+        end = text.rfind("}")
+        while end != -1 and end > start:
+            candidate = text[start : end + 1]
+            try:
+                parsed = json.loads(candidate)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                end = text.rfind("}", start, end)
+        start = text.find("{", start + 1)
+    return {}
+
+
 def _safe_parse_prompt(prompt: str) -> dict[str, Any]:
     try:
         data = json.loads(prompt)
         if isinstance(data, dict):
             return data
     except json.JSONDecodeError:
-        return {}
+        return _extract_json_block(prompt)
     return {}
 
 
@@ -128,6 +146,51 @@ async def diagnose_incident(prompt: str, metadata: Dict[str, Any] | None = None)
     if metadata:
         model = metadata.get("preferred_model", model) or model
     triage_payload = _safe_parse_prompt(prompt)
+    mode = metadata.get("mode") if metadata else None
+    if mode == "planning":
+        steps = []
+        summary = triage_payload.get("summary", "Review incident context.")
+        signals = triage_payload.get("signals", {})
+        recent_changes = signals.get("recent_changes") or []
+        change_summary = recent_changes[0]["summary"] if recent_changes else "Check latest deploys for contributing changes."
+        runbook_hint = triage_payload.get("runbook_context") or "Consult runbook for remediation guidance."
+        steps.append(
+            {
+                "id": 1,
+                "description": f"Review incident summary and metrics: {summary}",
+                "tool": None,
+                "tool_params": None,
+                "depends_on": [],
+            }
+        )
+        steps.append(
+            {
+                "id": 2,
+                "description": f"Correlate with recent change: {change_summary}",
+                "tool": None,
+                "tool_params": None,
+                "depends_on": [1],
+            }
+        )
+        steps.append(
+            {
+                "id": 3,
+                "description": f"Formulate diagnosis and next step based on runbook: {runbook_hint}",
+                "tool": None,
+                "tool_params": None,
+                "depends_on": [2],
+            }
+        )
+        plan = {"execution_mode": "stepwise", "steps": steps}
+        return json.dumps(plan)
+    if mode == "synthesis":
+        summary = triage_payload.get("summary", "Incident summarised.")
+        runbook_hint = triage_payload.get("runbook_context")
+        result = {
+            "summary": summary,
+            "next_steps": runbook_hint or "Follow promoted persona guidance to remediate.",
+        }
+        return json.dumps(result)
     messages = [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}]
     content = await _acomplete(messages, api_key=api_key, model=model)
     normalised = _normalise_response(content)
