@@ -153,6 +153,7 @@ async def test_prompt_injection_and_logging(monkeypatch: pytest.MonkeyPatch) -> 
                     "source_session_id": None,
                     "reward_snapshot": None,
                     "retry_count": None,
+                    "metadata": {"tags": ["seed", f"persona:{persona}"], "helpful_count": 0, "harmful_count": 0, "neutral_count": 0},
                     "status": payload.get("status", "active"),
                 }
             )

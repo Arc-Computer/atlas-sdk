@@ -5,34 +5,37 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
-from textwrap import dedent
+from textwrap import dedent, indent
+
+
+def _format_snippet(snippet: str) -> str:
+    """Indent a snippet so it lands inside the generated function body."""
+
+    cleaned = dedent(snippet).strip("\n")
+    if not cleaned:
+        return ""
+    return indent(cleaned, "    ") + "\n"
 
 
 _DOMAIN_SNIPPETS = {
-    "sre": dedent(
-        """\
-        builder.set_summary("Investigate production incident and restore service availability.")
-        builder.add_tags("domain:sre")
-        builder.add_risk("Potential customer impact if MTTR breaches SLA.", severity="high")
-        builder.add_signal("alert.count", metadata.get("alert_count", 0))
-        """
-    ),
-    "support": dedent(
-        """\
-        builder.set_summary("Customer support follow-up to unblock the account.")
-        builder.add_tags("domain:support")
-        builder.add_risk("Negative customer sentiment escalation.", severity="moderate")
-        builder.add_signal("customer.sentiment", metadata.get("sentiment", "neutral"))
-        """
-    ),
-    "code": dedent(
-        """\
-        builder.set_summary("Debug failing tests and ship a fix.")
-        builder.add_tags("domain:code")
-        builder.add_risk("CI deployment blocked until failures resolved.", severity="high")
-        builder.add_signal("ci.failing_tests", metadata.get("failing_tests", []))
-        """
-    ),
+    "sre": """\
+builder.set_summary("Investigate production incident and restore service availability.")
+builder.add_tags("domain:sre")
+builder.add_risk("Potential customer impact if MTTR breaches SLA.", severity="high")
+builder.add_signal("alert.count", metadata.get("alert_count", 0))
+""",
+    "support": """\
+builder.set_summary("Customer support follow-up to unblock the account.")
+builder.add_tags("domain:support")
+builder.add_risk("Negative customer sentiment escalation.", severity="moderate")
+builder.add_signal("customer.sentiment", metadata.get("sentiment", "neutral"))
+""",
+    "code": """\
+builder.set_summary("Debug failing tests and ship a fix.")
+builder.add_tags("domain:code")
+builder.add_risk("CI deployment blocked until failures resolved.", severity="high")
+builder.add_signal("ci.failing_tests", metadata.get("failing_tests", []))
+""",
 }
 
 
@@ -64,9 +67,15 @@ def _write_template(path: Path, template: str, *, force: bool) -> None:
 
 def _cmd_triage_init(args: argparse.Namespace) -> int:
     domain = (args.domain or "custom").lower()
-    snippet = _DOMAIN_SNIPPETS.get(domain, "    builder.set_summary(\"Describe the task you are triaging.\")\n")
-    if domain not in _DOMAIN_SNIPPETS:
-        snippet += '    builder.add_tags("domain:custom")\n'
+    raw_snippet = _DOMAIN_SNIPPETS.get(domain)
+    if raw_snippet is None:
+        lines = [
+            'builder.set_summary("Describe the task you are triaging.")',
+            'builder.add_tags("domain:custom")',
+        ]
+        snippet = _format_snippet("\n".join(lines))
+    else:
+        snippet = _format_snippet(raw_snippet)
     template = _BASE_TEMPLATE.format(function_name=args.function_name, domain_snippet=snippet)
     try:
         _write_template(Path(args.output), template, force=args.force)

@@ -119,6 +119,7 @@ async def test_persona_memory_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None
             "source_session_id": session_id,
             "reward_snapshot": None,
             "retry_count": None,
+            "metadata": {"tags": ["test"], "helpful_count": 0, "harmful_count": 0, "neutral_count": 0},
             "status": "candidate",
         }
         await database.create_persona_memory(persona_record)
@@ -145,11 +146,11 @@ async def test_persona_memory_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None
         assert active["retry_count"] == 3
         assert active["updated_at"] >= active["created_at"]
 
-        await database.log_persona_memory_usage(memory_id, session_id, reward={"score": 0.9}, retries=2)
+        await database.log_persona_memory_usage(memory_id, session_id, reward={"score": 0.9}, retries=2, mode="coach")
         pool = database._require_pool()  # noqa: SLF001 - integration test assertion
         async with pool.acquire() as connection:
             usage_row = await connection.fetchrow(
-                "SELECT memory_id, session_id, reward, retry_count FROM persona_memory_usage WHERE memory_id = $1",
+                "SELECT memory_id, session_id, reward, retry_count, mode FROM persona_memory_usage WHERE memory_id = $1",
                 memory_id,
             )
         assert usage_row is not None
@@ -157,6 +158,7 @@ async def test_persona_memory_roundtrip(monkeypatch: pytest.MonkeyPatch) -> None
         assert usage_row["session_id"] == session_id
         assert reward_payload == {"score": 0.9}
         assert usage_row["retry_count"] == 2
+        assert usage_row["mode"] == "coach"
 
         workflow_elapsed_ms = (time.perf_counter() - workflow_start) * 1000.0
         print(f"Persona memory workflow completed in {workflow_elapsed_ms:.2f} ms")

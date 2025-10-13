@@ -53,6 +53,9 @@ class Evaluator:
             raise ValueError("No active RIM judges are available")
 
     async def ajudge(self, context: JudgeContext) -> AtlasRewardBreakdown:
+        override_payload = getattr(context, "reward_override", None)
+        if override_payload is not None:
+            return self._coerce_reward_breakdown(override_payload)
         judge_states = await asyncio.gather(
             *(self._evaluate_judge(judge, context) for judge in self._judges)
         )
@@ -229,6 +232,16 @@ class Evaluator:
                 return {"response": base, "queue": queue_entries}
             return {"queue": queue_entries}
         return base
+
+    def _coerce_reward_breakdown(
+        self,
+        payload: AtlasRewardBreakdown | Dict[str, Any],
+    ) -> AtlasRewardBreakdown:
+        if isinstance(payload, AtlasRewardBreakdown):
+            return payload
+        if isinstance(payload, dict):
+            return AtlasRewardBreakdown.from_dict(payload)
+        raise TypeError("Unsupported reward override payload")
 
     def _record_reasoning(self, key: str, payload: Dict[str, Any] | None) -> None:
         if not payload:

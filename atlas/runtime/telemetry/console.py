@@ -206,6 +206,7 @@ class ConsoleTelemetryStreamer:
             plan_payload = None
         if execution_mode == "single_shot":
             self._write("Single-shot mode executed; step loop skipped.")
+            self._render_adaptive_summary()
         else:
             self._render_plan(plan_payload)
         self._write("Final Answer:")
@@ -235,6 +236,41 @@ class ConsoleTelemetryStreamer:
             description = entry.get("description") or ""
             if isinstance(step_id, int):
                 self._write(f"  {step_id}. {description}")
+        self._render_adaptive_summary()
+
+    def _render_adaptive_summary(self) -> None:
+        if self._execution_context is None:
+            return
+        adaptive = self._execution_context.metadata.get("adaptive_summary") or {}
+        if not isinstance(adaptive, dict):
+            return
+        mode = adaptive.get("adaptive_mode")
+        confidence = adaptive.get("confidence")
+        certification = adaptive.get("certification_run")
+        probe = adaptive.get("probe") if isinstance(adaptive.get("probe"), dict) else None
+        line_parts = ["Adaptive:"]
+        if mode:
+            line_parts.append(f"mode={mode}")
+        if confidence is not None:
+            line_parts.append(f"confidence={confidence}")
+        if certification:
+            line_parts.append("certification=True")
+        self._write(" ".join(line_parts))
+        if probe:
+            evidence = probe.get("evidence") if isinstance(probe.get("evidence"), list) else []
+            probe_line = (
+                f"  probe -> mode={probe.get('mode')} confidence={probe.get('confidence')}"
+            )
+            self._write(probe_line)
+            if evidence:
+                self._write(f"  probe evidence: {', '.join(evidence)}")
+        notes = adaptive.get("mode_history")
+        if isinstance(notes, list) and notes:
+            summary = "; ".join(
+                f"{entry.get('mode')}({entry.get('reason', 'n/a')})" if isinstance(entry, dict) else str(entry)
+                for entry in notes[-3:]
+            )
+            self._write(f"  recent decisions: {summary}")
 
     def _compute_metrics(self, result: Result) -> Tuple[str, int]:
         attempt_counts: dict[int, int] = {}

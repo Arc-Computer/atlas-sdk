@@ -181,6 +181,7 @@ async def test_persona_learning_engine_generates_candidates(monkeypatch: pytest.
             "source_session_id": None,
             "reward_snapshot": {"score": 0.3},
             "retry_count": 2,
+            "metadata": {"tags": ["seed"], "helpful_count": 1, "harmful_count": 0, "neutral_count": 0, "last_reward": 0.3},
             "status": "active",
         }
     )

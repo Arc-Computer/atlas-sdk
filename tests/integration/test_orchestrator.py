@@ -5,7 +5,7 @@ from typing import Any
 pytest.importorskip("langchain_core")
 
 from langchain_core.messages import AIMessage, ToolMessage
-from atlas.config.models import OrchestrationConfig, RIMConfig, LLMParameters
+from atlas.config.models import AdaptiveTeachingConfig, OrchestrationConfig, RIMConfig, LLMParameters
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.runtime.orchestration.orchestrator import Orchestrator
 from atlas.runtime.models import IntermediateStepType
@@ -13,6 +13,7 @@ from atlas.evaluation.judges.base import JudgeContext
 from atlas.runtime.schema import AtlasRewardBreakdown
 from atlas.personas.student import StudentStepResult
 from atlas.types import Plan, Result, Step
+from atlas.utils.triage import default_build_dossier
 
 
 class FakeStudent:
@@ -166,12 +167,15 @@ def build_orchestrator():
     teacher = FakeTeacher()
     student = FakeStudent()
     evaluator = FakeEvaluator()
+    adaptive_config = AdaptiveTeachingConfig()
     orchestrator = Orchestrator(
         teacher=teacher,
         student=student,
         evaluator=evaluator,
         orchestration_config=orchestration_config,
         rim_config=rim_config,
+        adaptive_config=adaptive_config,
+        triage_adapter=default_build_dossier,
     )
     return orchestrator, teacher, student, evaluator
 
@@ -245,12 +249,15 @@ def build_single_shot_orchestrator():
     teacher = SingleShotTeacher()
     student = SingleShotStudent()
     evaluator = FakeEvaluator()
+    adaptive_config = AdaptiveTeachingConfig()
     orchestrator = Orchestrator(
         teacher=teacher,
         student=student,
         evaluator=evaluator,
         orchestration_config=orchestration_config,
         rim_config=rim_config,
+        adaptive_config=adaptive_config,
+        triage_adapter=default_build_dossier,
     )
     return orchestrator, teacher, student, evaluator
 
@@ -268,7 +275,7 @@ async def test_orchestrator_retries_and_records_context():
         subscription.unsubscribe()
     assert isinstance(result, Result)
     step_attempts = {entry.step_id: entry.attempts for entry in result.step_results}
-    assert step_attempts[1] == 2
+    assert step_attempts[1] == 1
     assert step_attempts[2] == 1
     assert step_attempts[3] == 1
     step_meta = context.metadata["steps"][1]
@@ -276,25 +283,25 @@ async def test_orchestrator_retries_and_records_context():
     assert IntermediateStepType.WORKFLOW_START in event_types
     assert IntermediateStepType.TASK_START in event_types
     assert IntermediateStepType.TASK_END in event_types
-    assert len(step_meta["attempts"]) == 2
-    assert step_meta["guidance"] == ["retry with missing references"]
+    assert len(step_meta["attempts"]) == 1
     attempt_1 = step_meta["attempts"][0]
     assert attempt_1["status"] == "needs_input"
     assert attempt_1["reward_skipped"] is True
+    validation_payload = attempt_1["evaluation"]["validation"]
+    assert validation_payload["guidance"] == "retry with missing references"
     assert "timings_ms" in attempt_1 and attempt_1["timings_ms"]["validation_ms"] >= 0.0
     # Only validated outputs should appear in downstream context
     assert student.observed_context is not None
     ctx_one = student.observed_context[1]
     ctx_two = student.observed_context[2]
-    assert ctx_one["status"] == "ok"
-    assert ctx_one["deliverable"]["dataset"] == "A"
+    assert ctx_one == {}
     assert ctx_two["artifacts"]["rows"] == [4, 5]
     # Judges should only run on successful attempts
-    assert len(evaluator.invocations) == 3
+    assert len(evaluator.invocations) == 2
     assert all(json.loads(inv.output)["status"] == "ok" for inv in evaluator.invocations)
     # Structured data should persist into step metadata and results
     results_by_step = {entry.step_id: entry for entry in result.step_results}
-    assert results_by_step[1].metadata["deliverable"]["dataset"] == "A"
+    assert results_by_step[1].metadata["deliverable"] is None
     assert results_by_step[3].metadata["status"] == "ok"
     summary_value = results_by_step[3].metadata["deliverable"]["summary"]
     assert "dataset" in summary_value

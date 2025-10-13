@@ -147,6 +147,45 @@ class ExecutionContext:
         self.metadata.setdefault("triage", {})
         self.metadata["triage"]["dossier"] = dossier.model_dump()
 
+    def set_capability_probe(self, payload: dict[str, typing.Any]) -> None:
+        """Record capability probe output for downstream consumers."""
+
+        adaptive_meta = self.metadata.setdefault("adaptive", {})
+        adaptive_meta["probe"] = dict(payload)
+
+    def record_mode_decision(
+        self,
+        mode: str,
+        *,
+        confidence: float | None = None,
+        reason: str | None = None,
+        evidence: typing.Sequence[str] | None = None,
+        certification: bool = False,
+    ) -> None:
+        """Append a new adaptive-mode decision to metadata."""
+
+        adaptive_meta = self.metadata.setdefault("adaptive", {})
+        entry: dict[str, typing.Any] = {"mode": mode}
+        if confidence is not None:
+            entry["confidence"] = float(confidence)
+        if reason:
+            entry["reason"] = reason
+        if evidence:
+            entry["evidence"] = list(evidence)
+        if certification:
+            entry["certification"] = True
+        history = adaptive_meta.setdefault("mode_history", [])
+        history.append(entry)
+        adaptive_meta["active_mode"] = mode
+        if certification:
+            adaptive_meta["certification_run"] = True
+
+    def mark_certification_run(self, value: bool = True) -> None:
+        """Flag whether the current run is a certification pass."""
+
+        adaptive_meta = self.metadata.setdefault("adaptive", {})
+        adaptive_meta["certification_run"] = bool(value)
+
     @property
     def intermediate_step_manager(self) -> "IntermediateStepManager":
         from atlas.runtime.orchestration.step_manager import IntermediateStepManager

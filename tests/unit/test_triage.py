@@ -80,3 +80,17 @@ def test_cli_triage_init_creates_file(tmp_path: Path):
     assert output_path.exists()
     contents = output_path.read_text(encoding="utf-8")
     assert "TriageDossierBuilder" in contents
+    # Ensure the generated adapter is syntactically valid.
+    compile(contents, str(output_path), "exec")
+
+
+def test_default_builder_normalises_unknown_severity():
+    metadata = {
+        "risks": [
+            {"description": "Partner reported medium severity", "severity": "medium"},
+            {"description": "Explicit sev2 mapping", "severity": "sev2"},
+        ]
+    }
+    dossier = default_build_dossier("Investigate medium issue", metadata)
+    severities = [risk.severity for risk in dossier.risks]
+    assert severities == ["moderate", "moderate"]

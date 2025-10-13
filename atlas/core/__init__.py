@@ -10,10 +10,12 @@ from typing import Any
 from typing import Dict
 from typing import List
 from typing import Protocol
+from datetime import datetime, timezone
+from importlib import import_module
 
 from atlas.connectors.factory import create_from_atlas_config
 from atlas.config.loader import load_config
-from atlas.config.models import AtlasConfig
+from atlas.config.models import AdaptiveTeachingConfig, AtlasConfig
 from atlas.prompts import (
     RewrittenStudentPrompts,
     RewrittenTeacherPrompts,
@@ -43,6 +45,7 @@ from atlas.runtime.storage.database import Database
 from atlas.runtime.telemetry import ConsoleTelemetryStreamer
 from atlas.runtime.telemetry.langchain_callback import configure_langchain_callbacks
 from atlas.types import Result
+from atlas.utils.triage import default_build_dossier
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +129,9 @@ async def arun(
     student = _build_student(adapter, config, base_student_prompts)
     teacher = Teacher(config.teacher, base_teacher_prompts)
     evaluator = Evaluator(config.rim)
+    adaptive_teaching_cfg = getattr(config, "adaptive_teaching", AdaptiveTeachingConfig())
+    execution_context.metadata["adaptive_default_tags"] = list(getattr(adaptive_teaching_cfg, "default_tags", []) or [])
+    triage_adapter = _load_triage_adapter(getattr(adaptive_teaching_cfg, "triage_adapter", None))
     fingerprint_inputs: FingerprintInputs | None = None
     persona_fingerprint: str | None = None
     database = Database(config.storage) if config.storage else None
@@ -248,6 +254,8 @@ async def arun(
             evaluator=evaluator,
             orchestration_config=config.orchestration,
             rim_config=config.rim,
+            adaptive_config=adaptive_teaching_cfg,
+            triage_adapter=triage_adapter,
             persona_refresh=refresh_persona_prompts,
         )
         result = await orchestrator.arun(task)
@@ -360,6 +368,36 @@ def _build_student(adapter, config: AtlasConfig, student_prompts) -> Student:
     )
 
 
+def _load_triage_adapter(path: str | None):
+    if not path:
+        return default_build_dossier
+    try:
+        module_path, attribute = _split_callable_path(path)
+        module = import_module(module_path)
+        adapter = getattr(module, attribute)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        logger.warning("Falling back to default triage adapter due to error: %s", exc)
+        return default_build_dossier
+    if not callable(adapter):
+        logger.warning("Triage adapter %s is not callable; using default adapter instead", path)
+        return default_build_dossier
+    return adapter
+
+
+def _split_callable_path(path: str) -> tuple[str, str]:
+    if ":" in path:
+        module_path, attribute = path.split(":", 1)
+    elif "." in path:
+        module_path, attribute = path.rsplit(".", 1)
+    else:
+        raise ValueError(f"Invalid adapter path '{path}'. Expected 'module:callable' or 'module.callable'.")
+    module_path = module_path.strip()
+    attribute = attribute.strip()
+    if not module_path or not attribute:
+        raise ValueError(f"Invalid adapter path '{path}'.")
+    return module_path, attribute
+
+
 async def _persist_results(
     database: Database,
     session_id: int,
@@ -374,6 +412,7 @@ async def _persist_results(
         step_meta = steps_metadata.get(step_result.step_id, {})
         await database.log_step_attempts(session_id, step_result.step_id, step_meta.get("attempts", []))
         await database.log_guidance(session_id, step_result.step_id, step_meta.get("guidance", []))
+    await _update_session_metadata(database, session_id, context, result)
     await _persist_events(database, session_id, events)
 
 
@@ -394,10 +433,24 @@ async def _log_persona_memory_usage(
     usage_metrics = _collect_persona_usage_metrics(context, result)
     default_metric = usage_metrics.get("__default__")
     logged: set[Any] = set()
+    adaptive_meta = context.metadata.get("adaptive", {}) if isinstance(context.metadata, dict) else {}
+    persona_records = context.metadata.get("persona_memories") if isinstance(context.metadata, dict) else {}
+    persona_lookup: dict[Any, dict[str, Any]] = {}
+    if isinstance(persona_records, dict):
+        for records in persona_records.values():
+            if isinstance(records, list):
+                for record in records:
+                    memory_id = record.get("memory_id")
+                    if memory_id is not None:
+                        persona_lookup[memory_id] = record
+                        persona_lookup[str(memory_id)] = record
     for persona_id, entries in applied.items():
         metric = usage_metrics.get(persona_id, default_metric) if usage_metrics else default_metric
         reward_payload = metric["reward"] if metric else None
         retry_count = metric["retries"] if metric else None
+        mode_used = metric.get("mode") if metric else None
+        if mode_used is None and isinstance(adaptive_meta, dict):
+            mode_used = adaptive_meta.get("active_mode")
         normalised_ids = []
         if isinstance(entries, list):
             for entry in entries:
@@ -416,7 +469,18 @@ async def _log_persona_memory_usage(
                     session_id,
                     reward=reward_payload,
                     retries=retry_count,
+                    mode=mode_used,
                 )
+                metadata_record = persona_lookup.get(memory_id, {}).get("metadata") if persona_lookup.get(memory_id) else None
+                updated_metadata = _update_persona_metadata_payload(
+                    metadata_record if isinstance(metadata_record, dict) else {},
+                    reward_payload,
+                    mode_used,
+                )
+                if updated_metadata is not None:
+                    await database.update_persona_metadata(memory_id, updated_metadata)
+                    if persona_lookup.get(memory_id) is not None:
+                        persona_lookup[memory_id]["metadata"] = updated_metadata
                 logged.add(memory_id)
 
 
@@ -424,6 +488,7 @@ def _collect_persona_usage_metrics(context: ExecutionContext, result: Result | N
     if result is None:
         return {}
     steps_metadata = context.metadata.get("steps", {}) or {}
+    adaptive_meta = context.metadata.get("adaptive", {}) if isinstance(context.metadata, dict) else {}
     persona_scores: dict[str, list[float]] = {}
     persona_attempts: dict[str, list[int]] = {}
     all_scores: list[float] = []
@@ -455,13 +520,173 @@ def _collect_persona_usage_metrics(context: ExecutionContext, result: Result | N
         usage_metrics[persona_id] = {
             "reward": {"score": float(persona_reward)} if persona_reward is not None else None,
             "retries": persona_attempt,
+            "mode": adaptive_meta.get("active_mode") if isinstance(adaptive_meta, dict) else None,
         }
 
     usage_metrics["__default__"] = {
         "reward": {"score": float(default_reward)} if default_reward is not None else None,
         "retries": default_attempts,
+        "mode": adaptive_meta.get("active_mode") if isinstance(adaptive_meta, dict) else None,
     }
     return usage_metrics
+
+
+def _update_persona_metadata_payload(
+    original: Dict[str, Any],
+    reward_payload: Dict[str, Any] | None,
+    mode: str | None,
+) -> Dict[str, Any] | None:
+    metadata = dict(original or {})
+    tags: set[str] = set()
+    if isinstance(metadata.get("tags"), list):
+        tags.update(tag for tag in metadata.get("tags", []) if isinstance(tag, str))
+    metadata.setdefault("helpful_count", 0)
+    metadata.setdefault("harmful_count", 0)
+    metadata.setdefault("neutral_count", 0)
+    score: float | None = None
+    if isinstance(reward_payload, dict):
+        value = reward_payload.get("score")
+        if isinstance(value, (int, float)):
+            score = float(value)
+    classification = None
+    if score is not None:
+        classification = _classify_reward(score)
+        if classification == "helpful":
+            metadata["helpful_count"] = int(metadata.get("helpful_count", 0) or 0) + 1
+        elif classification == "harmful":
+            metadata["harmful_count"] = int(metadata.get("harmful_count", 0) or 0) + 1
+        else:
+            metadata["neutral_count"] = int(metadata.get("neutral_count", 0) or 0) + 1
+        metadata["last_reward"] = score
+        metadata["last_reward_at"] = datetime.now(timezone.utc).isoformat()
+    if isinstance(mode, str) and mode:
+        metadata["last_mode"] = mode
+        tags.add(f"last_mode:{mode}")
+        if classification == "helpful" and mode == "auto":
+            tags.add("auto_mode_success")
+        if classification == "harmful" and mode == "escalate":
+            tags.add("escalate_intervention")
+    metadata["tags"] = sorted(tags)
+    return metadata
+
+
+def _classify_reward(score: float) -> str:
+    if score >= 0.8:
+        return "helpful"
+    if score <= 0.3:
+        return "harmful"
+    return "neutral"
+
+
+async def _update_session_metadata(
+    database: Database,
+    session_id: int,
+    context: ExecutionContext,
+    result: Result,
+) -> None:
+    base_metadata = context.metadata.get("session_metadata") or {}
+    if not isinstance(base_metadata, dict):
+        base_metadata = {}
+    insights = _collect_session_insights(context, result)
+    if not insights:
+        return
+    merged = {**base_metadata, **insights}
+    context.metadata["session_metadata"] = merged
+    await database.update_session_metadata(session_id, merged)
+
+
+def _collect_session_insights(context: ExecutionContext, result: Result) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    triage = context.metadata.get("triage", {}).get("dossier") if isinstance(context.metadata, dict) else None
+    if triage:
+        payload["triage_dossier"] = triage
+    adaptive_summary = _collect_adaptive_summary(context)
+    if adaptive_summary:
+        context.metadata["adaptive_summary"] = adaptive_summary
+        payload["adaptive_summary"] = adaptive_summary
+    personas_used = _collect_personas_used(context)
+    if personas_used:
+        payload["personas_used"] = personas_used
+    persona_updates = _collect_persona_updates(context)
+    if persona_updates:
+        payload["persona_updates"] = persona_updates
+    teacher_notes = _extract_teacher_notes(context)
+    if teacher_notes:
+        payload["teacher_notes"] = teacher_notes
+    payload["reward_summary"] = _collect_reward_summary(result)
+    return payload
+
+
+def _collect_adaptive_summary(context: ExecutionContext) -> dict[str, Any]:
+    adaptive_meta = context.metadata.get("adaptive") if isinstance(context.metadata, dict) else None
+    if not isinstance(adaptive_meta, dict):
+        return {}
+    summary: dict[str, Any] = {}
+    mode = adaptive_meta.get("active_mode")
+    if isinstance(mode, str):
+        summary["adaptive_mode"] = mode
+    history = adaptive_meta.get("mode_history")
+    if isinstance(history, list) and history:
+        summary["mode_history"] = history
+        last_entry = history[-1]
+        if isinstance(last_entry, dict) and last_entry.get("confidence") is not None:
+            summary["confidence"] = last_entry.get("confidence")
+    summary["certification_run"] = bool(adaptive_meta.get("certification_run"))
+    probe_payload = adaptive_meta.get("probe")
+    if isinstance(probe_payload, dict):
+        summary["probe"] = probe_payload
+    return summary
+
+
+def _collect_personas_used(context: ExecutionContext) -> List[dict[str, Any]]:
+    applied = context.metadata.get("applied_persona_memories") if isinstance(context.metadata, dict) else None
+    personas: list[dict[str, Any]] = []
+    if isinstance(applied, dict):
+        for entries in applied.values():
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if isinstance(entry, dict):
+                    personas.append(entry)
+    return personas
+
+
+def _collect_persona_updates(context: ExecutionContext) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    candidates = context.metadata.get("new_persona_candidates") if isinstance(context.metadata, dict) else None
+    if isinstance(candidates, list) and candidates:
+        updates["new_candidates"] = candidates
+    promotion = context.metadata.get("persona_promotion_result") if isinstance(context.metadata, dict) else None
+    if promotion:
+        updates["promotion_result"] = promotion
+    return updates
+
+
+def _extract_teacher_notes(context: ExecutionContext) -> List[str]:
+    notes: list[str] = []
+    steps = context.metadata.get("steps", {}) if isinstance(context.metadata, dict) else {}
+    if isinstance(steps, dict):
+        for meta in steps.values():
+            if not isinstance(meta, dict):
+                continue
+            guidance = meta.get("guidance")
+            if isinstance(guidance, list):
+                for note in guidance:
+                    if isinstance(note, str) and note.strip():
+                        notes.append(note.strip())
+    return notes
+
+
+def _collect_reward_summary(result: Result) -> dict[str, Any]:
+    rewards: list[float] = []
+    for step in result.step_results:
+        score = getattr(step.evaluation.reward, "score", None)
+        if isinstance(score, (int, float)):
+            rewards.append(float(score))
+    return {
+        "average": float(fmean(rewards)) if rewards else None,
+        "count": len(rewards),
+    }
 
 
 def _infer_persona_from_step(step_result, step_metadata: dict[str, Any]) -> str:
