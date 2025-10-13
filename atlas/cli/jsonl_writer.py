@@ -298,6 +298,24 @@ async def _assemble_session(
         "steps": step_payloads,
         "session_metadata": session_metadata,
     }
+    adaptive_summary = session_metadata.get("adaptive_summary")
+    if isinstance(adaptive_summary, dict):
+        session_payload["adaptive_summary"] = adaptive_summary
+    triage_dossier = session_metadata.get("triage_dossier")
+    if isinstance(triage_dossier, dict):
+        session_payload["triage_dossier"] = triage_dossier
+    personas_used = session_metadata.get("personas_used")
+    if isinstance(personas_used, list):
+        session_payload["personas_used"] = personas_used
+    persona_updates = session_metadata.get("persona_updates")
+    if persona_updates:
+        session_payload["persona_updates"] = persona_updates
+    teacher_notes = session_metadata.get("teacher_notes")
+    if isinstance(teacher_notes, list):
+        session_payload["teacher_notes"] = teacher_notes
+    reward_summary = session_metadata.get("reward_summary")
+    if isinstance(reward_summary, dict):
+        session_payload["reward_summary"] = reward_summary
     if events_payload:
         session_payload["trajectory_events"] = events_payload
     return session_payload

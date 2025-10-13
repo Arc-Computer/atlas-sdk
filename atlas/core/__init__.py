@@ -412,6 +412,7 @@ async def _persist_results(
         step_meta = steps_metadata.get(step_result.step_id, {})
         await database.log_step_attempts(session_id, step_result.step_id, step_meta.get("attempts", []))
         await database.log_guidance(session_id, step_result.step_id, step_meta.get("guidance", []))
+    await _update_session_metadata(database, session_id, context, result)
     await _persist_events(database, session_id, events)
 
 
@@ -575,6 +576,117 @@ def _classify_reward(score: float) -> str:
     if score <= 0.3:
         return "harmful"
     return "neutral"
+
+
+async def _update_session_metadata(
+    database: Database,
+    session_id: int,
+    context: ExecutionContext,
+    result: Result,
+) -> None:
+    base_metadata = context.metadata.get("session_metadata") or {}
+    if not isinstance(base_metadata, dict):
+        base_metadata = {}
+    insights = _collect_session_insights(context, result)
+    if not insights:
+        return
+    merged = {**base_metadata, **insights}
+    context.metadata["session_metadata"] = merged
+    await database.update_session_metadata(session_id, merged)
+
+
+def _collect_session_insights(context: ExecutionContext, result: Result) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    triage = context.metadata.get("triage", {}).get("dossier") if isinstance(context.metadata, dict) else None
+    if triage:
+        payload["triage_dossier"] = triage
+    adaptive_summary = _collect_adaptive_summary(context)
+    if adaptive_summary:
+        context.metadata["adaptive_summary"] = adaptive_summary
+        payload["adaptive_summary"] = adaptive_summary
+    personas_used = _collect_personas_used(context)
+    if personas_used:
+        payload["personas_used"] = personas_used
+    persona_updates = _collect_persona_updates(context)
+    if persona_updates:
+        payload["persona_updates"] = persona_updates
+    teacher_notes = _extract_teacher_notes(context)
+    if teacher_notes:
+        payload["teacher_notes"] = teacher_notes
+    payload["reward_summary"] = _collect_reward_summary(result)
+    return payload
+
+
+def _collect_adaptive_summary(context: ExecutionContext) -> dict[str, Any]:
+    adaptive_meta = context.metadata.get("adaptive") if isinstance(context.metadata, dict) else None
+    if not isinstance(adaptive_meta, dict):
+        return {}
+    summary: dict[str, Any] = {}
+    mode = adaptive_meta.get("active_mode")
+    if isinstance(mode, str):
+        summary["adaptive_mode"] = mode
+    history = adaptive_meta.get("mode_history")
+    if isinstance(history, list) and history:
+        summary["mode_history"] = history
+        last_entry = history[-1]
+        if isinstance(last_entry, dict) and last_entry.get("confidence") is not None:
+            summary["confidence"] = last_entry.get("confidence")
+    summary["certification_run"] = bool(adaptive_meta.get("certification_run"))
+    probe_payload = adaptive_meta.get("probe")
+    if isinstance(probe_payload, dict):
+        summary["probe"] = probe_payload
+    return summary
+
+
+def _collect_personas_used(context: ExecutionContext) -> List[dict[str, Any]]:
+    applied = context.metadata.get("applied_persona_memories") if isinstance(context.metadata, dict) else None
+    personas: list[dict[str, Any]] = []
+    if isinstance(applied, dict):
+        for entries in applied.values():
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if isinstance(entry, dict):
+                    personas.append(entry)
+    return personas
+
+
+def _collect_persona_updates(context: ExecutionContext) -> dict[str, Any]:
+    updates: dict[str, Any] = {}
+    candidates = context.metadata.get("new_persona_candidates") if isinstance(context.metadata, dict) else None
+    if isinstance(candidates, list) and candidates:
+        updates["new_candidates"] = candidates
+    promotion = context.metadata.get("persona_promotion_result") if isinstance(context.metadata, dict) else None
+    if promotion:
+        updates["promotion_result"] = promotion
+    return updates
+
+
+def _extract_teacher_notes(context: ExecutionContext) -> List[str]:
+    notes: list[str] = []
+    steps = context.metadata.get("steps", {}) if isinstance(context.metadata, dict) else {}
+    if isinstance(steps, dict):
+        for meta in steps.values():
+            if not isinstance(meta, dict):
+                continue
+            guidance = meta.get("guidance")
+            if isinstance(guidance, list):
+                for note in guidance:
+                    if isinstance(note, str) and note.strip():
+                        notes.append(note.strip())
+    return notes
+
+
+def _collect_reward_summary(result: Result) -> dict[str, Any]:
+    rewards: list[float] = []
+    for step in result.step_results:
+        score = getattr(step.evaluation.reward, "score", None)
+        if isinstance(score, (int, float)):
+            rewards.append(float(score))
+    return {
+        "average": float(fmean(rewards)) if rewards else None,
+        "count": len(rewards),
+    }
 
 
 def _infer_persona_from_step(step_result, step_metadata: dict[str, Any]) -> str:

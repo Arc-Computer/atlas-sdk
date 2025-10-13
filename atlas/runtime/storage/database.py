@@ -412,6 +412,17 @@ class Database:
                 mode,
             )
 
+    async def update_session_metadata(self, session_id: int, metadata: Dict[str, Any]) -> None:
+        """Replace metadata payload for a session."""
+        pool = self._require_pool()
+        payload = self._serialize_json(metadata) if metadata is not None else None
+        async with pool.acquire() as connection:
+            await connection.execute(
+                "UPDATE sessions SET metadata = $2, updated_at = NOW() WHERE id = $1",
+                session_id,
+                payload,
+            )
+
     async def update_persona_metadata(self, memory_id: UUID, metadata: Dict[str, Any]) -> None:
         """Replace persona metadata payload."""
         pool = self._require_pool()
