@@ -4,16 +4,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from typing import Awaitable
 from typing import Callable
 from typing import Dict
 from typing import List
+from typing import Optional
 from typing import Sequence
+from typing import Set
+from typing import Tuple
 from uuid import uuid4
 
+from atlas.config.models import AdaptiveTeachingConfig
 from atlas.config.models import OrchestrationConfig
 from atlas.config.models import RIMConfig
 from atlas.runtime.models import IntermediateStepPayload
@@ -27,11 +32,14 @@ from atlas.personas.student import Student
 from atlas.personas.student import StudentStepResult
 from atlas.personas.teacher import Teacher
 from atlas.runtime.schema import AtlasRewardBreakdown
+from atlas.utils.triage import TriageDossier, default_build_dossier
 from atlas.types import Plan
 from atlas.types import Result
 from atlas.types import Step
 from atlas.types import StepEvaluation
 from atlas.types import StepResult
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -46,6 +54,26 @@ class _StepExecutionOutcome:
     deliverable: Any | None = None
 
 
+@dataclass(slots=True)
+class CapabilityProbeResult:
+    mode: Optional[str]
+    confidence: Optional[float]
+    evidence: List[str] = field(default_factory=list)
+    recommended_personas: List[str] = field(default_factory=list)
+    raw: Dict[str, Any] | None = None
+    status: str | None = None
+
+
+@dataclass(slots=True)
+class AdaptiveModeDecision:
+    mode: str
+    confidence: Optional[float] = None
+    reason: str | None = None
+    evidence: List[str] = field(default_factory=list)
+    certification: bool = False
+    probe: CapabilityProbeResult | None = None
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -54,6 +82,8 @@ class Orchestrator:
         evaluator: Evaluator,
         orchestration_config: OrchestrationConfig,
         rim_config: RIMConfig,
+        adaptive_config: AdaptiveTeachingConfig | None = None,
+        triage_adapter: Callable[[str, Dict[str, Any] | None], TriageDossier] | None = None,
         persona_refresh: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self._teacher = teacher
@@ -63,9 +93,15 @@ class Orchestrator:
         self._rim_config = rim_config
         self._rim_retry_threshold = getattr(rim_config, "retry_threshold", 0.6)
         self._persona_refresh = persona_refresh
+        self._adaptive = adaptive_config or AdaptiveTeachingConfig()
+        self._triage_adapter = triage_adapter or default_build_dossier
+        self._seen_fingerprints: Set[str] = set()
+        self._current_retry_limit: int = self._orchestration.max_retries
 
     async def arun(self, task: str) -> Result:
         context = ExecutionContext.get()
+        context.mark_certification_run(False)
+        self._current_retry_limit = self._orchestration.max_retries
         manager = context.intermediate_step_manager
         orchestration_id = str(uuid4())
         manager.push_intermediate_step(
@@ -76,6 +112,8 @@ class Orchestrator:
                 data=StreamEventData(input={"task": task}),
             )
         )
+        dossier = self._build_triage_dossier(task, context)
+        context.set_triage_dossier(dossier)
         initial_plan = await self._student.acreate_plan(task)
         reviewed_plan = await self._teacher.areview_plan(task, initial_plan)
         plan_payload = reviewed_plan.model_dump()
@@ -84,13 +122,16 @@ class Orchestrator:
         context.metadata["plan"] = plan_payload
         context.metadata["original_plan"] = plan_payload
         context.metadata["execution_mode"] = execution_mode
+        context.metadata.pop("single_shot", None)
         if self._persona_refresh is not None:
             await self._persona_refresh()
-        if execution_mode == "single_shot":
+        final_plan, decision = await self._apply_adaptive_mode(task, context, reviewed_plan, dossier)
+        context.metadata["plan"] = final_plan.model_dump()
+        context.metadata["execution_mode"] = final_plan.execution_mode
+
+        if final_plan.execution_mode == "single_shot":
             context.metadata["single_shot"] = True
-            single_step = self._build_single_shot_step(task, reviewed_plan)
-            single_shot_plan = Plan(steps=[single_step], execution_mode="single_shot")
-            context.metadata["plan"] = single_shot_plan.model_dump()
+            single_step = final_plan.steps[0]
             context_outputs: Dict[int, Dict[str, Any]] = {}
             step_summaries: List[Dict[str, Any]] = []
             step_results: List[StepResult] = []
@@ -133,16 +174,17 @@ class Orchestrator:
                     data=StreamEventData(output=final_answer),
                 )
             )
-            return Result(final_answer=final_answer, plan=single_shot_plan, step_results=step_results)
+            return Result(final_answer=final_answer, plan=final_plan, step_results=step_results)
 
-        levels = self._determine_levels(reviewed_plan)
+        context.metadata.pop("single_shot", None)
+        levels = self._determine_levels(final_plan)
         context_outputs: Dict[int, Dict[str, Any]] = {}
         step_summaries: List[Dict[str, Any]] = []
         step_results: List[StepResult] = []
         for level in levels:
             if len(level) == 1:
                 step_id = level[0]
-                step = self._lookup_step(reviewed_plan, step_id)
+                step = self._lookup_step(final_plan, step_id)
                 outcome = await self._run_step(task, step, context_outputs, context)
                 if outcome.context_entry is not None:
                     context_outputs[step.id] = outcome.context_entry
@@ -175,7 +217,7 @@ class Orchestrator:
                     )
                 )
             else:
-                steps = [self._lookup_step(reviewed_plan, step_id) for step_id in level]
+                steps = [self._lookup_step(final_plan, step_id) for step_id in level]
                 tasks = [
                     self._run_step(task, step, dict(context_outputs), context)
                     for step in steps
@@ -252,7 +294,7 @@ class Orchestrator:
                 data=StreamEventData(output=final_answer),
             )
         )
-        return Result(final_answer=final_answer, plan=reviewed_plan, step_results=step_results)
+        return Result(final_answer=final_answer, plan=final_plan, step_results=step_results)
 
     def run(self, task: str) -> Result:
         try:
@@ -416,6 +458,235 @@ class Orchestrator:
                     artifacts=artifacts,
                     deliverable=deliverable,
                 )
+
+    async def _apply_adaptive_mode(
+        self,
+        task: str,
+        context: ExecutionContext,
+        reviewed_plan: Plan,
+        dossier: TriageDossier,
+    ) -> Tuple[Plan, AdaptiveModeDecision]:
+        decision = await self._determine_adaptive_mode(task, context, dossier)
+        mode = decision.mode
+        if mode in {"auto", "paired"}:
+            final_plan = self._convert_to_single_shot_plan(task, reviewed_plan)
+        elif mode == "coach":
+            final_plan = self._ensure_stepwise_plan(reviewed_plan, context)
+        elif mode == "escalate":
+            final_plan = self._ensure_stepwise_plan(reviewed_plan, context)
+        else:
+            final_plan = reviewed_plan
+        self._current_retry_limit = self._retry_limit_for_mode(mode)
+        self._store_mode_metadata(context, decision)
+        return final_plan, decision
+
+    async def _determine_adaptive_mode(
+        self,
+        task: str,
+        context: ExecutionContext,
+        dossier: TriageDossier,
+    ) -> AdaptiveModeDecision:
+        adaptive_cfg = self._adaptive
+        if not adaptive_cfg.enabled:
+            return AdaptiveModeDecision(mode="escalate", reason="adaptive_disabled")
+
+        if adaptive_cfg.mode_override:
+            return AdaptiveModeDecision(mode=adaptive_cfg.mode_override, confidence=1.0, reason="override")
+
+        fingerprint = context.metadata.get("persona_fingerprint")
+        certification_needed = (
+            adaptive_cfg.certify_first_run
+            and isinstance(fingerprint, str)
+            and fingerprint not in self._seen_fingerprints
+        )
+        if certification_needed:
+            self._seen_fingerprints.add(fingerprint)
+            decision = AdaptiveModeDecision(
+                mode="paired",
+                confidence=None,
+                reason="certification_required",
+                certification=True,
+            )
+            return decision
+
+        probe_result = await self._run_capability_probe(task, context, dossier, fingerprint)
+        if probe_result:
+            mode = probe_result.mode
+            confidence = probe_result.confidence
+            if mode not in {"auto", "paired", "coach", "escalate"}:
+                mode = self._map_confidence_to_mode(confidence)
+            if not mode:
+                fallback_mode = adaptive_cfg.probe.fallback_mode
+                mode = fallback_mode if fallback_mode in {"coach", "escalate"} else "coach"
+            decision = AdaptiveModeDecision(
+                mode=mode,
+                confidence=confidence,
+                reason="probe",
+                evidence=list(probe_result.evidence),
+                certification=False,
+                probe=probe_result,
+            )
+            if isinstance(fingerprint, str):
+                self._seen_fingerprints.add(fingerprint)
+            return decision
+
+        fallback_mode = adaptive_cfg.probe.fallback_mode
+        if isinstance(fingerprint, str):
+            self._seen_fingerprints.add(fingerprint)
+        return AdaptiveModeDecision(
+            mode=fallback_mode if fallback_mode in {"coach", "escalate"} else "coach",
+            reason="probe_unavailable",
+        )
+
+    async def _run_capability_probe(
+        self,
+        task: str,
+        context: ExecutionContext,
+        dossier: TriageDossier,
+        fingerprint: Any,
+    ) -> CapabilityProbeResult | None:
+        method = getattr(self._teacher, "adaptive_probe", None)
+        if not callable(method):
+            result = CapabilityProbeResult(
+                mode=None,
+                confidence=None,
+                evidence=["adaptive_probe_unavailable"],
+                status="unavailable",
+            )
+            context.set_capability_probe(
+                {
+                    "mode": result.mode,
+                    "confidence": result.confidence,
+                    "evidence": result.evidence,
+                    "recommended_personas": result.recommended_personas,
+                    "status": result.status,
+                    "raw": None,
+                }
+            )
+            return result
+        dossier_payload = dossier.model_dump()
+        try:
+            try:
+                payload = await method(
+                    task=task,
+                    dossier=dossier_payload,
+                    fingerprint=fingerprint,
+                    execution_metadata=context.metadata,
+                )
+            except TypeError:
+                payload = await method(task, dossier_payload)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.exception("Capability probe execution failed: %s", exc)
+            result = CapabilityProbeResult(
+                mode=None,
+                confidence=None,
+                evidence=[f"probe_error:{exc!s}"],
+                status="error",
+            )
+            context.set_capability_probe(
+                {
+                    "mode": result.mode,
+                    "confidence": result.confidence,
+                    "evidence": result.evidence,
+                    "recommended_personas": result.recommended_personas,
+                    "status": result.status,
+                    "raw": None,
+                }
+            )
+            return result
+        result = self._normalise_probe_payload(payload)
+        probe_record = {
+            "mode": result.mode,
+            "confidence": result.confidence,
+            "evidence": result.evidence,
+            "recommended_personas": result.recommended_personas,
+            "status": result.status,
+            "raw": result.raw,
+        }
+        context.set_capability_probe(probe_record)
+        return result
+
+    def _normalise_probe_payload(self, payload: Any) -> CapabilityProbeResult:
+        if isinstance(payload, CapabilityProbeResult):
+            return payload
+        if isinstance(payload, dict):
+            mode = payload.get("mode")
+            confidence = payload.get("confidence")
+            evidence = payload.get("evidence") or payload.get("reasons") or []
+            personas = payload.get("recommended_personas") or payload.get("personas") or []
+            status = payload.get("status")
+            normalized_evidence = [str(item) for item in evidence] if isinstance(evidence, (list, tuple)) else []
+            normalized_personas = [str(item) for item in personas] if isinstance(personas, (list, tuple)) else []
+            numeric_confidence = None
+            if isinstance(confidence, (int, float)):
+                numeric_confidence = float(confidence)
+            return CapabilityProbeResult(
+                mode=str(mode) if isinstance(mode, str) else None,
+                confidence=numeric_confidence,
+                evidence=normalized_evidence,
+                recommended_personas=normalized_personas,
+                raw=payload,
+                status=str(status) if status is not None else None,
+            )
+        return CapabilityProbeResult(
+            mode=None,
+            confidence=None,
+            evidence=["invalid_probe_payload"],
+            status="invalid",
+        )
+
+    def _map_confidence_to_mode(self, confidence: Optional[float]) -> Optional[str]:
+        if confidence is None:
+            return None
+        thresholds = self._adaptive.probe.thresholds
+        if confidence >= thresholds.auto:
+            return "auto"
+        if confidence >= thresholds.paired:
+            return "paired"
+        if confidence >= thresholds.coach:
+            return "coach"
+        return "escalate"
+
+    def _retry_limit_for_mode(self, mode: str) -> int:
+        if mode == "escalate":
+            return self._orchestration.max_retries
+        return 0
+
+    def _store_mode_metadata(self, context: ExecutionContext, decision: AdaptiveModeDecision) -> None:
+        context.record_mode_decision(
+            decision.mode,
+            confidence=decision.confidence,
+            reason=decision.reason,
+            evidence=decision.evidence,
+            certification=decision.certification,
+        )
+        if decision.certification:
+            context.mark_certification_run(True)
+
+    def _build_triage_dossier(self, task: str, context: ExecutionContext) -> TriageDossier:
+        session_metadata = context.metadata.get("session_metadata")
+        metadata_input = session_metadata if isinstance(session_metadata, dict) else {}
+        try:
+            dossier = self._triage_adapter(task, metadata_input)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.exception("Failed to build triage dossier: %s", exc)
+            dossier = default_build_dossier(task, metadata_input)
+        return dossier
+
+    def _convert_to_single_shot_plan(self, task: str, plan: Plan) -> Plan:
+        single_step = self._build_single_shot_step(task, plan)
+        return Plan(steps=[single_step], execution_mode="single_shot")
+
+    def _ensure_stepwise_plan(self, plan: Plan, context: ExecutionContext) -> Plan:
+        if plan.execution_mode == "stepwise":
+            return plan
+        original_payload = context.metadata.get("original_plan")
+        if isinstance(original_payload, dict):
+            try:
+                return Plan.model_validate(original_payload)
+            except Exception:  # pragma: no cover - defensive guard
+                pass
+        return plan
     def _should_retry(
         self,
         status: str,
@@ -423,17 +694,18 @@ class Orchestrator:
         reward: AtlasRewardBreakdown,
         attempts: int,
     ) -> bool:
-        max_attempts = self._orchestration.max_retries + 1
+        retry_limit = max(self._current_retry_limit, 0)
+        max_attempts = retry_limit + 1
         if attempts > max_attempts:
             return False
         status_value = (status or "").strip().lower()
         if status_value == "skipped":
             return False
         if not validation.get("valid", False):
-            return attempts <= self._orchestration.max_retries
+            return attempts <= retry_limit
         if status_value and status_value not in {"ok", "success", "completed"}:
-            return attempts <= self._orchestration.max_retries
-        return reward.score < self._rim_retry_threshold and attempts <= self._orchestration.max_retries
+            return attempts <= retry_limit
+        return reward.score < self._rim_retry_threshold and attempts <= retry_limit
 
     def _determine_levels(self, plan: Plan) -> List[List[int]]:
         graph = DependencyGraph(plan)

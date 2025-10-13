@@ -10,10 +10,11 @@ from typing import Any
 from typing import Dict
 from typing import List
 from typing import Protocol
+from importlib import import_module
 
 from atlas.connectors.factory import create_from_atlas_config
 from atlas.config.loader import load_config
-from atlas.config.models import AtlasConfig
+from atlas.config.models import AdaptiveTeachingConfig, AtlasConfig
 from atlas.prompts import (
     RewrittenStudentPrompts,
     RewrittenTeacherPrompts,
@@ -43,6 +44,7 @@ from atlas.runtime.storage.database import Database
 from atlas.runtime.telemetry import ConsoleTelemetryStreamer
 from atlas.runtime.telemetry.langchain_callback import configure_langchain_callbacks
 from atlas.types import Result
+from atlas.utils.triage import default_build_dossier
 
 logger = logging.getLogger(__name__)
 
@@ -126,6 +128,8 @@ async def arun(
     student = _build_student(adapter, config, base_student_prompts)
     teacher = Teacher(config.teacher, base_teacher_prompts)
     evaluator = Evaluator(config.rim)
+    adaptive_teaching_cfg = getattr(config, "adaptive_teaching", AdaptiveTeachingConfig())
+    triage_adapter = _load_triage_adapter(getattr(adaptive_teaching_cfg, "triage_adapter", None))
     fingerprint_inputs: FingerprintInputs | None = None
     persona_fingerprint: str | None = None
     database = Database(config.storage) if config.storage else None
@@ -248,6 +252,8 @@ async def arun(
             evaluator=evaluator,
             orchestration_config=config.orchestration,
             rim_config=config.rim,
+            adaptive_config=adaptive_teaching_cfg,
+            triage_adapter=triage_adapter,
             persona_refresh=refresh_persona_prompts,
         )
         result = await orchestrator.arun(task)
@@ -358,6 +364,36 @@ def _build_student(adapter, config: AtlasConfig, student_prompts) -> Student:
         student_config=config.student,
         student_prompts=student_prompts,
     )
+
+
+def _load_triage_adapter(path: str | None):
+    if not path:
+        return default_build_dossier
+    try:
+        module_path, attribute = _split_callable_path(path)
+        module = import_module(module_path)
+        adapter = getattr(module, attribute)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        logger.warning("Falling back to default triage adapter due to error: %s", exc)
+        return default_build_dossier
+    if not callable(adapter):
+        logger.warning("Triage adapter %s is not callable; using default adapter instead", path)
+        return default_build_dossier
+    return adapter
+
+
+def _split_callable_path(path: str) -> tuple[str, str]:
+    if ":" in path:
+        module_path, attribute = path.split(":", 1)
+    elif "." in path:
+        module_path, attribute = path.rsplit(".", 1)
+    else:
+        raise ValueError(f"Invalid adapter path '{path}'. Expected 'module:callable' or 'module.callable'.")
+    module_path = module_path.strip()
+    attribute = attribute.strip()
+    if not module_path or not attribute:
+        raise ValueError(f"Invalid adapter path '{path}'.")
+    return module_path, attribute
 
 
 async def _persist_results(
