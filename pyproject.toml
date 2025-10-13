@@ -27,6 +27,7 @@ classifiers = [
 "atlas.export" = "atlas.cli.export:main"
 "arc-atlas" = "atlas.cli.export:main"
 "atlas-export" = "atlas.cli.export:main"
+"atlas" = "atlas.cli.main:main"
 
 [project.optional-dependencies]
 dev = [
