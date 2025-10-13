@@ -95,7 +95,6 @@ class Orchestrator:
         self._persona_refresh = persona_refresh
         self._adaptive = adaptive_config or AdaptiveTeachingConfig()
         self._triage_adapter = triage_adapter or default_build_dossier
-        self._seen_fingerprints: Set[str] = set()
         self._current_retry_limit: int = self._orchestration.max_retries
 
     async def arun(self, task: str) -> Result:
@@ -125,6 +124,7 @@ class Orchestrator:
         context.metadata.pop("single_shot", None)
         if self._persona_refresh is not None:
             await self._persona_refresh()
+        self._hydrate_certified_fingerprints(context)
         final_plan, decision = await self._apply_adaptive_mode(task, context, reviewed_plan, dossier)
         context.metadata["plan"] = final_plan.model_dump()
         context.metadata["execution_mode"] = final_plan.execution_mode
@@ -502,10 +502,9 @@ class Orchestrator:
         certification_needed = (
             adaptive_cfg.certify_first_run
             and isinstance(fingerprint, str)
-            and fingerprint not in self._seen_fingerprints
+            and not self._has_certified_fingerprint(fingerprint)
         )
         if certification_needed:
-            self._seen_fingerprints.add(fingerprint)
             decision = AdaptiveModeDecision(
                 mode="paired",
                 confidence=None,
@@ -532,12 +531,12 @@ class Orchestrator:
                 probe=probe_result,
             )
             if isinstance(fingerprint, str):
-                self._seen_fingerprints.add(fingerprint)
+                self._record_certification_state(fingerprint, False)
             return decision
 
         fallback_mode = adaptive_cfg.probe.fallback_mode
         if isinstance(fingerprint, str):
-            self._seen_fingerprints.add(fingerprint)
+            self._record_certification_state(fingerprint, False)
         return AdaptiveModeDecision(
             mode=fallback_mode if fallback_mode in {"coach", "escalate"} else "coach",
             reason="probe_unavailable",
@@ -667,6 +666,9 @@ class Orchestrator:
         )
         if decision.certification:
             context.mark_certification_run(True)
+            fingerprint = context.metadata.get("persona_fingerprint")
+            if isinstance(fingerprint, str):
+                self._record_certification_state(fingerprint, True)
 
     def _build_triage_dossier(self, task: str, context: ExecutionContext) -> TriageDossier:
         session_metadata = context.metadata.get("session_metadata")
@@ -692,6 +694,47 @@ class Orchestrator:
             except Exception:  # pragma: no cover - defensive guard
                 pass
         return plan
+
+    def _hydrate_certified_fingerprints(self, context: ExecutionContext) -> None:
+        existing = context.metadata.get("adaptive_certified_fingerprints")
+        if isinstance(existing, set):
+            return
+        certified: Set[str] = set()
+        persona_memories = context.metadata.get("persona_memories") if isinstance(context.metadata, dict) else None
+        if isinstance(persona_memories, dict):
+            for records in persona_memories.values():
+                if not isinstance(records, list):
+                    continue
+                for record in records:
+                    fingerprint = record.get("trigger_fingerprint")
+                    metadata = record.get("metadata")
+                    if isinstance(fingerprint, str) and isinstance(metadata, dict) and metadata.get("certified"):
+                        certified.add(fingerprint)
+        context.metadata["adaptive_certified_fingerprints"] = certified
+
+    def _has_certified_fingerprint(self, fingerprint: str) -> bool:
+        context = ExecutionContext.get()
+        certs = context.metadata.get("adaptive_certified_fingerprints")
+        if isinstance(certs, set):
+            return fingerprint in certs
+        if isinstance(certs, list):
+            return fingerprint in certs
+        return False
+
+    def _record_certification_state(self, fingerprint: str, certified: bool) -> None:
+        context = ExecutionContext.get()
+        certs = context.metadata.setdefault("adaptive_certified_fingerprints", set())
+        if isinstance(certs, set):
+            if certified:
+                certs.add(fingerprint)
+            return
+        if isinstance(certs, list):
+            if certified and fingerprint not in certs:
+                certs.append(fingerprint)
+            return
+        # migrate legacy/non-iterable cases
+        if certified:
+            context.metadata["adaptive_certified_fingerprints"] = {fingerprint}
     def _should_retry(
         self,
         status: str,

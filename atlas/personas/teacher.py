@@ -29,7 +29,6 @@ class Teacher:
         self._plan_prompt = prompts.plan_review
         self._validation_prompt = prompts.validation
         self._guidance_prompt = prompts.guidance
-        self._probe_cache: Dict[str, Dict[str, Any]] = {}
 
     def update_prompts(self, prompts: RewrittenTeacherPrompts) -> None:
         """Replace teacher prompts and clear any cached plan reviews."""
@@ -166,8 +165,6 @@ class Teacher:
         execution_metadata = execution_metadata or {}
         stats = self._extract_persona_stats(execution_metadata, fingerprint)
         decision = self._decide_mode_from_stats(stats, dossier)
-        if fingerprint:
-            self._probe_cache[fingerprint] = {"decision": decision, "stats": stats}
         return decision
 
     async def agenerate_guidance(self, step: Step, evaluation: Dict[str, Any]) -> str:

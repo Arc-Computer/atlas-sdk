@@ -15,7 +15,7 @@ from importlib import import_module
 
 from atlas.connectors.factory import create_from_atlas_config
 from atlas.config.loader import load_config
-from atlas.config.models import AdaptiveTeachingConfig, AtlasConfig
+from atlas.config.models import AdaptiveTeachingConfig, AtlasConfig, RewardObjectiveConfig
 from atlas.prompts import (
     RewrittenStudentPrompts,
     RewrittenTeacherPrompts,
@@ -128,7 +128,7 @@ async def arun(
     }
     student = _build_student(adapter, config, base_student_prompts)
     teacher = Teacher(config.teacher, base_teacher_prompts)
-    evaluator = Evaluator(config.rim)
+    evaluator = _build_evaluator_instance(config, getattr(adaptive_teaching_cfg, "reward", None))
     adaptive_teaching_cfg = getattr(config, "adaptive_teaching", AdaptiveTeachingConfig())
     execution_context.metadata["adaptive_default_tags"] = list(getattr(adaptive_teaching_cfg, "default_tags", []) or [])
     triage_adapter = _load_triage_adapter(getattr(adaptive_teaching_cfg, "triage_adapter", None))
@@ -368,13 +368,38 @@ def _build_student(adapter, config: AtlasConfig, student_prompts) -> Student:
     )
 
 
+def _build_evaluator_instance(
+    config: AtlasConfig,
+    reward_cfg: RewardObjectiveConfig | None,
+):
+    reward_cfg = reward_cfg or RewardObjectiveConfig()
+    if reward_cfg.type == "rim":
+        rim_config = config.rim
+        if reward_cfg.parameters:
+            try:
+                rim_config = rim_config.model_copy(update=reward_cfg.parameters)
+            except Exception as exc:  # pragma: no cover - defensive guard
+                raise ValueError(f"Invalid adaptive_teaching.reward.parameters: {exc}") from exc
+        return Evaluator(rim_config)
+    if reward_cfg.type == "python":
+        if not reward_cfg.import_path and not reward_cfg.attribute:
+            raise ValueError("adaptive_teaching.reward.import_path is required when type='python'")
+        factory = _resolve_callable(reward_cfg.import_path, reward_cfg.attribute)
+        try:
+            evaluator = factory(config=config, reward_config=reward_cfg)
+        except TypeError:
+            evaluator = factory(config, reward_cfg)
+        if evaluator is None:
+            raise ValueError("adaptive_teaching.reward factory returned None")
+        return evaluator
+    raise ValueError(f"Unsupported reward type: {reward_cfg.type}")
+
+
 def _load_triage_adapter(path: str | None):
     if not path:
         return default_build_dossier
     try:
-        module_path, attribute = _split_callable_path(path)
-        module = import_module(module_path)
-        adapter = getattr(module, attribute)
+        adapter = _resolve_callable(path, None)
     except Exception as exc:  # pragma: no cover - defensive guard
         logger.warning("Falling back to default triage adapter due to error: %s", exc)
         return default_build_dossier
@@ -396,6 +421,17 @@ def _split_callable_path(path: str) -> tuple[str, str]:
     if not module_path or not attribute:
         raise ValueError(f"Invalid adapter path '{path}'.")
     return module_path, attribute
+
+
+def _resolve_callable(path: str | None, attribute: str | None):
+    if path and attribute:
+        module = import_module(path)
+        return getattr(module, attribute)
+    if not path:
+        raise ValueError("import path must be provided")
+    module_path, attr = _split_callable_path(path)
+    module = import_module(module_path)
+    return getattr(module, attr)
 
 
 async def _persist_results(
@@ -444,6 +480,13 @@ async def _log_persona_memory_usage(
                     if memory_id is not None:
                         persona_lookup[memory_id] = record
                         persona_lookup[str(memory_id)] = record
+    certified_store = context.metadata.get("adaptive_certified_fingerprints")
+    if isinstance(certified_store, set):
+        certified_set = certified_store
+    elif isinstance(certified_store, list):
+        certified_set = set(str(item) for item in certified_store)
+    else:
+        certified_set = set()
     for persona_id, entries in applied.items():
         metric = usage_metrics.get(persona_id, default_metric) if usage_metrics else default_metric
         reward_payload = metric["reward"] if metric else None
@@ -471,11 +514,16 @@ async def _log_persona_memory_usage(
                     retries=retry_count,
                     mode=mode_used,
                 )
-                metadata_record = persona_lookup.get(memory_id, {}).get("metadata") if persona_lookup.get(memory_id) else None
+                record = persona_lookup.get(memory_id)
+                metadata_record = record.get("metadata") if isinstance(record, dict) else None
+                fingerprint = record.get("trigger_fingerprint") if isinstance(record, dict) else None
+                certified_flag = isinstance(fingerprint, str) and fingerprint in certified_set
                 updated_metadata = _update_persona_metadata_payload(
                     metadata_record if isinstance(metadata_record, dict) else {},
                     reward_payload,
                     mode_used,
+                    fingerprint=fingerprint if isinstance(fingerprint, str) else None,
+                    certified=certified_flag,
                 )
                 if updated_metadata is not None:
                     await database.update_persona_metadata(memory_id, updated_metadata)
@@ -535,11 +583,15 @@ def _update_persona_metadata_payload(
     original: Dict[str, Any],
     reward_payload: Dict[str, Any] | None,
     mode: str | None,
+    *,
+    fingerprint: str | None,
+    certified: bool,
 ) -> Dict[str, Any] | None:
     metadata = dict(original or {})
     tags: set[str] = set()
-    if isinstance(metadata.get("tags"), list):
-        tags.update(tag for tag in metadata.get("tags", []) if isinstance(tag, str))
+    existing_tags = metadata.get("tags")
+    if isinstance(existing_tags, list):
+        tags.update(tag for tag in existing_tags if isinstance(tag, str))
     metadata.setdefault("helpful_count", 0)
     metadata.setdefault("harmful_count", 0)
     metadata.setdefault("neutral_count", 0)
@@ -566,6 +618,11 @@ def _update_persona_metadata_payload(
             tags.add("auto_mode_success")
         if classification == "harmful" and mode == "escalate":
             tags.add("escalate_intervention")
+    if certified:
+        metadata["certified"] = True
+        tags.add("certified")
+        if fingerprint:
+            tags.add(f"fingerprint:{fingerprint}")
     metadata["tags"] = sorted(tags)
     return metadata
 

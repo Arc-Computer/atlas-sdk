@@ -50,6 +50,23 @@ class _StubJudge(Judge):
         return [{"role": "system", "content": "judge"}]
 
 
+class _ExplodingJudge(Judge):
+    def __init__(self, identifier: str) -> None:
+        super().__init__(identifier, _StubClient({}))
+
+    async def asample(self, context: JudgeContext, temperature: float):
+        raise AssertionError("Override should short-circuit before sampling judges")
+
+    async def ajudge(self, context: JudgeContext):
+        raise AssertionError("Override should short-circuit before direct judge invocation")
+
+    def build_meta_prompt(self, context: JudgeContext, samples, escalation_reason):
+        raise AssertionError("Override should short-circuit before escalation")
+
+    def _build_messages(self, context: JudgeContext):
+        return []
+
+
 def test_judge_asample_merges_queue_reasoning():
     async def runner() -> None:
         ExecutionContext.get().reset()
@@ -128,5 +145,32 @@ def test_evaluator_accepts_precomputed_reward():
         result = await evaluator.ajudge(context)
         assert result.score == 0.92
         assert result.raw and result.raw.get("score") == 0.92
+
+    asyncio.run(runner())
+
+
+def test_evaluator_reward_override_short_circuits_judges():
+    async def runner() -> None:
+        config = RIMConfig(
+            small_model=LLMParameters(model="stub"),
+            large_model=LLMParameters(model="arbiter"),
+            active_judges={"process": True},
+            variance_threshold=1.0,
+            uncertainty_threshold=1.0,
+            parallel_workers=1,
+        )
+        evaluator = Evaluator(config, small_client=_StubClient({}), large_client=_StubClient({}))
+        evaluator._judges = [_ExplodingJudge("explode")]  # type: ignore[attr-defined]
+        context = JudgeContext(
+            task="reuse certification verdict",
+            step=Step(id=99, description="final validate", depends_on=[]),
+            trace="",
+            output="",
+            reward_override={"score": 0.88, "rationale": "teacher certified", "judges": []},
+        )
+        ExecutionContext.get().reset()
+        result = await evaluator.ajudge(context)
+        assert result.score == 0.88
+        assert result.raw and result.raw.get("score") == 0.88
 
     asyncio.run(runner())

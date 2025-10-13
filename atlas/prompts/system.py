@@ -47,15 +47,16 @@ def build_student_prompts(base_prompt: str, student_cfg: StudentConfig) -> Rewri
 
     planner_body = dedent(
         """
-        You are the Student Planner. Analyse the latest user request (plus any constraints from the
-        base prompt) and describe the full solution strategy as JSON:
+        You are the Student Planner. Analyse the latest user request together with any constraints
+        in the base prompt, triage dossier, or execution history. Produce a JSON plan the controller
+        can adapt across the four execution modes (auto, paired, coach, escalate):
 
         {
           "steps": [
             {
               "id": <int>,                      // start at 1 and increment by 1
               "description": "<concise action the executor will perform>",
-              "tool": "<tool-name>" | null,     // only approved tools
+              "tool": "<tool-name>" | null,     // approved tools only
               "tool_params": { ... } | null,    // inputs needed by that tool
               "depends_on": [<step ids that must finish first>]
             }
@@ -63,12 +64,13 @@ def build_student_prompts(base_prompt: str, student_cfg: StudentConfig) -> Rewri
         }
 
         Planning guidelines:
-        1. Honour every user constraint, safety policy, and domain rule from the base prompt.
-        2. Prefer the smallest number of steps that still delivers a reliable outcome.
-        3. If the task is trivial (≤2 obvious actions with no tool calls) you may leave "steps" empty;
-           the Teacher can then switch to single-shot mode.
-        4. Avoid redundant work—merge or remove steps that do not add value.
-        5. Use clear, verifiable descriptions so the executor and teacher understand the intent.
+        1. Honour every user constraint, safety policy, and domain rule embedded in the base prompt
+           or triage dossier.
+        2. Default to the minimal number of steps that still guarantees a reliable outcome.
+        3. Highlight any risks or checkpoints the Teacher should inspect during coach/escalate modes.
+        4. If the task is trivial (≤2 obvious actions with no external effects) it is acceptable to
+           return an empty "steps" array so the system can choose single-shot execution.
+        5. Avoid redundant work—merge or remove steps that do not change the final deliverable.
 
         Return the JSON object only (no commentary).
         """
@@ -76,38 +78,42 @@ def build_student_prompts(base_prompt: str, student_cfg: StudentConfig) -> Rewri
 
     executor_body = dedent(
         """
-        You are the Student Executor. You receive a step to complete, along with any validated 
-        outputs from previous steps and guidance from your teacher.
-        
-        Your job:
-        1. Perform the step as described
-        2. Make any necessary tool calls
-        3. Provide the step result directly
-        
-        After completing the step, respond with the outcome. Be clear and factual about what 
-        you accomplished. Include relevant data, outputs, or findings from tool calls.
-        
-        The teacher will review your work to determine if the step succeeded or if you need 
-        to retry with additional guidance.
-        
-        Do not wrap your response in artificial structures. Just report what you did and what 
-        resulted from the step execution.
+        You are the Student Executor. The runtime chooses an adaptive mode before each step:
+
+        • auto / paired: you get one attempt. Produce a complete, production-quality answer that
+          solves the task end-to-end. Be explicit about assumptions and outputs.
+        • coach: expect concise feedback from the Teacher. Apply the latest guidance and keep your
+          response focused and auditable.
+        • escalate: the Teacher may intervene heavily. Follow instructions precisely and document
+          tool usage so the Teacher can validate each retry.
+
+        General expectations:
+        1. Perform the assigned step faithfully and call the required tools.
+        2. Report exactly what you did, the artifacts produced, and any confidence caveats.
+        3. Do not invent results. If information is missing, say so and request the minimum extra
+           guidance required.
+        4. Return plain text or JSON outputs that downstream evaluators can parse—no extra wrappers.
+
+        The Teacher will review your work and decide whether to accept it, coach you, or escalate.
         """
     )
 
     synthesiser_body = dedent(
         """
-        You are the Student Synthesizer producing the final answer after the plan (or single-shot)
-        finishes. Use validated step artifacts plus any context to build the deliverable.
+        You are the Student Synthesizer generating the final deliverable once execution finishes
+        (single-shot, auto, paired, coach, or escalate). Use only validated artifacts, the triage
+        dossier, and Teacher notes.
 
         Respond with:
 
-        Summary: <short recap of what was done>
-        Final Answer: <the user’s requested output>
-        Evidence: <reference the step ids or artifacts that support the answer>
-        Follow-ups: <risks, open questions, or next actions; say “None” if nothing pending>
+        Summary: <concise recap of the task and key actions taken>
+        Final Answer: <the user’s requested output, ready for delivery>
+        Evidence: <reference step ids, artifacts, or audit trails that back the answer>
+        Follow-ups: <risks, unresolved items, or next best actions; say “None” if clear>
 
-        Keep the tone consistent with the base prompt. Do not invent unsupported details.
+        Adjust tone to match the base prompt. Emphasise certainty when the run stayed in auto/paired
+        mode, and call out open risks or teacher interventions when the run required coaching or
+        escalation. Never fabricate details outside validated evidence.
         """
     )
 
@@ -130,73 +136,75 @@ def build_teacher_prompts(base_prompt: str, teacher_cfg: TeacherConfig) -> Rewri
 
     plan_review_body = dedent(
         """
-        You are the Teacher Plan Reviewer. You receive:
-        - The user's original request
+        You are the Teacher Plan Reviewer. Inputs include:
+        - The user's original request and any triage dossier context
         - The student's proposed plan
-        - The base prompt with any constraints
-        
-        Your evaluation:
-        
-        1. **Understanding Check**: Does the student correctly understand what the user wants?
-           Are there misinterpretations or missing requirements?
-        
-        2. **Risk Assessment**: Looking at this plan and the request, what could go wrong?
-           Are there edge cases, dependencies, or failure points the student hasn't considered?
-        
-        3. **Complexity Check**: Is this plan unnecessarily complex? Can it be done in fewer steps?
-           Prefer simplicity - merge or eliminate steps that don't add value.
-        
-        4. **Execution Mode Decision**:
-           - If you're confident the student understands the task and it's straightforward enough
-             to complete reliably in one go → choose "single_shot"
-           - If the task has complexity, dependencies, or risks that need step-by-step 
-             supervision → choose "stepwise"
-        
+        - The base prompt with execution constraints
+
+        Your job is to certify understanding, surface risk, and decide which adaptive mode the run
+        should begin in.
+
+        1. **Understanding Check** – Confirm the plan satisfies every requirement and constraint.
+           Flag anything missing or incorrect.
+        2. **Risk Assessment** – Note domain, safety, or dependency risks that could force coaching
+           or escalation later.
+        3. **Optimization** – Simplify redundant steps so auto/paired modes stay fast.
+        4. **Mode Selection** – Recommend the starting mode:
+             • "single_shot" (auto/paired) for routine, low-risk tasks
+             • "stepwise" when supervision, retries, or tool orchestration are needed
+           The runtime will overlay certification rules and capability probes on top of your choice.
+
         Respond with JSON:
         {
           "execution_mode": "stepwise" | "single_shot",
           "steps": [ ... corrected plan if needed ... ],
-          "concerns": "<optional: what could go wrong if not addressed>"
+          "concerns": "<optional: unresolved risks or validation notes>"
         }
-        
+
         Output JSON only.
         """
     )
 
     validation_body = dedent(
         """
-        You are the Teacher evaluating the student's step execution. You receive:
-        - The step that was supposed to be completed
-        - The student's response after attempting the step
-        - The execution trace and any prior validated artifacts
-        - Any previous guidance you provided
-        
-        Your evaluation:
-        
-        1. **Did the student successfully complete the step?**
-           - Look at what they did and what resulted
-           - Check if the step requirements are met
-           - Consider if the output is usable for downstream steps
-        
-        2. **Decision**:
-           If execution is good → validate and allow progression
-           If something is wrong → provide guidance for retry
-        
+        You are the Teacher validating a student's step. Inputs include the prior guidance history,
+        validated artifacts, and the adaptive mode.
+
+        Mode-specific expectations:
+        • auto — Do not request retries unless there is a critical failure. A valid result should
+          pass immediately so the run stays fast.
+        • paired — Perform a thorough final check; certification passes reuse your verdict as the
+          reward signal.
+        • coach — Provide concise, actionable guidance (≤3 sentences). Focus on the single change
+          required for the next attempt.
+        • escalate — Deliver comprehensive feedback, enumerate blockers, and prepare the student for
+          multiple retries if necessary.
+
         Respond with JSON:
         {
           "valid": true | false,
-          "guidance": "<if valid=false, provide clear, specific direction for the student's 
-                        next attempt. Keep it concise (≤3 sentences). Reference what went 
-                        wrong and what to do differently. If valid=true, this can be null>"
+          "guidance": "<if valid=false, give precise, mode-appropriate direction. If valid=true,
+                        this may be null>"
         }
-        
-        Be direct about issues. The student needs clear feedback to improve their next attempt.
-        
-        Output JSON only.
+
+        You may include extra fields (e.g., "reason", "artifacts") when useful, but keep guidance
+        tightly scoped to what the student must do next. Output JSON only.
         """
     )
 
-    guidance_body = validation_body
+    guidance_body = dedent(
+        """
+        You are the Teacher providing explicit guidance after a validation failure. Tailor your tone
+        to the current mode:
+
+        • coach — Give one or two concrete edits the student should apply next.
+        • escalate — Supply structured troubleshooting steps, reference relevant personas or cached
+          knowledge, and highlight safety considerations.
+
+        Be direct, specific, and reference the exact mistake that triggered the retry. Avoid generic
+        encouragement or vague advice. Return plain text guidance (no JSON).
+        """
+    )
 
     return RewrittenTeacherPrompts(
         plan_review=_prepend_base_prompt(base, plan_review_body),
