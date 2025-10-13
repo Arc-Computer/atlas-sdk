@@ -11,7 +11,7 @@ from atlas.utils.llm_client import LLMClient
 
 _DEFAULT_PROBE_LLM = LLMParameters(
     provider=LLMProvider.GOOGLE,
-    model="gemini/gemini-2.5-flash",
+    model="gemini-2.5-flash",
     api_key_env="GOOGLE_API_KEY",
     temperature=0.2,
     timeout_seconds=20.0,
@@ -36,8 +36,6 @@ Requirements:
      "confidence": float | null,
    }}
 4. Confidence must be between 0 and 1 when provided. Evidence entries should be concise strings referencing facts from the inputs.
-
-If information is insufficient, choose the safest viable mode (coach or escalate) and explain why.
 """
 
 
@@ -110,25 +108,12 @@ class CapabilityProbeClient:
             )
         mode = data.get("mode")
         confidence = data.get("confidence")
-        reason = data.get("reason") or data.get("rationale")
-        evidence = data.get("evidence") or []
-        if not isinstance(evidence, list):
-            evidence = []
-        if not isinstance(personas, list):
-            personas = []
-        if not isinstance(reason, str):
-            reason = None
         numeric_confidence = None
         if isinstance(confidence, (int, float)):
             numeric_confidence = float(confidence)
-        trimmed_evidence = [str(item) for item in evidence][: self._evidence_limit]
-        trimmed_personas = [str(item) for item in personas]
         return CapabilityProbeDecision(
             mode=str(mode) if isinstance(mode, str) else None,
             confidence=numeric_confidence,
-            reason=reason,
-            evidence=trimmed_evidence,
-            recommended_personas=trimmed_personas,
             raw=data,
         )
 
@@ -141,4 +126,4 @@ class CapabilityProbeClient:
 
     @property
     def fallback_mode(self) -> str:
-        return self._fallback_mode if self._fallback_mode in {"coach", "escalate"} else "coach"
+        return self._fallback_mode if self._fallback_mode in {"paired", "escalate"} else "paired"
