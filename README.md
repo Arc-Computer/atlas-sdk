@@ -233,7 +233,7 @@ Disable streaming with `core.run(..., stream_progress=False)` when piping output
 See `docs/examples/terminal_telemetry.md` for a step-by-step walkthrough.
 
 For a deeper look at how these events map onto the Atlas training stack—and why the SDK keeps telemetry lightweight—see
-`docs/telemetry_overview.md`.
+`docs/runtime_telemetry_overview.md`.
 
 ---
 

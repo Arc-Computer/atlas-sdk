@@ -59,4 +59,4 @@ arc-atlas \
 ```
 
 The JSONL record will contain `adaptive_summary`, `triage_dossier`, `personas_used`, and
-`persona_updates`, matching the contract in `docs/adaptive_runtime_guide.md`.
+`persona_updates`, matching the contract in `docs/runtime_adaptive_flow.md`.
