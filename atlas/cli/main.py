@@ -42,6 +42,8 @@ from typing import Any, Dict
 
 from atlas.utils.triage import TriageDossier, TriageDossierBuilder
 
+# Tip: see examples.triage_adapters for more opinionated recipes.
+
 
 def {function_name}(task: str, metadata: Dict[str, Any] | None = None) -> TriageDossier:
     metadata = metadata or {{}}

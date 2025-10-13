@@ -53,7 +53,7 @@ rim:
 adaptive_teaching:
   enabled: true
   certify_first_run: true
-  triage_adapter: atlas.utils.triage_adapters.sre:build_dossier
+  triage_adapter: atlas.utils.triage:default_build_dossier
   default_tags:
     - tenant:example
     - domain:sre

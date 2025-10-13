@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 from atlas.cli import main as atlas_cli_main  # type: ignore[attr-defined]
@@ -8,8 +7,9 @@ from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.utils.triage import (
     TriageDossierBuilder,
     attach_triage_to_context,
+    default_build_dossier,
 )
-from atlas.utils.triage_adapters import sre, support, code
+from examples.triage_adapters import code, sre, support
 
 
 def test_builder_constructs_minimal_dossier():
@@ -45,6 +45,26 @@ def test_reference_adapters_attach_domain_tags():
     assert code_dossier.signals[0].name == "failing_tests"
 
 
+def test_default_builder_heuristics():
+    metadata = {
+        "summary": "Investigate failing pipeline",
+        "tags": ["domain:ml", "tenant:acme"],
+        "risks": ["SLA breach", {"description": "Regression risk", "severity": "moderate"}],
+        "signals": [{"name": "pipeline.status", "value": "failed"}],
+        "persona_references": [{"persona_id": "persona-321", "rationale": "Last similar fix"}],
+        "embeddings": {"ctx": {"vector": [0.1, 0.2, 0.3]}},
+        "metadata": {"source": "alerting"},
+        "custom_field": "value",
+    }
+    dossier = default_build_dossier("Investigate", metadata)
+    assert dossier.summary == "Investigate failing pipeline"
+    assert "domain:ml" in dossier.tags
+    assert dossier.risks[0].description == "SLA breach"
+    assert dossier.signals[0].name == "pipeline.status"
+    assert dossier.metadata["custom_field"] == "value"
+    assert dossier.persona_references[0].persona_id == "persona-321"
+
+
 def test_attach_triage_to_context_sets_metadata():
     context = ExecutionContext.get()
     context.reset()
@@ -53,7 +73,7 @@ def test_attach_triage_to_context_sets_metadata():
     assert context.metadata["triage"]["dossier"]["summary"] == "summary"
 
 
-def test_cli_triage_init_creates_file(tmp_path: Path, monkeypatch):
+def test_cli_triage_init_creates_file(tmp_path: Path):
     output_path = tmp_path / "adapter.py"
     exit_code = atlas_cli_main.main(["triage", "init", "--domain", "sre", "--output", str(output_path)])
     assert exit_code == 0

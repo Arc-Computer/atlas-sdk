@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Literal, Optional, Sequence
+from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Sequence, Tuple, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -186,8 +186,111 @@ def attach_triage_to_context(context: "ExecutionContext", dossier: TriageDossier
     }
 
 
+_KNOWN_FIELDS = {
+    "summary",
+    "description",
+    "tags",
+    "risks",
+    "signals",
+    "persona_references",
+    "embeddings",
+    "fingerprint_hint",
+    "metadata",
+    "enrichers",
+}
+
+
+def default_build_dossier(
+    task: str,
+    metadata: Dict[str, Any] | None = None,
+    *,
+    enrichers: Sequence[Callable[[TriageDossierBuilder, Dict[str, Any]], None]] | None = None,
+) -> TriageDossier:
+    """General-purpose triage adapter that normalises common metadata shapes."""
+
+    payload = dict(metadata or {})
+    builder = TriageDossierBuilder(task=task, fingerprint_hint=payload.get("fingerprint_hint"))
+
+    summary = payload.get("summary") or payload.get("description") or task
+    builder.set_summary(str(summary))
+
+    tags = payload.get("tags") or []
+    if isinstance(tags, (list, tuple, set)):
+        builder.add_tags(*[str(tag) for tag in tags if str(tag).strip()])
+    elif isinstance(tags, str):
+        builder.add_tags(tags)
+
+    for risk in payload.get("risks", []):
+        if isinstance(risk, dict):
+            description = risk.get("description")
+            if not description:
+                continue
+            builder.add_risk(
+                description=str(description),
+                category=str(risk.get("category", "general")),
+                severity=cast(Severity, str(risk.get("severity", "moderate"))),
+            )
+        elif isinstance(risk, str):
+            builder.add_risk(risk)
+
+    for signal in payload.get("signals", []):
+        if isinstance(signal, dict):
+            name = signal.get("name")
+            value = signal.get("value")
+            if not name:
+                continue
+            builder.add_signal(
+                str(name),
+                value,
+                confidence=signal.get("confidence"),
+                annotation=signal.get("annotation"),
+            )
+        elif isinstance(signal, Tuple) and len(signal) == 2:
+            builder.add_signal(str(signal[0]), signal[1])
+
+    for persona in payload.get("persona_references", []):
+        if isinstance(persona, dict):
+            persona_id = persona.get("persona_id") or persona.get("id")
+            if not persona_id:
+                continue
+            builder.add_persona_reference(
+                str(persona_id),
+                rationale=persona.get("rationale"),
+                weight=float(persona.get("weight", 1.0)),
+                tags=persona.get("tags"),
+            )
+        elif isinstance(persona, str):
+            builder.add_persona_reference(persona)
+
+    embeddings = payload.get("embeddings", {})
+    if isinstance(embeddings, dict):
+        for key, value in embeddings.items():
+            if isinstance(value, dict) and isinstance(value.get("vector"), (list, tuple)):
+                builder.add_embedding(key, value["vector"], model=value.get("model"), note=value.get("note"))
+            elif isinstance(value, (list, tuple)):
+                builder.add_embedding(key, value)
+
+    if isinstance(payload.get("metadata"), dict):
+        builder.update_metadata(**payload["metadata"])
+
+    extra_metadata = {k: v for k, v in payload.items() if k not in _KNOWN_FIELDS}
+    if extra_metadata:
+        builder.update_metadata(**extra_metadata)
+
+    active_enrichers = list(enrichers or [])
+    if "enrichers" in payload:
+        for enr in payload["enrichers"] if isinstance(payload["enrichers"], (list, tuple)) else []:
+            if callable(enr):
+                active_enrichers.append(enr)
+    for enr in active_enrichers:
+        enr(builder, payload)
+
+    return builder.build()
+
+
 __all__ = [
     "attach_triage_to_context",
+    "default_build_dossier",
     "EmbeddingVector",
     "PersonaReference",
     "Severity",
