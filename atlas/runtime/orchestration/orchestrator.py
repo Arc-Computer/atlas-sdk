@@ -25,8 +25,7 @@ from atlas.runtime.models import StreamEventData
 from atlas.runtime.orchestration.dependency_graph import DependencyGraph
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.runtime.adaptive import CapabilityProbeClient, CapabilityProbeDecision
-from atlas.evaluation.evaluator import Evaluator
-from atlas.evaluation.judges.base import JudgeContext
+from atlas.evaluation.evaluator import Evaluator, SessionStepRecord, SessionTrajectory
 from atlas.personas.student import Student
 from atlas.personas.student import StudentStepResult
 from atlas.personas.teacher import Teacher
@@ -122,6 +121,7 @@ class Orchestrator:
                 require_validation=(mode == "paired"),
                 allow_retry=(mode == "paired"),
             )
+            await self._evaluate_session_reward(task, plan, result)
         else:
             initial_plan = await self._student.acreate_plan(task)
             reviewed_plan = await self._teacher.areview_plan(task, initial_plan)
@@ -144,8 +144,10 @@ class Orchestrator:
                     require_validation=True,
                     allow_retry=True,
                 )
+                await self._evaluate_session_reward(task, final_plan, result)
             else:
                 result = await self._run_stepwise(task, final_plan)
+                await self._evaluate_session_reward(task, final_plan, result)
 
         manager.push_intermediate_step(
             IntermediateStepPayload(
@@ -176,6 +178,8 @@ class Orchestrator:
     ) -> _StepExecutionOutcome:
         attempts = 0
         guidance: List[str] = []
+        steps_store = execution_context.metadata.setdefault("steps", {})
+        step_meta = steps_store.setdefault(step.id, {})
         while True:
             attempts += 1
             manager = execution_context.intermediate_step_manager
@@ -211,7 +215,6 @@ class Orchestrator:
             )
             raise
 
-        step_meta = execution_context.metadata.get("steps", {}).get(step.id, {})
         prior_guidance = list(step_meta.get("guidance", []))
 
         structured_output = self._obtain_structured_output(student_result)
@@ -249,40 +252,15 @@ class Orchestrator:
             validation_valid = True
 
         reward_skipped = True
-        reward: AtlasRewardBreakdown
-        judge_context = JudgeContext(
-            task=task,
-            step=step,
-            trace=student_result.trace,
-            output=student_result.output,
-            attempt=attempts,
-            prior_results=context_outputs,
-            guidance=prior_guidance,
-            reward_override=reward_override_payload,
-        )
-
-        can_score = status_normalised == "ok"
-        if require_validation:
-            can_score = validation_valid and can_score
-
         if reward_override_payload is not None:
-            reward_start = time.perf_counter()
-            reward = await self._evaluator.ajudge(judge_context)
-            attempt_timings["reward_ms"] = self._elapsed_ms(reward_start)
-            reward_skipped = False
-        elif can_score:
-            reward_start = time.perf_counter()
-            reward = await self._evaluator.ajudge(judge_context)
-            attempt_timings["reward_ms"] = self._elapsed_ms(reward_start)
-            reward_skipped = False
+            reward = self._build_placeholder_reward("teacher_certified")
+        elif require_validation and not validation_valid:
+            reward = self._build_placeholder_reward("validation_failed")
         else:
-            reason = "validation_failed" if require_validation and not validation_valid else f"status_{status_normalised}"
-            reward = self._build_placeholder_reward(reason)
+            reward = self._build_placeholder_reward("deferred")
 
         evaluation = StepEvaluation(validation=validation, reward=reward)
-        should_retry = False
-        if allow_retry and require_validation:
-            should_retry = self._should_retry(raw_status, validation, reward, attempts)
+        should_retry = bool(allow_retry and require_validation and not validation_valid and attempts <= self._current_retry_limit)
 
         guidance_text = validation.get("guidance") if isinstance(validation, dict) else None
         if should_retry:
@@ -312,9 +290,9 @@ class Orchestrator:
             status=raw_status,
         )
 
-        context_entry = None
-        if not reward_skipped:
-            context_entry = self._build_context_entry(structured_output, student_result.output)
+        context_entry = self._build_context_entry(structured_output, student_result.output)
+        step_meta["context_entry"] = context_entry
+        step_meta["status"] = raw_status
 
         event_output = {
             "trace": student_result.trace,
@@ -713,25 +691,69 @@ class Orchestrator:
         final_answer = await self._student.asynthesize_final_answer(task, organized_results)
         return Result(final_answer=final_answer, plan=plan, step_results=step_results)
 
-    def _should_retry(
-        self,
-        status: str,
-        validation: Dict[str, Any],
-        reward: AtlasRewardBreakdown,
-        attempts: int,
-    ) -> bool:
-        retry_limit = max(self._current_retry_limit, 0)
-        max_attempts = retry_limit + 1
-        if attempts > max_attempts:
-            return False
-        status_value = (status or "").strip().lower()
-        if status_value == "skipped":
-            return False
-        if not validation.get("valid", False):
-            return attempts <= retry_limit
-        if status_value and status_value not in {"ok", "success", "completed"}:
-            return attempts <= retry_limit
-        return reward.score < self._rim_retry_threshold and attempts <= retry_limit
+    async def _evaluate_session_reward(self, task: str, plan: Plan, result: Result) -> None:
+        context = ExecutionContext.get()
+        try:
+            trajectory = self._build_session_trajectory(task, plan, result)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.exception("Failed to build session trajectory: %s", exc)
+            return
+        try:
+            evaluation = await self._evaluator.aevaluate_session(trajectory)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.exception("Session-level reward evaluation failed: %s", exc)
+            return
+        context.set_session_reward(
+            evaluation.reward,
+            student_learning=evaluation.student_learning,
+            teacher_learning=evaluation.teacher_learning,
+        )
+
+    def _build_session_trajectory(self, task: str, plan: Plan, result: Result) -> SessionTrajectory:
+        context = ExecutionContext.get()
+        steps_meta = context.metadata.get("steps", {}) if isinstance(context.metadata, dict) else {}
+        step_lookup = {step.id: step for step in plan.steps}
+        records: List[SessionStepRecord] = []
+        guidance_present = False
+
+        for step_result in result.step_results:
+            step = step_lookup.get(step_result.step_id)
+            if step is None:
+                continue
+            meta = steps_meta.get(step_result.step_id, {}) or {}
+            guidance = meta.get("guidance") if isinstance(meta, dict) else None
+            if guidance:
+                guidance_present = True
+            prior_results = meta.get("context_entry") if isinstance(meta, dict) else None
+            status = meta.get("status") if isinstance(meta, dict) else None
+            records.append(
+                SessionStepRecord(
+                    step=step,
+                    trace=step_result.trace,
+                    output=step_result.output,
+                    attempts=step_result.attempts,
+                    guidance=list(guidance) if isinstance(guidance, list) else None,
+                    status=status,
+                    validation=step_result.evaluation.validation,
+                    prior_results=prior_results if isinstance(prior_results, dict) else None,
+                    metadata=step_result.metadata,
+                )
+            )
+
+        teacher_intervened = guidance_present or any((record.attempts or 0) > 1 for record in records)
+        session_metadata = context.metadata.get("session_metadata") if isinstance(context.metadata, dict) else None
+        execution_mode = context.metadata.get("execution_mode") if isinstance(context.metadata, dict) else None
+
+        return SessionTrajectory(
+            task=task,
+            final_answer=result.final_answer,
+            plan=plan.model_dump(),
+            steps=records,
+            execution_mode=execution_mode,
+            teacher_intervened=bool(teacher_intervened),
+            session_metadata=session_metadata if isinstance(session_metadata, dict) else None,
+            focus_prompt=None,
+        )
 
     def _determine_levels(self, plan: Plan) -> List[List[int]]:
         graph = DependencyGraph(plan)

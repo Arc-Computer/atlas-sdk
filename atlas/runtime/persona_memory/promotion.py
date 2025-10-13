@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional,
 from uuid import UUID
 
 from atlas.config.models import AtlasConfig
+from atlas.runtime.persona_memory.constants import CANONICAL_PERSONAS, canonical_persona_name, persona_aliases
 from atlas.runtime.persona_memory.fingerprint import FingerprintInputs
 from atlas.runtime.persona_memory.learning import _sanitize_text  # type: ignore[attr-defined]
 from atlas.runtime.storage.database import Database
@@ -18,12 +19,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_PROMOTION_MIN_SAMPLES = 2
 DEFAULT_PROMOTION_MIN_DELTA = 0.05
 DEFAULT_PERSONA_CAPS = {
-    "student_planner": 3,
-    "student_executor": 5,
-    "student_synthesizer": 3,
+    "student": 5,
     "teacher_plan_review": 2,
-    "teacher_validation": 2,
-    "teacher_guidance": 2,
+    "teacher_validation": 4,
 }
 DEFAULT_FALLBACK_CAP = 3
 
@@ -155,8 +153,9 @@ def get_promotion_settings(config: AtlasConfig | None) -> PromotionSettings:
         if isinstance(caps_cfg, dict):
             merged = settings.caps.copy()
             for key, value in caps_cfg.items():
+                canonical_key = canonical_persona_name(key)
                 try:
-                    merged[key] = int(value)
+                    merged[canonical_key] = int(value)
                 except (TypeError, ValueError):
                     continue
             settings.caps = merged
@@ -179,21 +178,18 @@ async def promote_and_compact(
         return result
     agent_name = fingerprint_inputs.agent_name
     tenant_id = fingerprint_inputs.tenant_id
-    persona_order = [
-        "student_planner",
-        "student_executor",
-        "student_synthesizer",
-        "teacher_plan_review",
-        "teacher_validation",
-        "teacher_guidance",
-    ]
+    persona_order = list(CANONICAL_PERSONAS)
 
     for persona in persona_order:
         score_overrides: Dict[UUID, Optional[float]] = {}
         # Promote candidates for this persona
-        candidates = await database.fetch_persona_memories(
-            agent_name, tenant_id, persona, fingerprint_hash, statuses=["candidate"]
-        )
+        candidates: List[Dict[str, Any]] = []
+        for alias in persona_aliases(persona):
+            records = await database.fetch_persona_memories(
+                agent_name, tenant_id, alias, fingerprint_hash, statuses=["candidate"]
+            )
+            if records:
+                candidates.extend(records)
         candidate_ids: List[UUID] = [record["memory_id"] for record in candidates]
         usage_map = await database.fetch_persona_usage(candidate_ids)
         promoted_ids: List[UUID] = []
@@ -231,9 +227,13 @@ async def promote_and_compact(
                 result.invalidate_personas.add(persona)
 
         # Enforce caps & compaction on active memories
-        active_records = await database.fetch_persona_memories(
-            agent_name, tenant_id, persona, fingerprint_hash, statuses=["active"]
-        )
+        active_records: List[Mapping[str, Any]] = []
+        for alias in persona_aliases(persona):
+            records = await database.fetch_persona_memories(
+                agent_name, tenant_id, alias, fingerprint_hash, statuses=["active"]
+            )
+            if records:
+                active_records.extend(records)
         if promoted_ids:
             promoted_usage = await database.fetch_persona_usage(promoted_ids)
             for promoted_id, entries in promoted_usage.items():

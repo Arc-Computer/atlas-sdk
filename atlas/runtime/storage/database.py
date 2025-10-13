@@ -19,6 +19,7 @@ except ModuleNotFoundError as exc:
     _ASYNCPG_ERROR = exc
 
 from atlas.config.models import StorageConfig
+from atlas.runtime.persona_memory.constants import canonical_persona_name, persona_aliases
 from atlas.runtime.models import IntermediateStep
 from atlas.types import Plan
 from atlas.types import StepResult
@@ -306,6 +307,8 @@ class Database:
     async def create_persona_memory(self, record: Dict[str, Any]) -> None:
         """Create or update a persona memory row."""
         pool = self._require_pool()
+        record = dict(record)
+        record["persona"] = canonical_persona_name(record.get("persona"))
         instruction_payload = self._serialize_json(record["instruction"])
         reward_payload = self._serialize_json(record.get("reward_snapshot"))
         metadata_payload = self._serialize_json(record.get("metadata", {}))
@@ -364,27 +367,35 @@ class Database:
         pool = self._require_pool()
         if statuses is not None and len(statuses) == 0:
             return []
+        persona_alias_list = list(persona_aliases(canonical_persona_name(persona)))
         query = (
             "SELECT memory_id, agent_name, tenant_id, persona, trigger_fingerprint, instruction,"
             " source_session_id, reward_snapshot, retry_count, metadata, status, created_at, updated_at"
             " FROM persona_memory"
             " WHERE agent_name = $1 AND tenant_id = $2 AND persona = $3 AND trigger_fingerprint = $4"
         )
-        params: list[Any] = [agent_name, tenant_id, persona, fingerprint]
-        if statuses is not None:
-            params.append(statuses)
-            query += f" AND status = ANY(${len(params)})"
-        query += " ORDER BY created_at ASC"
+        results: list[Any] = []
         async with pool.acquire() as connection:
-            rows = await connection.fetch(query, *params)
-        results: list[Dict[str, Any]] = []
+            for alias in persona_alias_list:
+                params: list[Any] = [agent_name, tenant_id, alias, fingerprint]
+                if statuses is not None:
+                    params.append(statuses)
+                    alias_query = query + f" AND status = ANY(${len(params)})"
+                else:
+                    alias_query = query
+                alias_query += " ORDER BY created_at ASC"
+                rows = await connection.fetch(alias_query, *params)
+                results.extend(rows)
+        rows = sorted(results, key=lambda row: row["created_at"]) if results else []
+        canonical_records: list[Dict[str, Any]] = []
         for row in rows:
             record = dict(row)
+            record["persona"] = canonical_persona_name(record.get("persona"))
             record["instruction"] = self._deserialize_json(record.get("instruction"))
             record["reward_snapshot"] = self._deserialize_json(record.get("reward_snapshot"))
             record["metadata"] = self._deserialize_json(record.get("metadata")) or {}
-            results.append(record)
-        return results
+            canonical_records.append(record)
+        return canonical_records
 
     async def update_persona_memory_status(
         self,

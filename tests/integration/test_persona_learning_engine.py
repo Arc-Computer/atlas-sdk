@@ -238,7 +238,7 @@ async def test_persona_learning_engine_generates_candidates(monkeypatch: pytest.
 
     assert row["agent_name"] == agent_name
     assert row["tenant_id"] == tenant_id
-    assert row["persona"] == "student_executor"
+    assert row["persona"] == "student"
     assert row["status"] == "candidate"
     assert row["source_session_id"] == session_id
     instruction_payload = row["instruction"]
@@ -267,7 +267,7 @@ async def test_persona_learning_engine_generates_candidates(monkeypatch: pytest.
         rows = await connection.fetch(
             "SELECT memory_id FROM persona_memory WHERE tenant_id = $1 AND persona = $2 AND status = 'candidate'",
             tenant_id,
-            "student_executor",
+            "student",
         )
     await verification_db.disconnect()
     assert [record["memory_id"] for record in rows] == [candidate_uuid]

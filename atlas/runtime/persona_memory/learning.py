@@ -11,6 +11,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 from uuid import UUID, uuid4
 
 from atlas.runtime.orchestration.execution_context import ExecutionContext
+from atlas.runtime.persona_memory.constants import canonical_persona_name
 from atlas.runtime.persona_memory.fingerprint import FingerprintInputs
 from atlas.runtime.storage.database import Database
 from atlas.types import Result, StepResult
@@ -70,11 +71,11 @@ def _infer_persona(step_result: StepResult, step_metadata: dict[str, Any]) -> st
     metadata = step_result.metadata or {}
     persona = metadata.get("persona_target") or metadata.get("persona") or metadata.get("actor")
     if isinstance(persona, str):
-        return persona
+        return canonical_persona_name(persona)
     guidance_source = step_metadata.get("guidance_source")
     if isinstance(guidance_source, str):
-        return guidance_source
-    return "student_executor"
+        return canonical_persona_name(guidance_source)
+    return canonical_persona_name("student")
 
 
 def _extract_reward_snapshot(step_result: StepResult, step_metadata: dict[str, Any]) -> Dict[str, Any] | None:
@@ -176,7 +177,9 @@ async def write_candidates(database: Database, session_id: int, candidates: Iter
     created_ids: list[UUID] = []
     grouped: dict[tuple[str, str, str, str], list[CandidateSpec]] = defaultdict(list)
     for candidate in candidates:
-        key = (candidate.agent_name, candidate.tenant_id, candidate.persona, candidate.trigger_fingerprint)
+        canonical_persona = canonical_persona_name(candidate.persona)
+        candidate.persona = canonical_persona
+        key = (candidate.agent_name, candidate.tenant_id, canonical_persona, candidate.trigger_fingerprint)
         grouped[key].append(candidate)
     for key, specs in grouped.items():
         agent_name, tenant_id, persona, fingerprint = key
@@ -211,7 +214,7 @@ async def write_candidates(database: Database, session_id: int, candidates: Iter
 
 
 def _compose_candidate_tags(context: ExecutionContext, persona: str) -> List[str]:
-    tags: set[str] = {"teacher_guidance"}
+    tags: set[str] = {f"persona:{persona}"}
     adaptive_meta = context.metadata.get("adaptive", {}) if isinstance(context.metadata, dict) else {}
     default_tags = context.metadata.get("adaptive_default_tags", [])
     if isinstance(default_tags, (list, tuple)):

@@ -26,6 +26,7 @@ from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.runtime.adaptive import CapabilityProbeClient
 from atlas.runtime.orchestration.orchestrator import Orchestrator
 from atlas.runtime.persona_memory import (
+    CANONICAL_PERSONAS,
     FingerprintInputs,
     PersonaMemoryKey,
     build_fingerprint,
@@ -37,6 +38,8 @@ from atlas.runtime.persona_memory import (
     merge_prompt,
     normalize_instructions,
     promote_and_compact,
+    canonical_persona_name,
+    persona_aliases,
     write_candidates,
 )
 from atlas.evaluation.evaluator import Evaluator
@@ -83,14 +86,7 @@ async def arun(
     execution_context.metadata["persona_promotion_result"] = None
     persona_cache = get_cache()
     cache_disabled = is_cache_disabled(config)
-    personas = [
-        "student_planner",
-        "student_executor",
-        "student_synthesizer",
-        "teacher_plan_review",
-        "teacher_validation",
-        "teacher_guidance",
-    ]
+    personas = list(CANONICAL_PERSONAS)
     if stream_progress is not None:
         stream_enabled = stream_progress
     else:
@@ -156,14 +152,15 @@ async def arun(
             previous_fingerprint = execution_context.metadata.get("persona_fingerprint")
             if previous_fingerprint and previous_fingerprint != persona_fingerprint:
                 for persona_id in personas:
-                    persona_cache.invalidate(
-                        PersonaMemoryKey(
-                            agent_name=fingerprint_inputs.agent_name,
-                            tenant_id=fingerprint_inputs.tenant_id,
-                            fingerprint=previous_fingerprint,
-                            persona=persona_id,
+                    for alias in persona_aliases(persona_id):
+                        persona_cache.invalidate(
+                            PersonaMemoryKey(
+                                agent_name=fingerprint_inputs.agent_name,
+                                tenant_id=fingerprint_inputs.tenant_id,
+                                fingerprint=previous_fingerprint,
+                                persona=alias,
+                            )
                         )
-                    )
             execution_context.metadata["persona_fingerprint"] = persona_fingerprint
             persona_memories = execution_context.metadata.setdefault("persona_memories", {})
             persona_memories.clear()
@@ -175,20 +172,25 @@ async def arun(
                 statuses = ["active", "candidate"]
                 use_cache = not cache_disabled
                 for persona_id in personas:
-                    key = PersonaMemoryKey(
-                        agent_name=fingerprint_inputs.agent_name,
-                        tenant_id=fingerprint_inputs.tenant_id,
-                        fingerprint=persona_fingerprint,
-                        persona=persona_id,
-                    )
-                    records = await persona_cache.get_or_load(
-                        database,
-                        key,
-                        statuses,
-                        use_cache=use_cache,
-                    )
-                    persona_memories[persona_id] = records
-                    normalized = normalize_instructions(records)
+                    combined_records: List[Any] = []
+                    for alias in persona_aliases(persona_id):
+                        key = PersonaMemoryKey(
+                            agent_name=fingerprint_inputs.agent_name,
+                            tenant_id=fingerprint_inputs.tenant_id,
+                            fingerprint=persona_fingerprint,
+                            persona=alias,
+                        )
+                        records = await persona_cache.get_or_load(
+                            database,
+                            key,
+                            statuses,
+                            use_cache=use_cache,
+                        )
+                        if records:
+                            combined_records.extend(records)
+                        persona_memories[alias] = records or []
+                    persona_memories[persona_id] = combined_records
+                    normalized = normalize_instructions(combined_records)
                     if normalized:
                         actives: List[Any] = []
                         trials: List[Any] = []
@@ -221,18 +223,19 @@ async def arun(
                             "status": inst.status or "active",
                         }
                     )
-                applied_memories[persona_id] = applied_entries
+                for alias in persona_aliases(persona_id):
+                    applied_memories[alias] = list(applied_entries)
                 return merge_prompt(prompt_text, instructions)
 
             student_prompts = RewrittenStudentPrompts(
-                planner=_apply_instructions("student_planner", base_student_prompts.planner),
-                executor=_apply_instructions("student_executor", base_student_prompts.executor),
-                synthesizer=_apply_instructions("student_synthesizer", base_student_prompts.synthesizer),
+                planner=_apply_instructions("student", base_student_prompts.planner),
+                executor=_apply_instructions("student", base_student_prompts.executor),
+                synthesizer=_apply_instructions("student", base_student_prompts.synthesizer),
             )
             teacher_prompts = RewrittenTeacherPrompts(
                 plan_review=_apply_instructions("teacher_plan_review", base_teacher_prompts.plan_review),
                 validation=_apply_instructions("teacher_validation", base_teacher_prompts.validation),
-                guidance=_apply_instructions("teacher_guidance", base_teacher_prompts.guidance),
+                guidance=_apply_instructions("teacher_validation", base_teacher_prompts.guidance),
             )
             execution_context.metadata["prompt_rewrite"] = {
                 "student": {
@@ -287,13 +290,14 @@ async def arun(
                     )
                     if promotion_result.invalidate_personas:
                         for persona_id in promotion_result.invalidate_personas:
-                            key = PersonaMemoryKey(
-                                agent_name=fingerprint_inputs.agent_name,
-                                tenant_id=fingerprint_inputs.tenant_id,
-                                fingerprint=persona_fingerprint,
-                                persona=persona_id,
-                            )
-                            persona_cache.invalidate(key)
+                            for alias in persona_aliases(persona_id):
+                                key = PersonaMemoryKey(
+                                    agent_name=fingerprint_inputs.agent_name,
+                                    tenant_id=fingerprint_inputs.tenant_id,
+                                    fingerprint=persona_fingerprint,
+                                    persona=alias,
+                                )
+                                persona_cache.invalidate(key)
                     promotion_payload = promotion_result.to_dict()
                 else:
                     promotion_payload = None
@@ -502,7 +506,8 @@ async def _log_persona_memory_usage(
     else:
         certified_set = set()
     for persona_id, entries in applied.items():
-        metric = usage_metrics.get(persona_id, default_metric) if usage_metrics else default_metric
+        canonical_persona = canonical_persona_name(persona_id)
+        metric = usage_metrics.get(canonical_persona, default_metric) if usage_metrics else default_metric
         reward_payload = metric["reward"] if metric else None
         retry_count = metric["retries"] if metric else None
         mode_used = metric.get("mode") if metric else None
@@ -613,7 +618,11 @@ def _update_persona_metadata_payload(
     if isinstance(reward_payload, dict):
         value = reward_payload.get("score")
         if isinstance(value, (int, float)):
-            score = float(value)
+            raw_payload = reward_payload.get("raw")
+            if isinstance(raw_payload, dict) and raw_payload.get("skipped"):
+                score = None
+            else:
+                score = float(value)
     classification = None
     if score is not None:
         classification = _classify_reward(score)
@@ -781,11 +790,11 @@ def _infer_persona_from_step(step_result, step_metadata: dict[str, Any]) -> str:
     metadata = step_result.metadata or {}
     persona = metadata.get("persona_target") or metadata.get("persona") or metadata.get("actor")
     if isinstance(persona, str) and persona:
-        return persona
+        return canonical_persona_name(persona)
     guidance_source = step_metadata.get("guidance_source")
     if isinstance(guidance_source, str) and guidance_source:
-        return guidance_source
-    return "student_executor"
+        return canonical_persona_name(guidance_source)
+    return canonical_persona_name("student")
 
 
 def _extract_reward_score(step_result, step_metadata: dict[str, Any]) -> float | None:

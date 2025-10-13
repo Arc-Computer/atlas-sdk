@@ -130,7 +130,7 @@ async def test_persona_promotion_flow(monkeypatch: pytest.MonkeyPatch) -> None:
                 "persona_memory": {
                     "promotion_samples": 2,
                     "promotion_threshold": 0.05,
-                    "persona_caps": {"student_executor": 2},
+                    "persona_caps": {"student": 2},
                 }
             },
         },
@@ -152,7 +152,7 @@ async def test_persona_promotion_flow(monkeypatch: pytest.MonkeyPatch) -> None:
             "memory_id": candidate_id,
             "agent_name": agent_name,
             "tenant_id": tenant_id,
-            "persona": "student_executor",
+            "persona": "student",
             "trigger_fingerprint": fingerprint,
             "instruction": {"append": "Provide extra quantitative detail."},
             "source_session_id": None,
@@ -175,7 +175,7 @@ async def test_persona_promotion_flow(monkeypatch: pytest.MonkeyPatch) -> None:
             "memory_id": active_duplicate_1,
             "agent_name": agent_name,
             "tenant_id": tenant_id,
-            "persona": "student_executor",
+            "persona": "student",
             "trigger_fingerprint": fingerprint,
             "instruction": duplicate_instruction,
             "source_session_id": None,
@@ -190,7 +190,7 @@ async def test_persona_promotion_flow(monkeypatch: pytest.MonkeyPatch) -> None:
             "memory_id": active_duplicate_2,
             "agent_name": agent_name,
             "tenant_id": tenant_id,
-            "persona": "student_executor",
+            "persona": "student",
             "trigger_fingerprint": fingerprint,
             "instruction": duplicate_instruction,
             "source_session_id": None,
@@ -233,7 +233,7 @@ async def test_persona_promotion_flow(monkeypatch: pytest.MonkeyPatch) -> None:
         active_rows = await connection.fetch(
             "SELECT memory_id, status FROM persona_memory WHERE tenant_id = $1 AND persona = $2",
             tenant_id,
-            "student_executor",
+            "student",
         )
     await verification_db.disconnect()
 
