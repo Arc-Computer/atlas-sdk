@@ -45,11 +45,9 @@ class Teacher:
 
     async def areview_plan(self, task: str, plan: Plan) -> Plan:
         mode = self._active_mode()
-        if mode == "auto":
+        if mode in {"auto", "paired"}:
             return plan.model_copy(update={"execution_mode": "single_shot"})
         reviewed = await self._review_plan_llm(task, plan)
-        if mode == "paired":
-            return reviewed.model_copy(update={"execution_mode": "single_shot"})
         return reviewed
 
     async def _review_plan_llm(self, task: str, plan: Plan) -> Plan:

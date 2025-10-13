@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from atlas.config.models import AdaptiveProbeConfig, LLMParameters, LLMProvider
 from atlas.utils.llm_client import LLMClient
@@ -35,7 +35,7 @@ Requirements:
      "mode": "auto" | "paired" | "coach" | "escalate",
      "confidence": float | null,
    }}
-4. Confidence must be between 0 and 1 when provided. Evidence entries should be concise strings referencing facts from the inputs.
+4. Confidence must be between 0 and 1 when provided.
 """
 
 
@@ -55,7 +55,6 @@ class CapabilityProbeClient:
         self._client = LLMClient(llm_params)
         self._fallback_mode = self._config.fallback_mode
         self._timeout = self._config.timeout_seconds
-        self._evidence_limit = self._config.evidence_limit
 
     async def arun(
         self,
