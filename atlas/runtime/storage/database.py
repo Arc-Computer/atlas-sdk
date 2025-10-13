@@ -7,6 +7,7 @@ from typing import Any
 from typing import Dict
 from typing import Iterable
 from typing import List
+from typing import Optional
 from typing import Sequence
 from uuid import UUID
 
@@ -21,6 +22,7 @@ from atlas.config.models import StorageConfig
 from atlas.runtime.models import IntermediateStep
 from atlas.types import Plan
 from atlas.types import StepResult
+from atlas.runtime.schema import AtlasRewardBreakdown
 
 
 class Database:
@@ -149,11 +151,29 @@ class Database:
                 session_id,
             )
 
+    async def log_session_reward(
+        self,
+        session_id: int,
+        reward: AtlasRewardBreakdown | Dict[str, Any] | None,
+        student_learning: Optional[str],
+        teacher_learning: Optional[str],
+    ) -> None:
+        pool = self._require_pool()
+        serialized_reward = self._serialize_json(reward.to_dict() if hasattr(reward, "to_dict") else reward) if reward else None
+        async with pool.acquire() as connection:
+            await connection.execute(
+                "UPDATE sessions SET reward = $1, student_learning = $2, teacher_learning = $3 WHERE id = $4",
+                serialized_reward,
+                student_learning,
+                teacher_learning,
+                session_id,
+            )
+
     async def fetch_sessions(self, limit: int = 50, offset: int = 0) -> List[dict[str, Any]]:
         pool = self._require_pool()
         async with pool.acquire() as connection:
             rows = await connection.fetch(
-                "SELECT id, task, status, metadata, final_answer, created_at, completed_at"
+                "SELECT id, task, status, metadata, final_answer, reward, student_learning, teacher_learning, created_at, completed_at"
                 " FROM sessions ORDER BY created_at DESC LIMIT $1 OFFSET $2",
                 limit,
                 offset,
@@ -164,7 +184,7 @@ class Database:
         pool = self._require_pool()
         async with pool.acquire() as connection:
             row = await connection.fetchrow(
-                "SELECT id, task, status, metadata, final_answer, created_at, completed_at"
+                "SELECT id, task, status, metadata, final_answer, reward, student_learning, teacher_learning, created_at, completed_at"
                 " FROM sessions WHERE id = $1",
                 session_id,
             )

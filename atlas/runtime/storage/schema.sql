@@ -4,6 +4,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     status TEXT NOT NULL DEFAULT 'running',
     metadata JSONB,
     final_answer TEXT,
+    reward JSONB,
+    student_learning TEXT,
+    teacher_learning TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ
 );

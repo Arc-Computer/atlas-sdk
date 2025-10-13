@@ -154,19 +154,6 @@ class Teacher:
                 result["certification_reward"] = self._build_certification_reward(structured_output)
         return result
 
-    async def adaptive_probe(
-        self,
-        task: str,
-        dossier: Dict[str, Any],
-        *,
-        fingerprint: str | None = None,
-        execution_metadata: Dict[str, Any] | None = None,
-    ) -> Dict[str, Any]:
-        execution_metadata = execution_metadata or {}
-        stats = self._extract_persona_stats(execution_metadata, fingerprint)
-        decision = self._decide_mode_from_stats(stats, dossier)
-        return decision
-
     async def agenerate_guidance(self, step: Step, evaluation: Dict[str, Any]) -> str:
         context = ExecutionContext.get()
         context.metadata["active_actor"] = "teacher"
@@ -286,86 +273,6 @@ class Teacher:
         if not sentences:
             return guidance
         return ". ".join(sentences[:2]) + ("." if not guidance.strip().endswith(".") else "")
-
-    def _extract_persona_stats(
-        self,
-        metadata: Dict[str, Any],
-        fingerprint: str | None,
-    ) -> Dict[str, Any]:
-        persona_memories = metadata.get("persona_memories") if isinstance(metadata, dict) else {}
-        teacher_records = []
-        if isinstance(persona_memories, dict):
-            teacher_records.extend(persona_memories.get("teacher_validation", []) or [])
-            teacher_records.extend(persona_memories.get("teacher_guidance", []) or [])
-        helpful = 0
-        harmful = 0
-        neutral = 0
-        last_reward: float | None = None
-        tags: set[str] = set()
-        for record in teacher_records:
-            meta = record.get("metadata") if isinstance(record, dict) else None
-            if not isinstance(meta, dict):
-                continue
-            helpful += int(meta.get("helpful_count", 0) or 0)
-            harmful += int(meta.get("harmful_count", 0) or 0)
-            neutral += int(meta.get("neutral_count", 0) or 0)
-            if meta.get("last_reward") is not None:
-                last_reward = float(meta.get("last_reward"))
-            tag_values = meta.get("tags")
-            if isinstance(tag_values, list):
-                for tag in tag_values:
-                    if isinstance(tag, str):
-                        tags.add(tag)
-        return {
-            "helpful": helpful,
-            "harmful": harmful,
-            "neutral": neutral,
-            "last_reward": last_reward,
-            "tags": sorted(tags),
-            "fingerprint": fingerprint,
-        }
-
-    def _decide_mode_from_stats(self, stats: Dict[str, Any], dossier: Dict[str, Any]) -> Dict[str, Any]:
-        helpful = stats.get("helpful", 0)
-        harmful = stats.get("harmful", 0)
-        neutral = stats.get("neutral", 0)
-        total = helpful + harmful + neutral
-        helpful_ratio = helpful / total if total else 0.0
-        evidence: List[str] = []
-        if total:
-            evidence.append(f"persona_helpful_ratio={helpful_ratio:.2f}")
-            evidence.append(f"persona_usage_total={total}")
-        tags = stats.get("tags") or []
-        if tags:
-            evidence.append(f"persona_tags={','.join(tags)}")
-        mode = "coach"
-        confidence = 0.45
-        risks = dossier.get("risks") if isinstance(dossier, dict) else None
-        if isinstance(risks, list):
-            for risk in risks:
-                if isinstance(risk, dict) and risk.get("severity") in {"critical", "high"}:
-                    mode = "escalate"
-                    confidence = 0.35
-                    evidence.append("risk_high_severity")
-                    break
-        if mode != "escalate":
-            if total >= 4 and helpful_ratio >= 0.75:
-                mode = "auto"
-                confidence = min(0.95, 0.6 + helpful_ratio * 0.4)
-            elif total >= 3 and helpful_ratio >= 0.55:
-                mode = "paired"
-                confidence = 0.65 + helpful_ratio * 0.25
-            elif harmful > helpful:
-                mode = "escalate"
-                confidence = 0.4
-                evidence.append("harmful_exceeds_helpful")
-        recommended_personas = [tag.split(":", 1)[1] for tag in tags if isinstance(tag, str) and tag.startswith("persona:")]
-        return {
-            "mode": mode,
-            "confidence": round(confidence, 2),
-            "evidence": evidence,
-            "recommended_personas": recommended_personas,
-        }
 
     def _run_async(self, coroutine):
         try:

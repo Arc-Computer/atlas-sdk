@@ -26,6 +26,7 @@ from atlas.runtime.models import IntermediateStepType
 from atlas.runtime.models import StreamEventData
 from atlas.runtime.orchestration.dependency_graph import DependencyGraph
 from atlas.runtime.orchestration.execution_context import ExecutionContext
+from atlas.runtime.adaptive import CapabilityProbeClient, CapabilityProbeDecision
 from atlas.evaluation.evaluator import Evaluator
 from atlas.evaluation.judges.base import JudgeContext
 from atlas.personas.student import Student
@@ -55,23 +56,13 @@ class _StepExecutionOutcome:
 
 
 @dataclass(slots=True)
-class CapabilityProbeResult:
-    mode: Optional[str]
-    confidence: Optional[float]
-    evidence: List[str] = field(default_factory=list)
-    recommended_personas: List[str] = field(default_factory=list)
-    raw: Dict[str, Any] | None = None
-    status: str | None = None
-
-
-@dataclass(slots=True)
 class AdaptiveModeDecision:
     mode: str
     confidence: Optional[float] = None
     reason: str | None = None
     evidence: List[str] = field(default_factory=list)
     certification: bool = False
-    probe: CapabilityProbeResult | None = None
+    probe: CapabilityProbeDecision | None = None
 
 
 class Orchestrator:
@@ -85,6 +76,7 @@ class Orchestrator:
         adaptive_config: AdaptiveTeachingConfig | None = None,
         triage_adapter: Callable[[str, Dict[str, Any] | None], TriageDossier] | None = None,
         persona_refresh: Callable[[], Awaitable[None]] | None = None,
+        capability_probe: CapabilityProbeClient | None = None,
     ) -> None:
         self._teacher = teacher
         self._student = student
@@ -95,6 +87,7 @@ class Orchestrator:
         self._persona_refresh = persona_refresh
         self._adaptive = adaptive_config or AdaptiveTeachingConfig()
         self._triage_adapter = triage_adapter or default_build_dossier
+        self._capability_probe = capability_probe
         self._current_retry_limit: int = self._orchestration.max_retries
 
     async def arun(self, task: str) -> Result:
@@ -514,7 +507,7 @@ class Orchestrator:
             return decision
 
         probe_result = await self._run_capability_probe(task, context, dossier, fingerprint)
-        if probe_result:
+        if probe_result is not None:
             mode = probe_result.mode
             confidence = probe_result.confidence
             if mode not in {"auto", "paired", "coach", "escalate"}:
@@ -525,7 +518,7 @@ class Orchestrator:
             decision = AdaptiveModeDecision(
                 mode=mode,
                 confidence=confidence,
-                reason="probe",
+                reason=probe_result.reason or "probe",
                 evidence=list(probe_result.evidence),
                 certification=False,
                 probe=probe_result,
@@ -534,7 +527,7 @@ class Orchestrator:
                 self._record_certification_state(fingerprint, False)
             return decision
 
-        fallback_mode = adaptive_cfg.probe.fallback_mode
+        fallback_mode = self._capability_probe.fallback_mode if self._capability_probe else adaptive_cfg.probe.fallback_mode
         if isinstance(fingerprint, str):
             self._record_certification_state(fingerprint, False)
         return AdaptiveModeDecision(
@@ -548,96 +541,37 @@ class Orchestrator:
         context: ExecutionContext,
         dossier: TriageDossier,
         fingerprint: Any,
-    ) -> CapabilityProbeResult | None:
-        method = getattr(self._teacher, "adaptive_probe", None)
-        if not callable(method):
-            result = CapabilityProbeResult(
-                mode=None,
-                confidence=None,
-                evidence=["adaptive_probe_unavailable"],
-                status="unavailable",
-            )
-            context.set_capability_probe(
-                {
-                    "mode": result.mode,
-                    "confidence": result.confidence,
-                    "evidence": result.evidence,
-                    "recommended_personas": result.recommended_personas,
-                    "status": result.status,
-                    "raw": None,
-                }
-            )
-            return result
-        dossier_payload = dossier.model_dump()
+    ) -> CapabilityProbeDecision | None:
+        if self._capability_probe is None:
+            return None
         try:
-            try:
-                payload = await method(
-                    task=task,
-                    dossier=dossier_payload,
-                    fingerprint=fingerprint,
-                    execution_metadata=context.metadata,
-                )
-            except TypeError:
-                payload = await method(task, dossier_payload)
+            decision = await self._capability_probe.arun(
+                task=task,
+                dossier=dossier.model_dump(),
+                fingerprint=str(fingerprint) if isinstance(fingerprint, str) else None,
+                execution_metadata=context.metadata,
+            )
         except Exception as exc:  # pragma: no cover - defensive guard
             logger.exception("Capability probe execution failed: %s", exc)
-            result = CapabilityProbeResult(
+            return CapabilityProbeDecision(
                 mode=None,
                 confidence=None,
+                reason="probe_error",
                 evidence=[f"probe_error:{exc!s}"],
-                status="error",
+                recommended_personas=[],
+                raw=None,
             )
-            context.set_capability_probe(
-                {
-                    "mode": result.mode,
-                    "confidence": result.confidence,
-                    "evidence": result.evidence,
-                    "recommended_personas": result.recommended_personas,
-                    "status": result.status,
-                    "raw": None,
-                }
-            )
-            return result
-        result = self._normalise_probe_payload(payload)
-        probe_record = {
-            "mode": result.mode,
-            "confidence": result.confidence,
-            "evidence": result.evidence,
-            "recommended_personas": result.recommended_personas,
-            "status": result.status,
-            "raw": result.raw,
-        }
-        context.set_capability_probe(probe_record)
-        return result
-
-    def _normalise_probe_payload(self, payload: Any) -> CapabilityProbeResult:
-        if isinstance(payload, CapabilityProbeResult):
-            return payload
-        if isinstance(payload, dict):
-            mode = payload.get("mode")
-            confidence = payload.get("confidence")
-            evidence = payload.get("evidence") or payload.get("reasons") or []
-            personas = payload.get("recommended_personas") or payload.get("personas") or []
-            status = payload.get("status")
-            normalized_evidence = [str(item) for item in evidence] if isinstance(evidence, (list, tuple)) else []
-            normalized_personas = [str(item) for item in personas] if isinstance(personas, (list, tuple)) else []
-            numeric_confidence = None
-            if isinstance(confidence, (int, float)):
-                numeric_confidence = float(confidence)
-            return CapabilityProbeResult(
-                mode=str(mode) if isinstance(mode, str) else None,
-                confidence=numeric_confidence,
-                evidence=normalized_evidence,
-                recommended_personas=normalized_personas,
-                raw=payload,
-                status=str(status) if status is not None else None,
-            )
-        return CapabilityProbeResult(
-            mode=None,
-            confidence=None,
-            evidence=["invalid_probe_payload"],
-            status="invalid",
+        context.set_capability_probe(
+            {
+                "mode": decision.mode,
+                "confidence": decision.confidence,
+                "evidence": decision.evidence,
+                "recommended_personas": decision.recommended_personas,
+                "reason": decision.reason,
+                "raw": decision.raw,
+            }
         )
+        return decision
 
     def _map_confidence_to_mode(self, confidence: Optional[float]) -> Optional[str]:
         if confidence is None:

@@ -23,6 +23,7 @@ from atlas.prompts import (
     build_teacher_prompts,
 )
 from atlas.runtime.orchestration.execution_context import ExecutionContext
+from atlas.runtime.adaptive import CapabilityProbeClient
 from atlas.runtime.orchestration.orchestrator import Orchestrator
 from atlas.runtime.persona_memory import (
     FingerprintInputs,
@@ -248,6 +249,8 @@ async def arun(
             student.update_prompts(student_prompts)
             teacher.update_prompts(teacher_prompts)
 
+        capability_probe_client = CapabilityProbeClient(adaptive_teaching_cfg.probe)
+
         orchestrator = Orchestrator(
             teacher=teacher,
             student=student,
@@ -257,6 +260,7 @@ async def arun(
             adaptive_config=adaptive_teaching_cfg,
             triage_adapter=triage_adapter,
             persona_refresh=refresh_persona_prompts,
+            capability_probe=capability_probe_client,
         )
         result = await orchestrator.arun(task)
         if database and session_id is not None:
@@ -448,6 +452,16 @@ async def _persist_results(
         step_meta = steps_metadata.get(step_result.step_id, {})
         await database.log_step_attempts(session_id, step_result.step_id, step_meta.get("attempts", []))
         await database.log_guidance(session_id, step_result.step_id, step_meta.get("guidance", []))
+    session_reward = context.metadata.get("session_reward")
+    student_learning = context.metadata.get("session_student_learning")
+    teacher_learning = context.metadata.get("session_teacher_learning")
+    if session_reward is not None or student_learning is not None or teacher_learning is not None:
+        await database.log_session_reward(
+            session_id,
+            session_reward,
+            student_learning,
+            teacher_learning,
+        )
     await _update_session_metadata(database, session_id, context, result)
     await _persist_events(database, session_id, events)
 
@@ -661,6 +675,24 @@ def _collect_session_insights(context: ExecutionContext, result: Result) -> dict
     if adaptive_summary:
         context.metadata["adaptive_summary"] = adaptive_summary
         payload["adaptive_summary"] = adaptive_summary
+    session_reward = context.metadata.get("session_reward") if isinstance(context.metadata, dict) else None
+    if session_reward is not None:
+        reward_payload = session_reward.to_dict() if hasattr(session_reward, "to_dict") else session_reward
+        payload["session_reward"] = reward_payload
+    student_learning = context.metadata.get("session_student_learning") if isinstance(context.metadata, dict) else None
+    if isinstance(student_learning, str) and student_learning.strip():
+        payload["student_learning"] = student_learning
+    teacher_learning = context.metadata.get("session_teacher_learning") if isinstance(context.metadata, dict) else None
+    if isinstance(teacher_learning, str) and teacher_learning.strip():
+        payload["teacher_learning"] = teacher_learning
+    session_reward_payload = payload.get("session_reward")
+    if session_reward_payload:
+        raw_score = None
+        if isinstance(session_reward_payload, dict):
+            raw_score = session_reward_payload.get("score")
+        payload["reward_summary"] = {"score": raw_score}
+    else:
+        payload["reward_summary"] = _collect_reward_summary(result)
     personas_used = _collect_personas_used(context)
     if personas_used:
         payload["personas_used"] = personas_used
@@ -670,7 +702,6 @@ def _collect_session_insights(context: ExecutionContext, result: Result) -> dict
     teacher_notes = _extract_teacher_notes(context)
     if teacher_notes:
         payload["teacher_notes"] = teacher_notes
-    payload["reward_summary"] = _collect_reward_summary(result)
     return payload
 
 

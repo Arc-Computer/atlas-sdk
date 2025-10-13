@@ -153,6 +153,30 @@ class ExecutionContext:
         adaptive_meta = self.metadata.setdefault("adaptive", {})
         adaptive_meta["probe"] = dict(payload)
 
+    def set_session_reward(
+        self,
+        reward: typing.Any | None,
+        *,
+        student_learning: str | None = None,
+        teacher_learning: str | None = None,
+    ) -> None:
+        """Record session-level reward and learning payloads."""
+
+        if reward is None:
+            self.metadata.pop("session_reward", None)
+        else:
+            if hasattr(reward, "to_dict"):
+                reward_payload = reward.to_dict()
+            elif isinstance(reward, dict):
+                reward_payload = reward
+            else:
+                reward_payload = typing.cast(typing.Any, reward)
+            self.metadata["session_reward"] = reward_payload
+        if student_learning is not None:
+            self.metadata["session_student_learning"] = student_learning
+        if teacher_learning is not None:
+            self.metadata["session_teacher_learning"] = teacher_learning
+
     def record_mode_decision(
         self,
         mode: str,

@@ -1,87 +1,68 @@
-"""Prompt templates used by Atlas RIM judges."""
+"""Prompt templates for session-level reward evaluation."""
 
-PROCESS_PROMPT = """
-SYSTEM: You are the Atlas Process Reward Judge. Evaluate how effectively the student executed the current workflow
-step while coordinating with parallel workstreams and adhering to teacher guidance, safety policies, and tool
-contracts.
+SESSION_REWARD_PROMPT = """
+Role: Expert solution evaluator. Apply the stated instructions precisely.
 
-You MUST respond with a JSON object containing exactly these keys:
-{
-  "principles": [{"name": str, "weight": float, "description": str}],
-  "score": float,
-  "rationale": str,
-  "uncertainty": float
-}
-No additional fields, text, or commentary.
+Task: Evaluate the entire trajectory for the request below.
 
-CONTEXT
-- Task: {task}
-- Step ID: {step_id}
-- Step Description: {step_description}
-- Declared Dependencies: {dependencies}
-- Attempt Number: {attempt}
-- Teacher Guidance History: {guidance}
-- Peer Step Results (output_json + artifacts when available): {prior_results}
-- Execution Trace:
-{student_trace}
-- Student Output:
-{student_output}
+Context:
+- Task / Problem: {task}
+- Execution Mode: {execution_mode}
+- Teacher Intervened: {teacher_intervened}
+- Focus Prompt: {focus_prompt}
+- Reviewed Plan: {plan}
+- Final Answer: {final_answer}
+- Session Metadata: {session_metadata}
 
-INSTRUCTIONS
-1. Derive three to five evaluation principles covering plan adherence, evidence quality, safety/compliance,
-   and coordination with concurrent steps. Provide a short name, a weight between 0 and 1 (weights must sum to 1.0),
-   and a concise description for each principle.
-2. Judge how the execution satisfied each principle using concrete evidence from the trace, output, guidance, and
-   peer step results. Identify missing data or risky behaviour explicitly.
-3. Compute a final score in [0,1] that reflects overall execution quality. Lower scores should highlight violations of
-   policy, safety, or correctness; higher scores require strong evidence across all principles.
-4. Write a rationale that references every principle, summarises key supporting evidence, and calls out outstanding
-   risks or coordination issues that need follow-up.
-5. Report an uncertainty value in [0,1]; use values above 0.3 when evidence is limited or contradictory.
-6. If unsafe, non-compliant, or hallucinated behaviour is detected, emphasise this and explain the impact.
+For structured outputs (JSON/code), check structural correctness AND semantic accuracy.
 
-Return the JSON object only.
+Step 1: Derive 2–3 evaluation principles tailored to this trajectory.
+Consider (only if supported by evidence):
+- Correctness of the final deliverable
+- Safety / compliance posture
+- Efficiency and retry discipline
+- Guidance quality (when teacher intervened)
+- Completeness of evidence and tooling use
+Give each principle a short name, weight (0.0–1.0, sum to 1.0), and concise description.
+
+Step 2: Evaluate the trajectory against each principle using concrete evidence.
+
+Step 3: Provide the final reward score in [0.0, 1.0] and a rationale explaining the score via those principles.
+Report uncertainty in [0.0, 1.0]. Use > 0.3 when evidence is limited or conflicting.
+
+Step 4: Summarise the learning the student should retain from this run (single concise string).
+
+Step 5: Summarise the learning the teacher should retain (single concise string). Use null when no teacher intervention occurred or no update is warranted.
+
+IMPORTANT: Output JSON only, exactly in this shape and order:
+{{"principles": [{{"name": str, "weight": float, "description": str}}],
+ "score": float,
+ "rationale": str,
+ "uncertainty": float,
+ "student_learning": str,
+ "teacher_learning": str | null}}
 """
 
-HELPFULNESS_PROMPT = """
-SYSTEM: You are the Atlas Teaching Helpfulness Judge. Determine whether teacher guidance for this step accelerated
-progress, resolved risks, and supported safe execution, especially when other steps run in parallel.
+SESSION_ARBITER_PROMPT = """
+Role: Expert session reward arbiter. Resolve disagreements between Tier-1 evaluations.
 
-You MUST respond with a JSON object containing exactly these keys:
-{
-  "principles": [{"name": str, "weight": float, "description": str}],
-  "score": float,
-  "rationale": str,
-  "uncertainty": float
-}
-No additional fields, text, or commentary.
+Context:
+- Task / Problem: {task}
+- Execution Mode: {execution_mode}
+- Teacher Intervened: {teacher_intervened}
+- Final Answer: {final_answer}
+- Focus Prompt: {focus_prompt}
 
-CONTEXT
-- Task: {task}
-- Step ID: {step_id}
-- Step Description: {step_description}
-- Teacher Guidance History: {guidance}
-- Student Execution Trace:
-{student_trace}
-- Student Output:
-{student_output}
-- Peer Step Results (output_json + artifacts when available): {prior_results}
+Tier-1 Summaries:
+{tier1_summaries}
 
-INSTRUCTIONS
-1. Derive three to five principles that measure guidance quality: specificity, actionability, risk mitigation,
-   grounding in available tools/data, and adaptability to parallel work. Provide a short name, weight (sum must equal
-   1.0), and description for each principle.
-2. Evaluate how the guidance influenced this attempt, citing evidence from traces, outputs, and prior results. Identify
-   situations where the guidance prevented or failed to address issues.
-3. Produce a final score in [0,1]. High scores require transformative, actionable guidance that enabled success; low
-   scores when guidance was missing, misleading, or unsafe.
-4. Compose a rationale tying each principle to observed behaviour, explaining successes, blind spots, and any need for
-   human escalation.
-5. Report an uncertainty value in [0,1]; use values above 0.3 when the guidance impact cannot be determined from the
-   available evidence.
-6. Flag explicit policy or safety violations caused or missed by the teacher guidance.
-
-Return the JSON object only.
+Produce the final JSON judgement using the exact schema:
+{{"principles": [{{"name": str, "weight": float, "description": str}}],
+ "score": float,
+ "rationale": str,
+ "uncertainty": float,
+ "student_learning": str,
+ "teacher_learning": str | null}}
 """
 
-__all__ = ["PROCESS_PROMPT", "HELPFULNESS_PROMPT"]
+__all__ = ["SESSION_REWARD_PROMPT", "SESSION_ARBITER_PROMPT"]

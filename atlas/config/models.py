@@ -274,6 +274,7 @@ class RewardObjectiveConfig(BaseModel):
     attribute: Optional[str] = None
     parameters: Dict[str, Any] = Field(default_factory=dict)
     timeout_seconds: float | None = Field(default=None, ge=0.0)
+    focus_prompt: str | None = None
 
     @model_validator(mode="after")
     def _validate_python_target(self) -> "RewardObjectiveConfig":
