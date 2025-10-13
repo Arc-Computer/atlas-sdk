@@ -9,12 +9,14 @@ from typing import Any
 from typing import Dict
 from typing import List
 from typing import Literal
+from typing import Optional
 from typing import Sequence
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import field_validator
+from pydantic import model_validator
 
 class RetryPolicy(BaseModel):
     """Retry behavior for adapter calls."""
@@ -231,6 +233,78 @@ class TeacherPrompts(BaseModel):
         "Output JSON only."
     )
 
+AdaptiveMode = Literal["auto", "paired", "coach", "escalate"]
+
+
+class AdaptiveProbeThresholds(BaseModel):
+    """Confidence thresholds that map capability probe scores to execution modes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    auto: float = Field(default=0.85, ge=0.0, le=1.0)
+    paired: float = Field(default=0.65, ge=0.0, le=1.0)
+    coach: float = Field(default=0.35, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _validate_order(self) -> "AdaptiveProbeThresholds":
+        if not (self.auto >= self.paired >= self.coach):
+            raise ValueError("confidence thresholds must satisfy auto ≥ paired ≥ coach")
+        return self
+
+
+class AdaptiveProbeConfig(BaseModel):
+    """Settings that control capability probe behaviour."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    llm: "LLMParameters | None" = None
+    thresholds: AdaptiveProbeThresholds = Field(default_factory=AdaptiveProbeThresholds)
+    fallback_mode: Literal["coach", "escalate"] = "coach"
+    evidence_limit: int = Field(default=6, ge=1, le=32)
+    timeout_seconds: float = Field(default=15.0, ge=1.0)
+
+
+class RewardObjectiveConfig(BaseModel):
+    """Allows BYOA deployments to override the default reward objective."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["rim", "python"] = "rim"
+    import_path: Optional[str] = None
+    attribute: Optional[str] = None
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+    timeout_seconds: float | None = Field(default=None, ge=0.0)
+
+    @model_validator(mode="after")
+    def _validate_python_target(self) -> "RewardObjectiveConfig":
+        if self.type == "python" and not self.import_path:
+            raise ValueError("reward.import_path is required when type='python'")
+        return self
+
+
+class AdaptiveTeachingConfig(BaseModel):
+    """Global adaptive-teaching controls for the runtime."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    certify_first_run: bool = True
+    mode_override: AdaptiveMode | None = None
+    triage_adapter: str | None = None
+    default_tags: List[str] = Field(default_factory=list)
+    probe: AdaptiveProbeConfig = Field(default_factory=AdaptiveProbeConfig)
+    reward: RewardObjectiveConfig = Field(default_factory=RewardObjectiveConfig)
+
+    @field_validator("default_tags", mode="before")
+    @classmethod
+    def _coerce_tags(cls, value: Any) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            tags = [str(item).strip() for item in value if str(item).strip()]
+            return tags
+        return [str(value).strip()] if str(value).strip() else []
+
 
 class PromptRewriteConfig(BaseModel):
     """Controls how persona prompts are derived via LLM."""
@@ -313,3 +387,4 @@ class AtlasConfig(BaseModel):
     storage: StorageConfig | None = None
     prompt_rewrite: PromptRewriteConfig | None = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    adaptive_teaching: AdaptiveTeachingConfig = Field(default_factory=AdaptiveTeachingConfig)

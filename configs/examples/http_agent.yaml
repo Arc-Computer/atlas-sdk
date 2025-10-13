@@ -70,6 +70,24 @@ rim:
   variance_threshold: 0.15
   uncertainty_threshold: 0.3
 
+adaptive_teaching:
+  enabled: true
+  certify_first_run: true
+  triage_adapter: atlas.utils.triage_adapters.code:build_dossier
+  default_tags:
+    - tenant:example
+    - domain:code
+  probe:
+    thresholds:
+      auto: 0.83
+      paired: 0.62
+      coach: 0.38
+    fallback_mode: coach
+    evidence_limit: 6
+    timeout_seconds: 15
+  reward:
+    type: rim
+
 storage:
   database_url: postgresql://localhost:5432/atlas
   min_connections: 1
