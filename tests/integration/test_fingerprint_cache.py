@@ -82,6 +82,7 @@ async def test_persona_memory_cache_behaviour(monkeypatch: pytest.MonkeyPatch) -
             "source_session_id": None,
             "reward_snapshot": {"score": 0.3},
             "retry_count": 0,
+            "metadata": {"tags": ["seed"], "helpful_count": 0, "harmful_count": 0, "neutral_count": 0},
             "status": "active",
         }
     )
@@ -128,6 +129,7 @@ async def test_persona_memory_cache_behaviour(monkeypatch: pytest.MonkeyPatch) -
                 "source_session_id": None,
                 "reward_snapshot": None,
                 "retry_count": None,
+                "metadata": {"tags": ["seed"], "helpful_count": 0, "harmful_count": 0, "neutral_count": 0},
                 "status": "active",
             }
         )

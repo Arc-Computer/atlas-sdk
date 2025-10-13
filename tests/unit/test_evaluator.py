@@ -104,3 +104,29 @@ def test_evaluator_combines_judge_scores():
         assert 0 <= result.score <= 1
 
     asyncio.run(runner())
+
+
+def test_evaluator_accepts_precomputed_reward():
+    async def runner() -> None:
+        config = RIMConfig(
+            small_model=LLMParameters(model="stub"),
+            large_model=LLMParameters(model="arbiter"),
+            active_judges={"process": True},
+            variance_threshold=1.0,
+            uncertainty_threshold=1.0,
+            parallel_workers=1,
+        )
+        evaluator = Evaluator(config, small_client=_StubClient({}), large_client=_StubClient({}))
+        context = JudgeContext(
+            task="certification",
+            step=Step(id=1, description="Check answer", depends_on=[]),
+            trace="",
+            output="",
+            reward_override={"score": 0.92, "rationale": "teacher certified", "judges": []},
+        )
+        ExecutionContext.get().reset()
+        result = await evaluator.ajudge(context)
+        assert result.score == 0.92
+        assert result.raw and result.raw.get("score") == 0.92
+
+    asyncio.run(runner())

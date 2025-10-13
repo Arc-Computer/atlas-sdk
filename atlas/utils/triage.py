@@ -3,12 +3,44 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Sequence, Tuple, cast
+from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Sequence, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 Severity = Literal["low", "moderate", "high", "critical"]
+
+_SEVERITY_ALIASES: Dict[str, Severity] = {
+    "medium": "moderate",
+    "med": "moderate",
+    "mid": "moderate",
+    "normal": "moderate",
+    "sev3": "low",
+    "sev2": "moderate",
+    "sev1": "high",
+    "sev0": "critical",
+    "p3": "low",
+    "p2": "moderate",
+    "p1": "high",
+    "p0": "critical",
+    "minor": "low",
+    "major": "high",
+    "critical": "critical",
+    "high": "high",
+    "moderate": "moderate",
+    "low": "low",
+}
+
+
+def _normalize_severity(value: Any) -> Severity:
+    """Map partner-provided severity labels to canonical literals."""
+
+    if isinstance(value, str):
+        key = value.strip().lower()
+        if not key:
+            return "moderate"
+        return _SEVERITY_ALIASES.get(key, "moderate")
+    return "moderate"
 
 
 class TriageSignal(BaseModel):
@@ -228,7 +260,7 @@ def default_build_dossier(
             builder.add_risk(
                 description=str(description),
                 category=str(risk.get("category", "general")),
-                severity=cast(Severity, str(risk.get("severity", "moderate"))),
+                severity=_normalize_severity(risk.get("severity")),
             )
         elif isinstance(risk, str):
             builder.add_risk(risk)

@@ -34,6 +34,8 @@ class CandidateSpec:
     reward_snapshot: Dict[str, Any] | None = None
     retry_count: int | None = None
     source_session_id: Optional[int] = None
+    tags: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -142,6 +144,16 @@ def extract_candidates(context: ExecutionContext, result: Result) -> List[Candid
         if dedup_key in seen:
             continue
         seen.add(dedup_key)
+        tags = _compose_candidate_tags(context, persona)
+        candidate_metadata = {
+            "tags": tags,
+            "helpful_count": 0,
+            "harmful_count": 0,
+            "neutral_count": 0,
+            "last_mode": context.metadata.get("adaptive", {}).get("active_mode"),
+            "last_reward": None,
+            "last_reward_at": None,
+        }
         candidates.append(
             CandidateSpec(
                 persona=persona,
@@ -152,6 +164,8 @@ def extract_candidates(context: ExecutionContext, result: Result) -> List[Candid
                 normalized_instruction=normalized,
                 reward_snapshot=_extract_reward_snapshot(step, step_meta),
                 retry_count=retry_count,
+                tags=tags,
+                metadata=candidate_metadata,
             )
         )
     return candidates
@@ -188,8 +202,29 @@ async def write_candidates(database: Database, session_id: int, candidates: Iter
                 "source_session_id": spec.source_session_id,
                 "reward_snapshot": spec.reward_snapshot,
                 "retry_count": spec.retry_count,
+                "metadata": {**spec.metadata, "tags": spec.tags},
                 "status": "candidate",
             }
             await database.create_persona_memory(record)
             created_ids.append(memory_id)
     return created_ids
+
+
+def _compose_candidate_tags(context: ExecutionContext, persona: str) -> List[str]:
+    tags: set[str] = {"teacher_guidance"}
+    adaptive_meta = context.metadata.get("adaptive", {}) if isinstance(context.metadata, dict) else {}
+    default_tags = context.metadata.get("adaptive_default_tags", [])
+    if isinstance(default_tags, (list, tuple)):
+        for tag in default_tags:
+            if isinstance(tag, str) and tag.strip():
+                tags.add(tag.strip())
+    dossier = context.metadata.get("triage", {}).get("dossier") if isinstance(context.metadata, dict) else None
+    if isinstance(dossier, dict):
+        for tag in dossier.get("tags", []) or []:
+            if isinstance(tag, str) and tag.strip():
+                tags.add(tag.strip())
+    mode = adaptive_meta.get("active_mode")
+    if isinstance(mode, str) and mode:
+        tags.add(f"mode:{mode}")
+    tags.add(f"persona:{persona}")
+    return sorted(tags)

@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS persona_memory (
     source_session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
     reward_snapshot JSONB,
     retry_count INTEGER,
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     status TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -73,7 +74,8 @@ CREATE TABLE IF NOT EXISTS persona_memory_usage (
     session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
     applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     reward JSONB,
-    retry_count INTEGER
+    retry_count INTEGER,
+    mode TEXT
 );
 
 CREATE INDEX IF NOT EXISTS persona_memory_usage_memory_session_idx

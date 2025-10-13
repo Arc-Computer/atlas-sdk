@@ -15,10 +15,10 @@ from typing import cast
 
 from atlas.config.models import TeacherConfig
 from atlas.prompts import RewrittenTeacherPrompts
+from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.types import Plan
 from atlas.types import Step
 from atlas.utils.llm_client import LLMClient
-from atlas.runtime.orchestration.execution_context import ExecutionContext
 
 
 class Teacher:
@@ -29,6 +29,7 @@ class Teacher:
         self._plan_prompt = prompts.plan_review
         self._validation_prompt = prompts.validation
         self._guidance_prompt = prompts.guidance
+        self._probe_cache: Dict[str, Dict[str, Any]] = {}
 
     def update_prompts(self, prompts: RewrittenTeacherPrompts) -> None:
         """Replace teacher prompts and clear any cached plan reviews."""
@@ -44,6 +45,15 @@ class Teacher:
         self._plan_cache.clear()
 
     async def areview_plan(self, task: str, plan: Plan) -> Plan:
+        mode = self._active_mode()
+        if mode == "auto":
+            return plan.model_copy(update={"execution_mode": "single_shot"})
+        reviewed = await self._review_plan_llm(task, plan)
+        if mode == "paired":
+            return reviewed.model_copy(update={"execution_mode": "single_shot"})
+        return reviewed
+
+    async def _review_plan_llm(self, task: str, plan: Plan) -> Plan:
         cache_key = self._cache_key(task, plan)
         now = time.time()
         cached = self._plan_cache.get(cache_key)
@@ -91,6 +101,9 @@ class Teacher:
         prior_guidance: Sequence[str],
         attempt_guidance: Sequence[str],
     ) -> Dict[str, Any]:
+        mode = self._active_mode()
+        if mode == "auto":
+            return self._build_auto_validation(structured_output)
         context = ExecutionContext.get()
         context.metadata["active_actor"] = "teacher"
         context.metadata["_reasoning_origin"] = ("teacher", "validation")
@@ -135,7 +148,27 @@ class Teacher:
         reason = structured_output.get("reason")
         if reason is not None:
             result["reason"] = reason
+        if mode == "coach" and isinstance(result.get("guidance"), str):
+            result["guidance"] = self._shorten_guidance(result["guidance"])
+        if mode == "paired" and self._is_certification_run():
+            if result.get("valid"):
+                result["certification_reward"] = self._build_certification_reward(structured_output)
         return result
+
+    async def adaptive_probe(
+        self,
+        task: str,
+        dossier: Dict[str, Any],
+        *,
+        fingerprint: str | None = None,
+        execution_metadata: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        execution_metadata = execution_metadata or {}
+        stats = self._extract_persona_stats(execution_metadata, fingerprint)
+        decision = self._decide_mode_from_stats(stats, dossier)
+        if fingerprint:
+            self._probe_cache[fingerprint] = {"decision": decision, "stats": stats}
+        return decision
 
     async def agenerate_guidance(self, step: Step, evaluation: Dict[str, Any]) -> str:
         context = ExecutionContext.get()
@@ -175,6 +208,26 @@ class Teacher:
     def collect_results(self, step_outputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return sorted(step_outputs, key=lambda item: item.get("step_id", 0))
 
+    def _build_auto_validation(self, structured_output: Dict[str, Any]) -> Dict[str, Any]:
+        result: Dict[str, Any] = {
+            "valid": True,
+            "guidance": None,
+            "status": structured_output.get("status"),
+        }
+        deliverable = structured_output.get("deliverable")
+        if deliverable is not None:
+            result["deliverable"] = deliverable
+        artifacts = structured_output.get("artifacts")
+        if artifacts is not None:
+            result["artifacts"] = artifacts
+        reason = structured_output.get("reason")
+        if reason is not None:
+            result["reason"] = reason
+        text_output = structured_output.get("text")
+        if text_output is not None:
+            result["text"] = text_output
+        return result
+
     def _build_validation_payload(
         self,
         step: Step,
@@ -202,6 +255,120 @@ class Teacher:
 
     def _cache_key(self, task: str, plan: Plan) -> str:
         return json.dumps({"task": task, "plan": plan.model_dump()}, sort_keys=True)
+
+    def _active_mode(self) -> str:
+        context = ExecutionContext.get()
+        adaptive = context.metadata.get("adaptive", {}) if isinstance(context.metadata, dict) else {}
+        mode = adaptive.get("active_mode")
+        if isinstance(mode, str) and mode:
+            return mode
+        return "escalate"
+
+    def _is_certification_run(self) -> bool:
+        context = ExecutionContext.get()
+        adaptive = context.metadata.get("adaptive", {}) if isinstance(context.metadata, dict) else {}
+        return bool(adaptive.get("certification_run"))
+
+    def _build_certification_reward(self, structured_output: Dict[str, Any]) -> Dict[str, Any]:
+        evidence_note = structured_output.get("reason")
+        raw_payload = {
+            "source": "teacher_certification",
+            "structured_output": structured_output,
+        }
+        if evidence_note:
+            raw_payload["reason"] = evidence_note
+        return {
+            "score": 0.95,
+            "rationale": "Teacher certification pass",
+            "judges": [],
+            "raw": raw_payload,
+        }
+
+    def _shorten_guidance(self, guidance: str) -> str:
+        sentences = [segment.strip() for segment in guidance.split(".") if segment.strip()]
+        if not sentences:
+            return guidance
+        return ". ".join(sentences[:2]) + ("." if not guidance.strip().endswith(".") else "")
+
+    def _extract_persona_stats(
+        self,
+        metadata: Dict[str, Any],
+        fingerprint: str | None,
+    ) -> Dict[str, Any]:
+        persona_memories = metadata.get("persona_memories") if isinstance(metadata, dict) else {}
+        teacher_records = []
+        if isinstance(persona_memories, dict):
+            teacher_records.extend(persona_memories.get("teacher_validation", []) or [])
+            teacher_records.extend(persona_memories.get("teacher_guidance", []) or [])
+        helpful = 0
+        harmful = 0
+        neutral = 0
+        last_reward: float | None = None
+        tags: set[str] = set()
+        for record in teacher_records:
+            meta = record.get("metadata") if isinstance(record, dict) else None
+            if not isinstance(meta, dict):
+                continue
+            helpful += int(meta.get("helpful_count", 0) or 0)
+            harmful += int(meta.get("harmful_count", 0) or 0)
+            neutral += int(meta.get("neutral_count", 0) or 0)
+            if meta.get("last_reward") is not None:
+                last_reward = float(meta.get("last_reward"))
+            tag_values = meta.get("tags")
+            if isinstance(tag_values, list):
+                for tag in tag_values:
+                    if isinstance(tag, str):
+                        tags.add(tag)
+        return {
+            "helpful": helpful,
+            "harmful": harmful,
+            "neutral": neutral,
+            "last_reward": last_reward,
+            "tags": sorted(tags),
+            "fingerprint": fingerprint,
+        }
+
+    def _decide_mode_from_stats(self, stats: Dict[str, Any], dossier: Dict[str, Any]) -> Dict[str, Any]:
+        helpful = stats.get("helpful", 0)
+        harmful = stats.get("harmful", 0)
+        neutral = stats.get("neutral", 0)
+        total = helpful + harmful + neutral
+        helpful_ratio = helpful / total if total else 0.0
+        evidence: List[str] = []
+        if total:
+            evidence.append(f"persona_helpful_ratio={helpful_ratio:.2f}")
+            evidence.append(f"persona_usage_total={total}")
+        tags = stats.get("tags") or []
+        if tags:
+            evidence.append(f"persona_tags={','.join(tags)}")
+        mode = "coach"
+        confidence = 0.45
+        risks = dossier.get("risks") if isinstance(dossier, dict) else None
+        if isinstance(risks, list):
+            for risk in risks:
+                if isinstance(risk, dict) and risk.get("severity") in {"critical", "high"}:
+                    mode = "escalate"
+                    confidence = 0.35
+                    evidence.append("risk_high_severity")
+                    break
+        if mode != "escalate":
+            if total >= 4 and helpful_ratio >= 0.75:
+                mode = "auto"
+                confidence = min(0.95, 0.6 + helpful_ratio * 0.4)
+            elif total >= 3 and helpful_ratio >= 0.55:
+                mode = "paired"
+                confidence = 0.65 + helpful_ratio * 0.25
+            elif harmful > helpful:
+                mode = "escalate"
+                confidence = 0.4
+                evidence.append("harmful_exceeds_helpful")
+        recommended_personas = [tag.split(":", 1)[1] for tag in tags if isinstance(tag, str) and tag.startswith("persona:")]
+        return {
+            "mode": mode,
+            "confidence": round(confidence, 2),
+            "evidence": evidence,
+            "recommended_personas": recommended_personas,
+        }
 
     def _run_async(self, coroutine):
         try:

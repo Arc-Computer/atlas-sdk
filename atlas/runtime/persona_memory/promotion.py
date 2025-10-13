@@ -61,7 +61,7 @@ def _score_from_snapshot(snapshot: Any) -> Optional[float]:
 
 
 def _score_from_usage(entries: Sequence[Mapping[str, Any]]) -> Optional[float]:
-    scores: List[float] = []
+    weighted: List[tuple[float, float]] = []
     for entry in entries:
         reward = _parse_json(entry.get("reward"))
         score = None
@@ -71,10 +71,15 @@ def _score_from_usage(entries: Sequence[Mapping[str, Any]]) -> Optional[float]:
             elif isinstance(reward.get("reward"), dict) and isinstance(reward["reward"].get("score"), (int, float)):
                 score = float(reward["reward"]["score"])
         if score is not None:
-            scores.append(score)
-    if not scores:
+            weight = _mode_weight(entry.get("mode"))
+            weighted.append((score, weight))
+    if not weighted:
         return None
-    return sum(scores) / len(scores)
+    numerator = sum(score * weight for score, weight in weighted)
+    denominator = sum(weight for _, weight in weighted)
+    if denominator <= 0:
+        denominator = float(len(weighted))
+    return numerator / denominator
 
 
 def _retry_from_usage(entries: Sequence[Mapping[str, Any]]) -> Optional[float]:
@@ -86,6 +91,21 @@ def _retry_from_usage(entries: Sequence[Mapping[str, Any]]) -> Optional[float]:
     if not retries:
         return None
     return sum(retries) / len(retries)
+
+
+def _mode_weight(mode: Any) -> float:
+    if not isinstance(mode, str):
+        return 1.0
+    normalised = mode.strip().lower()
+    if normalised == "auto":
+        return 1.2
+    if normalised == "paired":
+        return 1.0
+    if normalised == "coach":
+        return 0.85
+    if normalised == "escalate":
+        return 0.7
+    return 1.0
 
 
 @dataclass
@@ -181,7 +201,12 @@ async def promote_and_compact(
         for record in candidates:
             memory_id: UUID = record["memory_id"]
             usage_entries = usage_map.get(memory_id, [])
-            if len(usage_entries) < settings.min_samples:
+            metadata = record.get("metadata") if isinstance(record, dict) else {}
+            helpful_count = int((metadata or {}).get("helpful_count", 0) or 0)
+            harmful_count = int((metadata or {}).get("harmful_count", 0) or 0)
+            neutral_count = int((metadata or {}).get("neutral_count", 0) or 0)
+            total_feedback = helpful_count + harmful_count + neutral_count
+            if len(usage_entries) < settings.min_samples and total_feedback < settings.min_samples:
                 continue
             baseline_score = _score_from_snapshot(record.get("reward_snapshot"))
             usage_score = _score_from_usage(usage_entries)
@@ -189,6 +214,8 @@ async def promote_and_compact(
             usage_retry = _retry_from_usage(usage_entries)
 
             improved = False
+            if helpful_count >= settings.min_samples and helpful_count > harmful_count:
+                improved = True
             if usage_score is not None and baseline_score is not None:
                 improved = usage_score >= baseline_score + settings.min_delta
             if not improved and isinstance(baseline_retry, (int, float)) and usage_retry is not None:
@@ -270,8 +297,17 @@ def _sort_active_records(
     def sort_key(record: Mapping[str, Any]):
         memory_id = record.get("memory_id")
         override = overrides.get(memory_id) if memory_id is not None else None
-        score = override if override is not None else _score_from_snapshot(record.get("reward_snapshot")) or 0.0
+        meta = record.get("metadata") if isinstance(record, Mapping) else None
+        metadata_score = None
+        if isinstance(meta, dict):
+            metadata_score = meta.get("last_reward")
+        score = override if override is not None else metadata_score
+        if score is None:
+            score = _score_from_snapshot(record.get("reward_snapshot")) or 0.0
+        helpful = int(meta.get("helpful_count", 0) if isinstance(meta, dict) else 0)
+        harmful = int(meta.get("harmful_count", 0) if isinstance(meta, dict) else 0)
+        confidence = helpful - harmful
         updated = record.get("updated_at")
-        return (score, updated)
+        return (score, confidence, updated)
 
     return sorted(records, key=sort_key, reverse=True)

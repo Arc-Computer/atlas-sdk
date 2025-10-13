@@ -7,9 +7,10 @@ import json
 from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence
 
+from atlas.runtime.orchestration.execution_context import ExecutionContext
+from atlas.runtime.schema import AtlasRewardBreakdown
 from atlas.types import Step
 from atlas.utils.llm_client import LLMClient
-from atlas.runtime.orchestration.execution_context import ExecutionContext
 
 
 @dataclass
@@ -23,6 +24,7 @@ class JudgeContext:
     attempt: int = 1
     prior_results: Dict[int, Any] | None = None
     guidance: Sequence[str] | None = None
+    reward_override: AtlasRewardBreakdown | Dict[str, Any] | None = None
 
 
 @dataclass

@@ -226,7 +226,7 @@ class Database:
             return {}
         pool = self._require_pool()
         query = (
-            "SELECT memory_id, reward, retry_count, applied_at"
+            "SELECT memory_id, reward, retry_count, applied_at, mode"
             " FROM persona_memory_usage"
             " WHERE memory_id = ANY($1::uuid[])"
         )
@@ -246,6 +246,7 @@ class Database:
                     "reward": reward,
                     "retry_count": row.get("retry_count"),
                     "applied_at": row.get("applied_at"),
+                    "mode": row.get("mode"),
                 }
             )
         return usage
@@ -287,6 +288,7 @@ class Database:
         pool = self._require_pool()
         instruction_payload = self._serialize_json(record["instruction"])
         reward_payload = self._serialize_json(record.get("reward_snapshot"))
+        metadata_payload = self._serialize_json(record.get("metadata", {}))
         async with pool.acquire() as connection:
             await connection.execute(
                 """
@@ -300,9 +302,10 @@ class Database:
                     source_session_id,
                     reward_snapshot,
                     retry_count,
+                    metadata,
                     status
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 ON CONFLICT (memory_id) DO UPDATE SET
                     agent_name = EXCLUDED.agent_name,
                     tenant_id = EXCLUDED.tenant_id,
@@ -312,6 +315,7 @@ class Database:
                     source_session_id = EXCLUDED.source_session_id,
                     reward_snapshot = EXCLUDED.reward_snapshot,
                     retry_count = EXCLUDED.retry_count,
+                    metadata = EXCLUDED.metadata,
                     status = EXCLUDED.status,
                     updated_at = NOW()
                 """,
@@ -324,6 +328,7 @@ class Database:
                 record.get("source_session_id"),
                 reward_payload,
                 record.get("retry_count"),
+                metadata_payload,
                 record["status"],
             )
 
@@ -341,7 +346,7 @@ class Database:
             return []
         query = (
             "SELECT memory_id, agent_name, tenant_id, persona, trigger_fingerprint, instruction,"
-            " source_session_id, reward_snapshot, retry_count, status, created_at, updated_at"
+            " source_session_id, reward_snapshot, retry_count, metadata, status, created_at, updated_at"
             " FROM persona_memory"
             " WHERE agent_name = $1 AND tenant_id = $2 AND persona = $3 AND trigger_fingerprint = $4"
         )
@@ -357,6 +362,7 @@ class Database:
             record = dict(row)
             record["instruction"] = self._deserialize_json(record.get("instruction"))
             record["reward_snapshot"] = self._deserialize_json(record.get("reward_snapshot"))
+            record["metadata"] = self._deserialize_json(record.get("metadata")) or {}
             results.append(record)
         return results
 
@@ -388,6 +394,7 @@ class Database:
         session_id: int,
         reward: Dict[str, Any] | None,
         retries: int | None,
+        mode: str | None = None,
     ) -> None:
         """Record usage of a persona memory within a session."""
         pool = self._require_pool()
@@ -395,13 +402,25 @@ class Database:
         async with pool.acquire() as connection:
             await connection.execute(
                 """
-                INSERT INTO persona_memory_usage (memory_id, session_id, reward, retry_count)
-                VALUES ($1, $2, $3, $4)
+                INSERT INTO persona_memory_usage (memory_id, session_id, reward, retry_count, mode)
+                VALUES ($1, $2, $3, $4, $5)
                 """,
                 memory_id,
                 session_id,
                 reward_payload,
                 retries,
+                mode,
+            )
+
+    async def update_persona_metadata(self, memory_id: UUID, metadata: Dict[str, Any]) -> None:
+        """Replace persona metadata payload."""
+        pool = self._require_pool()
+        metadata_payload = self._serialize_json(metadata)
+        async with pool.acquire() as connection:
+            await connection.execute(
+                "UPDATE persona_memory SET metadata = $2, updated_at = NOW() WHERE memory_id = $1",
+                memory_id,
+                metadata_payload,
             )
 
     def _require_pool(self) -> asyncpg.Pool:

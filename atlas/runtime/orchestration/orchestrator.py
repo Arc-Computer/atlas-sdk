@@ -367,25 +367,30 @@ class Orchestrator:
             attempt_timings["validation_ms"] = self._elapsed_ms(validation_start)
             validation_valid = bool(validation.get("valid"))
 
-            reward_skipped = True
-            reward: AtlasRewardBreakdown
-            if validation_valid and status == "ok":
-                judge_context = JudgeContext(
-                    task=task,
-                    step=step,
-                    trace=student_result.trace,
-                    output=student_result.output,
-                    attempt=attempts,
-                    prior_results=context_outputs,
-                    guidance=prior_guidance,
-                )
-                reward_start = time.perf_counter()
-                reward = await self._evaluator.ajudge(judge_context)
-                attempt_timings["reward_ms"] = self._elapsed_ms(reward_start)
-                reward_skipped = False
-            else:
-                reason = "validation_failed" if not validation_valid else f"status_{status}"
-                reward = self._build_placeholder_reward(reason)
+        reward_override_payload = None
+        if isinstance(validation, dict):
+            reward_override_payload = validation.pop("certification_reward", None)
+
+        reward_skipped = True
+        reward: AtlasRewardBreakdown
+        if reward_override_payload is not None or (validation_valid and status == "ok"):
+            judge_context = JudgeContext(
+                task=task,
+                step=step,
+                trace=student_result.trace,
+                output=student_result.output,
+                attempt=attempts,
+                prior_results=context_outputs,
+                guidance=prior_guidance,
+                reward_override=reward_override_payload,
+            )
+            reward_start = time.perf_counter()
+            reward = await self._evaluator.ajudge(judge_context)
+            attempt_timings["reward_ms"] = self._elapsed_ms(reward_start)
+            reward_skipped = False
+        else:
+            reason = "validation_failed" if not validation_valid else f"status_{status}"
+            reward = self._build_placeholder_reward(reason)
 
             evaluation = StepEvaluation(validation=validation, reward=reward)
             should_retry = self._should_retry(status, validation, reward, attempts)
