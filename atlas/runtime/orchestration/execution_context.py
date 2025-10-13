@@ -20,6 +20,7 @@ from atlas.utils.reactive.subject import Subject
 
 if typing.TYPE_CHECKING:
     from atlas.types import StepEvaluation
+    from atlas.utils.triage import TriageDossier
 
 
 class _Singleton(type):
@@ -139,6 +140,12 @@ class ExecutionContext:
     def append_guidance(self, step_id: int, guidance: str) -> None:
         entry = self._step_metadata(step_id)
         entry.setdefault("guidance", []).append(guidance)
+
+    def set_triage_dossier(self, dossier: "TriageDossier") -> None:
+        """Attach a triage dossier snapshot to the context metadata."""
+
+        self.metadata.setdefault("triage", {})
+        self.metadata["triage"]["dossier"] = dossier.model_dump()
 
     @property
     def intermediate_step_manager(self) -> "IntermediateStepManager":
