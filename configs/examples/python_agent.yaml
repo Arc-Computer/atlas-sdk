@@ -15,7 +15,7 @@ teacher:
     model: gpt-5-mini
     api_key_env: OPENAI_API_KEY
     temperature: 0.1
-    max_output_tokens: 1024
+    max_output_tokens: 2048
   plan_cache_seconds: 180
 
 rim:

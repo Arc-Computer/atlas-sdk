@@ -141,6 +141,7 @@ class BYOABridgeLLM(BaseChatModel):
             parts.append(f"{message.type.upper()}: {content}")
         return "\n\n".join(parts)
     def _parse_response(self, response: Any) -> Tuple[str, List[ToolCall]]:
+        original_response = response
         if isinstance(response, str):
             try:
                 parsed = json.loads(response)
@@ -150,7 +151,7 @@ class BYOABridgeLLM(BaseChatModel):
             parsed = response
         if not isinstance(parsed, dict):
             return str(parsed), []
-        content = parsed.get("content", "")
+        content = parsed.get("content")
         raw_calls = parsed.get("tool_calls", [])
         tool_calls: List[ToolCall] = []
         for index, item in enumerate(raw_calls):
@@ -165,7 +166,15 @@ class BYOABridgeLLM(BaseChatModel):
                     args = {"raw": args}
             identifier = item.get("id") or f"{name}-{index}"
             tool_calls.append(ToolCall(name=name, args=args, id=identifier, type="tool_call"))
-        return str(content), tool_calls
+
+        # If content is missing, preserve the original response so Student._normalise_executor_message can parse it
+        if content is None and not tool_calls:
+            if isinstance(original_response, str):
+                content = original_response
+            else:
+                content = json.dumps(parsed, ensure_ascii=False)
+
+        return str(content or ""), tool_calls
     def _to_chat_result(self, content: str, tool_calls: List[ToolCall]) -> ChatResult:
         message = AIMessage(content=content, tool_calls=tool_calls)
         generation = ChatGeneration(message=message)

@@ -9,7 +9,7 @@ agent:
     model: gpt-5-mini
     api_key_env: OPENAI_API_KEY
     temperature: 0.2
-    max_output_tokens: 512
+    max_output_tokens: 2048
   response_format: null
 
 teacher:
@@ -18,7 +18,7 @@ teacher:
     model: gpt-5-mini
     api_key_env: OPENAI_API_KEY
     temperature: 0.1
-    max_output_tokens: 1024
+    max_output_tokens: 2048
 
 rim:
   small_model:
