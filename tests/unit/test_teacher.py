@@ -76,6 +76,8 @@ def test_teacher_live_contracts():
         assert set(validation.keys()) >= {"valid", "guidance"}
         assert isinstance(validation["valid"], bool)
         assert validation["guidance"] is None or isinstance(validation["guidance"], str)
+        assert teacher._client.overrides[0] and teacher._client.overrides[0].get("max_tokens") == config.max_review_tokens
+        assert teacher._client.overrides[1] and teacher._client.overrides[1].get("max_tokens") == config.validation_max_tokens
         guidance = await teacher.agenerate_guidance(step, {"validation": {"guidance": "Take another pass."}})
         assert guidance == "Take another pass."
 
@@ -85,8 +87,10 @@ def test_teacher_live_contracts():
 class _FakeTeacherClient:
     def __init__(self) -> None:
         self.reasoning = {"reasoning_content": [{"type": "thought", "text": "check constraints"}]}
+        self.overrides: list[dict[str, object] | None] = []
 
     async def acomplete(self, messages, response_format=None, overrides=None):
+        self.overrides.append(overrides)
         if response_format and response_format.get("type") == "json_object":
             user_payload = messages[-1]["content"]
             if "steps" in user_payload:
@@ -133,6 +137,8 @@ def test_teacher_records_reasoning_metadata():
             attempt_guidance=[],
         )
         assert validation["reasoning"]["reasoning_content"][0]["text"] == "check constraints"
+        assert teacher._client.overrides[0] and teacher._client.overrides[0].get("max_tokens") == config.max_review_tokens
+        assert teacher._client.overrides[1] and teacher._client.overrides[1].get("max_tokens") == config.validation_max_tokens
         guidance = await teacher.agenerate_guidance(
             plan.steps[0],
             {"validation": {"guidance": "Provide more detail."}},

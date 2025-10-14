@@ -29,12 +29,6 @@ agent:
     - data
     - output
 
-student:
-  max_plan_tokens: 2048
-  max_step_tokens: 2048
-  max_synthesis_tokens: 2048
-  tool_choice: auto
-
 teacher:
   llm:
     provider: openai
@@ -42,16 +36,6 @@ teacher:
     api_key_env: OPENAI_API_KEY
     temperature: 0.2
     max_output_tokens: 1024
-  max_review_tokens: 2048
-  plan_cache_seconds: 300
-  guidance_max_tokens: 512
-  validation_max_tokens: 512
-
-orchestration:
-  max_retries: 1
-  step_timeout_seconds: 900
-  rim_guidance_tag: rim_feedback
-  emit_intermediate_steps: true
 
 rim:
   small_model:
@@ -64,29 +48,12 @@ rim:
     model: gpt-4o
     api_key_env: OPENAI_API_KEY
     max_output_tokens: 768
+  judge_prompt: 'Reward runs that stay on brief, respect APIs, and deliver correct answers.'
   active_judges:
     process: true
     helpfulness: true
   variance_threshold: 0.15
   uncertainty_threshold: 0.3
-
-adaptive_teaching:
-  enabled: true
-  certify_first_run: true
-  triage_adapter: atlas.utils.triage:default_build_dossier
-  default_tags:
-    - tenant:sre-demo
-    - domain:code
-  probe:
-    thresholds:
-      auto: 0.83
-      paired: 0.62
-      coach: 0.38
-    fallback_mode: coach
-    evidence_limit: 6
-    timeout_seconds: 15
-  reward:
-    type: rim
 
 storage:
   database_url: postgresql://localhost:5432/atlas

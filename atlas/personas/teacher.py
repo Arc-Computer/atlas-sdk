@@ -72,7 +72,11 @@ class Teacher:
                 "content": json.dumps(payload, ensure_ascii=False) + "\nReturn json.",
             },
         ]
-        response = await self._client.acomplete(messages, response_format={"type": "json_object"})
+        response = await self._client.acomplete(
+            messages,
+            response_format={"type": "json_object"},
+            overrides=self._token_overrides(self._config.max_review_tokens),
+        )
         if not response.content.strip():
             self._consume_reasoning_metadata("teacher", "plan_review")
             return plan
@@ -124,7 +128,11 @@ class Teacher:
                 + "\nReturn json.",
             },
         ]
-        response = await self._client.acomplete(messages, response_format={"type": "json_object"})
+        response = await self._client.acomplete(
+            messages,
+            response_format={"type": "json_object"},
+            overrides=self._token_overrides(self._config.validation_max_tokens),
+        )
         parsed = json.loads(response.content)
         result: Dict[str, Any] = {
             "valid": bool(parsed.get("valid", False)),
@@ -259,6 +267,12 @@ class Teacher:
                 }
             serialized.append(tool_info)
         return serialized
+
+    def _token_overrides(self, configured_limit: int | None) -> Dict[str, Any] | None:
+        limit = configured_limit if configured_limit is not None else self._config.llm.max_output_tokens
+        if limit is None:
+            return None
+        return {"max_tokens": limit}
 
     def _active_mode(self) -> str:
         context = ExecutionContext.get()

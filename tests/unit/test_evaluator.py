@@ -4,7 +4,7 @@ from typing import Dict
 
 from atlas.config.models import LLMParameters, RIMConfig
 from atlas.evaluation.evaluator import Evaluator
-from atlas.evaluation.judges.base import Judge, JudgeContext
+from atlas.evaluation.judges.base import Judge, JudgeContext, JudgeSample
 from atlas.types import Step
 from atlas.utils.llm_client import LLMResponse
 from atlas.runtime.orchestration.execution_context import ExecutionContext
@@ -48,6 +48,35 @@ class _QueueingClient:
 class _StubJudge(Judge):
     def _build_messages(self, context: JudgeContext):
         return [{"role": "system", "content": "judge"}]
+
+    async def asample(self, context: JudgeContext, temperature: float):
+        response = await self._client.acomplete(
+            self._build_messages(context),
+            response_format={"type": "json_object"},
+            overrides={"temperature": temperature},
+        )
+        payload = json.loads(response.content)
+        exec_context = ExecutionContext.get()
+        queue = exec_context.metadata.get("_llm_reasoning_queue", [])
+        matched = []
+        remaining = []
+        for entry in queue or []:
+            if entry.get("origin") == ("reward", "sample"):
+                matched.append(entry.get("payload") or {})
+            else:
+                remaining.append(entry)
+        exec_context.metadata["_llm_reasoning_queue"] = remaining
+        reasoning = response.reasoning or {}
+        if matched:
+            reasoning = {"response": reasoning, "queue": matched} if reasoning else {"queue": matched}
+        return JudgeSample(
+            score=payload.get("score", 0.0),
+            rationale=payload.get("rationale", ""),
+            principles=payload.get("principles") or [],
+            uncertainty=payload.get("uncertainty", 0.0),
+            temperature=temperature,
+            reasoning=reasoning or None,
+        )
 
 
 class _ExplodingJudge(Judge):
@@ -114,10 +143,11 @@ def test_evaluator_combines_judge_scores():
         for entry in result.judges:
             assert entry.principles, "Principles should be present"
             assert isinstance(entry.score, float)
-        raw_judges = (result.raw or {}).get("judges", [])
-        assert raw_judges, "Raw payload should include judge details"
-        for raw_entry in raw_judges:
-            assert raw_entry.get("reasoning") is not None
+        raw_payload = result.raw or {}
+        raw_samples = raw_payload.get("samples", [])
+        assert raw_samples, "Raw payload should include sample details"
+        for raw_entry in raw_samples:
+            assert "score" in raw_entry and "uncertainty" in raw_entry
         assert 0 <= result.score <= 1
 
     asyncio.run(runner())

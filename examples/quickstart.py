@@ -10,7 +10,7 @@ def main() -> None:
     result = core.run(
         task="Summarise the latest Atlas SDK updates in three bullet points.",
         config_path="configs/examples/openai_agent.yaml",
-        stream_progress=True,  # optional console telemetry with adaptive summary + reward highlight
+        stream_progress=True,
     )
 
     print("\n=== Final Answer ===")

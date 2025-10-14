@@ -391,7 +391,8 @@ def _build_evaluator_instance(
                 rim_config = rim_config.model_copy(update=reward_cfg.parameters)
             except Exception as exc:  # pragma: no cover - defensive guard
                 raise ValueError(f"Invalid adaptive_teaching.reward.parameters: {exc}") from exc
-        return Evaluator(rim_config)
+        focus_prompt = reward_cfg.focus_prompt or getattr(rim_config, "judge_prompt", None)
+        return Evaluator(rim_config, focus_prompt=focus_prompt)
     if reward_cfg.type == "python":
         if not reward_cfg.import_path and not reward_cfg.attribute:
             raise ValueError("adaptive_teaching.reward.import_path is required when type='python'")

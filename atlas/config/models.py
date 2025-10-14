@@ -264,10 +264,10 @@ class TeacherConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     llm: LLMParameters
-    max_review_tokens: int = Field(default=2048, ge=1)
+    max_review_tokens: int | None = Field(default=None, ge=1)
     plan_cache_seconds: int = Field(default=300, ge=0)
-    guidance_max_tokens: int = Field(default=512, ge=1)
-    validation_max_tokens: int = Field(default=512, ge=1)
+    guidance_max_tokens: int | None = Field(default=None, ge=1)
+    validation_max_tokens: int | None = Field(default=None, ge=1)
     prompts: TeacherPrompts | None = None
     prompt_guidance: Dict[str, str] = Field(default_factory=dict)
 
@@ -284,6 +284,7 @@ class RIMConfig(BaseModel):
     variance_threshold: float = Field(default=0.15, ge=0.0)
     uncertainty_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
     parallel_workers: int = Field(default=4, ge=1, le=32)
+    judge_prompt: str | None = None
 
 class OrchestrationConfig(BaseModel):
     """Controls sequential execution semantics."""
@@ -311,9 +312,9 @@ class AtlasConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agent: AdapterUnion = Field(discriminator="type")
-    student: StudentConfig
+    student: StudentConfig = Field(default_factory=StudentConfig)
     teacher: TeacherConfig
-    orchestration: OrchestrationConfig
+    orchestration: OrchestrationConfig = Field(default_factory=OrchestrationConfig)
     rim: RIMConfig
     storage: StorageConfig | None = None
     prompt_rewrite: PromptRewriteConfig | None = None

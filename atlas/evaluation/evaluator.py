@@ -255,6 +255,7 @@ class Evaluator:
         parsed = self._parse_session_payload(payload)
         if parsed is None:
             return None
+
         return SessionSample(
             score=parsed["score"],
             uncertainty=parsed["uncertainty"],
@@ -262,9 +263,6 @@ class Evaluator:
             principles=parsed["principles"],
             student_learning=parsed["student_learning"],
             teacher_learning=parsed["teacher_learning"],
-            raw=payload,
-            reasoning=reasoning,
-            temperature=0.0,
         )
 
     def _aggregate_samples(
