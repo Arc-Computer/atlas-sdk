@@ -18,7 +18,6 @@ class FingerprintInputs:
     agent_name: str
     tenant_id: str
     tools: Sequence[str]
-    execution_mode: str
     task_tags: Sequence[str]
 
 
@@ -32,7 +31,6 @@ def build_fingerprint(inputs: FingerprintInputs) -> str:
         "agent_name": inputs.agent_name,
         "tenant_id": inputs.tenant_id,
         "tools": sorted(inputs.tools),
-        "execution_mode": inputs.execution_mode,
         "task_tags": sorted(inputs.task_tags),
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
@@ -47,7 +45,6 @@ def extract_fingerprint_inputs(task: str, config: AtlasConfig, context: Executio
     tenant_id = session_metadata.get("tenant_id", "default")
     tools_field: Sequence[ToolDefinition] | None = getattr(config.agent, "tools", None)
     tools = _sorted_names(tools_field or [])
-    execution_mode = metadata.get("execution_mode", "stepwise")
     raw_tags: Any = session_metadata.get("tags") or []
     if isinstance(raw_tags, (list, tuple, set)):
         tags = [str(tag) for tag in raw_tags]
@@ -59,6 +56,5 @@ def extract_fingerprint_inputs(task: str, config: AtlasConfig, context: Executio
         agent_name=config.agent.name,
         tenant_id=tenant_id,
         tools=tuple(tools),
-        execution_mode=execution_mode,
         task_tags=tuple(sorted(tags)),
     )

@@ -449,7 +449,7 @@ class Database:
         payload = self._serialize_json(metadata) if metadata is not None else None
         async with pool.acquire() as connection:
             await connection.execute(
-                "UPDATE sessions SET metadata = $2, updated_at = NOW() WHERE id = $1",
+                "UPDATE sessions SET metadata = $2 WHERE id = $1",
                 session_id,
                 payload,
             )

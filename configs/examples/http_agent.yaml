@@ -56,7 +56,7 @@ rim:
   uncertainty_threshold: 0.3
 
 storage:
-  database_url: postgresql://localhost:5432/atlas
+  database_url: postgresql://atlas:atlas@localhost:5433/atlas
   min_connections: 1
   max_connections: 5
   statement_timeout_seconds: 30

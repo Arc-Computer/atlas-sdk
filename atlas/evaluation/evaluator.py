@@ -141,11 +141,12 @@ class Evaluator:
         trajectory: SessionTrajectory,
         focus_prompt: str | None,
     ) -> List[SessionSample]:
-        samples: List[SessionSample] = []
-        for temperature in self._temperatures:
-            sample = await self._sample_session(trajectory, focus_prompt, temperature)
-            if sample is not None:
-                samples.append(sample)
+        tasks = [
+            self._sample_session(trajectory, focus_prompt, temperature)
+            for temperature in self._temperatures
+        ]
+        results = await asyncio.gather(*tasks)
+        samples = [sample for sample in results if sample is not None]
         return samples
 
     async def _sample_session(

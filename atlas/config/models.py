@@ -189,7 +189,7 @@ class AdaptiveProbeConfig(BaseModel):
 
     llm: "LLMParameters | None" = None
     thresholds: AdaptiveProbeThresholds = Field(default_factory=AdaptiveProbeThresholds)
-    fallback_mode: Literal["coach", "escalate"] = "coach"
+    fallback_mode: Literal["paired", "coach", "escalate"] = "paired"
     evidence_limit: int = Field(default=6, ge=1, le=32)
     timeout_seconds: float = Field(default=15.0, ge=1.0)
 

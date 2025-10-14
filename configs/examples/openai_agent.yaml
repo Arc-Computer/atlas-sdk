@@ -9,7 +9,7 @@ agent:
     model: gpt-5-mini
     api_key_env: OPENAI_API_KEY
     temperature: 0.2
-    max_output_tokens: 2048
+    max_output_tokens: 512
   response_format: null
 
 teacher:
@@ -25,18 +25,18 @@ rim:
     provider: google
     model: gemini/gemini-2.5-flash
     api_key_env: GOOGLE_API_KEY
-    max_output_tokens: 512
+    max_output_tokens: 8096
   large_model:
     provider: google
     model: gemini/gemini-2.5-flash
     api_key_env: GOOGLE_API_KEY
-    max_output_tokens: 768
+    max_output_tokens: 8096
   judge_prompt: 'reward the agent for attending the issues mentioned in the task'
   variance_threshold: 0.15
   uncertainty_threshold: 0.3
 
 storage:
-  database_url: postgresql://localhost:5433/atlas
+  database_url: postgresql://atlas:atlas@localhost:5433/atlas
   min_connections: 1
   max_connections: 5
   statement_timeout_seconds: 30

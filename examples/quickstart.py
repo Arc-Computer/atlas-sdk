@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+
 from atlas import core
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     result = core.run(
         task="Summarise the latest Atlas SDK updates in three bullet points.",
         config_path="configs/examples/openai_agent.yaml",

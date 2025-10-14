@@ -277,6 +277,25 @@ async def arun(
                 if candidate_specs:
                     created = await write_candidates(database, session_id, candidate_specs)
                     candidate_ids = [str(identifier) for identifier in created]
+
+                    adaptive_meta = execution_context.metadata.get("adaptive", {})
+                    was_certification_run = adaptive_meta.get("certification_run") if isinstance(adaptive_meta, dict) else False
+
+                    if was_certification_run and created and persona_fingerprint:
+                        active_mode = adaptive_meta.get("active_mode") if isinstance(adaptive_meta, dict) else "paired"
+                        for memory_uuid in created:
+                            try:
+                                updated_metadata = _update_persona_metadata_payload(
+                                    {},
+                                    None,
+                                    active_mode,
+                                    fingerprint=persona_fingerprint,
+                                    certified=True,
+                                )
+                                if updated_metadata:
+                                    await database.update_persona_metadata(memory_uuid, updated_metadata)
+                            except Exception as cert_exc:
+                                logger.exception("Failed to mark persona memory as certified: %s", cert_exc)
             except Exception as learning_exc:  # pragma: no cover - diagnostic path
                 logger.exception("Failed to generate persona memory candidates", exc_info=learning_exc)
             finally:

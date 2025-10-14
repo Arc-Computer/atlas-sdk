@@ -30,9 +30,41 @@ Step 2: Evaluate the trajectory against each principle using concrete evidence.
 Step 3: Provide the final reward score in [0.0, 1.0] and a rationale explaining the score via those principles.
 Report uncertainty in [0.0, 1.0]. Use > 0.3 when evidence is limited or conflicting.
 
-Step 4: Summarise the learning the student should retain from this run (single concise string).
+Step 4: Extract the BEHAVIORAL PATTERN the student should learn (not task-specific content).
+Rules for student_learning:
+- Focus on the MISTAKE PATTERN, not the specific task content
+- Remove all domain-specific terms and make it cross-domain applicable
+- Describe the cognitive/procedural error, not the content error
+- Be concrete and actionable for future similar situations
 
-Step 5: Summarise the learning the teacher should retain (single concise string). Use null when no teacher intervention occurred or no update is warranted.
+Examples of GOOD student_learning (cross-domain patterns):
+✓ "When facing time-sensitive situations with incomplete information, establish a systematic evidence collection process before taking corrective action. Distinguish between symptoms and root causes by mapping dependencies first."
+✓ "For tasks involving multiple simultaneous signals or alerts, correlate them by timeline and common attributes before concluding causation. Avoid acting on isolated data points without context."
+✓ "When dealing with cascading failures or dependencies, trace impact both upstream and downstream before proposing solutions. Missing indirect effects leads to incomplete remediation."
+✓ "For high-visibility incidents requiring stakeholder updates, separate 'what we know' from 'what we're investigating' from 'what we're doing'. Communicate incomplete information clearly rather than making premature conclusions."
+
+Examples of BAD student_learning:
+✗ "Check the firewall logs next time" (domain-specific, not a pattern)
+✗ "Answer the question correctly" (too generic)
+✗ "Pay more attention to details" (not actionable)
+
+Step 5: Extract the TEACHING PATTERN the teacher should learn (not task-specific advice).
+Rules for teacher_learning:
+- Focus on the PEDAGOGICAL INTERVENTION that worked or failed
+- Identify the teaching strategy, not the content taught
+- Make it applicable across different domains and situations
+- Return null if no teacher intervention occurred
+
+Examples of GOOD teacher_learning (cross-domain strategies):
+✓ "When student jumps to conclusions without evidence, ask them to explicitly list evidence supporting AND contradicting their hypothesis. This forces systematic thinking before action."
+✓ "If student misses cascading or second-order effects, prompt them to trace dependencies in both directions (what affects this, what does this affect). Don't provide the answer—guide the discovery."
+✓ "When student provides overly confident assessments with limited data, ask 'What would change your conclusion?' to help them identify gaps in their reasoning."
+✓ "For students who rush to action under time pressure, establish a lightweight decision framework upfront (gather→analyze→decide→act→communicate). Reinforce the framework when they skip steps."
+
+Examples of BAD teacher_learning:
+✗ "Tell student to check DNS settings" (domain-specific)
+✗ "Guide them better" (too vague)
+✗ "Ask more questions" (not specific about what kind)
 
 IMPORTANT: Output JSON only, exactly in this shape and order:
 {{"principles": [{{"name": str, "weight": float, "description": str}}],
@@ -55,6 +87,12 @@ Context:
 
 Tier-1 Summaries:
 {tier1_summaries}
+
+When synthesizing student_learning and teacher_learning from the tier-1 summaries:
+- Extract the BEHAVIORAL PATTERN, not task-specific content
+- Remove domain-specific terms to make it cross-domain applicable
+- Focus on cognitive/procedural errors for student, pedagogical strategies for teacher
+- If tier-1 summaries are task-specific, abstract them to patterns before outputting
 
 Produce the final JSON judgement using the exact schema:
 {{"principles": [{{"name": str, "weight": float, "description": str}}],

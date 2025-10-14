@@ -58,6 +58,7 @@ class AdaptiveModeDecision:
     confidence: Optional[float] = None
     certification: bool = False
     probe: CapabilityProbeDecision | None = None
+    source: str | None = None
 
 
 class Orchestrator:
@@ -97,21 +98,61 @@ class Orchestrator:
                 data=StreamEventData(input={"task": task}),
             )
         )
+        logger.info("Orchestrator: starting triage for task '%s' via adapter %s", task, getattr(self._triage_adapter, "__name__", self._triage_adapter))
+        triage_adapter_name = getattr(self._triage_adapter, "__qualname__", getattr(self._triage_adapter, "__name__", str(self._triage_adapter)))
+        triage_uuid = str(uuid4())
+        manager.push_intermediate_step(
+            IntermediateStepPayload(
+                UUID=triage_uuid,
+                event_type=IntermediateStepType.CUSTOM_START,
+                name="triage",
+                data=StreamEventData(input={"adapter": triage_adapter_name}),
+            )
+        )
         dossier = self._build_triage_dossier(task, context)
         context.set_triage_dossier(dossier)
+        logger.info(
+            "Orchestrator: triage dossier built | summary='%s' | risks=%d | tags=%s",
+            dossier.summary,
+            len(dossier.risks),
+            ", ".join(dossier.tags[:3]),
+        )
+        manager.push_intermediate_step(
+            IntermediateStepPayload(
+                UUID=triage_uuid,
+                event_type=IntermediateStepType.CUSTOM_END,
+                name="triage",
+                data=StreamEventData(
+                    output={
+                        "summary": dossier.summary,
+                        "risks": [risk.description for risk in dossier.risks[:3]],
+                        "tags": dossier.tags[:5],
+                    }
+                ),
+            )
+        )
         context.metadata["task"] = task
+
+        if self._persona_refresh is not None:
+            await self._persona_refresh()
+        self._hydrate_certified_fingerprints(context)
 
         decision = await self._determine_adaptive_mode(task, context, dossier)
         mode = decision.mode or "escalate"
         context.metadata["execution_mode"] = mode
         self._store_mode_metadata(context, decision)
+        confidence_display = f"{decision.confidence:.2f}" if isinstance(decision.confidence, (int, float)) else "n/a"
+        logger.info(
+            "Orchestrator: adaptive routing selected mode '%s' (confidence=%s, source=%s)",
+            mode,
+            confidence_display,
+            decision.source or "unknown",
+        )
+        self._emit_adaptive_route_event(context, decision, reason=decision.source)
 
         if mode in {"auto", "paired"}:
             plan = self._build_direct_plan(task)
             context.metadata["plan"] = plan.model_dump()
-            if self._persona_refresh is not None:
-                await self._persona_refresh()
-            self._hydrate_certified_fingerprints(context)
             result = await self._run_single_shot(
                 task,
                 plan,
@@ -131,9 +172,6 @@ class Orchestrator:
                 final_plan = self._ensure_stepwise_plan(reviewed_plan, context)
                 context.metadata.pop("single_shot", None)
             context.metadata["plan"] = final_plan.model_dump()
-            if self._persona_refresh is not None:
-                await self._persona_refresh()
-            self._hydrate_certified_fingerprints(context)
             if mode == "coach":
                 result = await self._run_single_shot(
                     task,
@@ -198,9 +236,16 @@ class Orchestrator:
             )
             attempt_timings: Dict[str, float] = {}
             try:
+                logger.info("Orchestrator: executing student step %s attempt %d", step.id, attempts)
                 student_start = time.perf_counter()
                 student_result = await self._student.aexecute_step(step, context_outputs, guidance)
                 attempt_timings["student_ms"] = self._elapsed_ms(student_start)
+                logger.info(
+                    "Orchestrator: student step %s attempt %d completed in %.2f ms",
+                    step.id,
+                    attempts,
+                    attempt_timings["student_ms"],
+                )
             except Exception as exc:
                 manager.push_intermediate_step(
                     IntermediateStepPayload(
@@ -208,125 +253,134 @@ class Orchestrator:
                         event_type=IntermediateStepType.TASK_END,
                         name=f"step_{step.id}",
                         data=StreamEventData(output={"error": str(exc)}),
+                    )
                 )
-            )
-            raise
+                raise
 
-        prior_guidance = list(step_meta.get("guidance", []))
+            prior_guidance = list(step_meta.get("guidance", []))
 
-        structured_output = self._obtain_structured_output(student_result)
-        student_status = structured_output.get("status")
-        artifacts = student_result.artifacts
-        deliverable = student_result.deliverable
+            structured_output = self._obtain_structured_output(student_result)
+            student_status = structured_output.get("status")
+            artifacts = student_result.artifacts
+            deliverable = student_result.deliverable
 
-        if require_validation:
-            validation_start = time.perf_counter()
-            validation = await self._teacher.avalidate_step(
-                step,
-                student_result.trace,
-                structured_output,
-                context_outputs,
-                prior_guidance,
-                guidance,
-            )
-            attempt_timings["validation_ms"] = self._elapsed_ms(validation_start)
-            validation_valid = bool(validation.get("valid"))
-            reward_override_payload = validation.pop("certification_reward", None) if isinstance(validation, dict) else None
-        else:
-            validation = {"valid": True, "guidance": None}
-            reward_override_payload = None
-            attempt_timings["validation_ms"] = 0.0
-            validation_valid = True
+            is_final_attempt = allow_retry and attempts > self._orchestration.max_retries
 
-        reward_skipped = True
-        if reward_override_payload is not None:
-            reward = self._build_placeholder_reward("teacher_certified")
-        elif require_validation and not validation_valid:
-            reward = self._build_placeholder_reward("validation_failed")
-        else:
-            reward = self._build_placeholder_reward("deferred")
+            if require_validation and not is_final_attempt:
+                validation_start = time.perf_counter()
+                validation = await self._teacher.avalidate_step(
+                    step,
+                    student_result.trace,
+                    structured_output,
+                    context_outputs,
+                    prior_guidance,
+                    guidance,
+                )
+                attempt_timings["validation_ms"] = self._elapsed_ms(validation_start)
+                logger.info(
+                    "Orchestrator: teacher validation for step %s attempt %d=%s (guidance=%s)",
+                    step.id,
+                    attempts,
+                    bool(validation.get("valid")) if isinstance(validation, dict) else "n/a",
+                    validation.get("guidance") if isinstance(validation, dict) else None,
+                )
+                validation_valid = bool(validation.get("valid"))
+                reward_override_payload = validation.pop("certification_reward", None) if isinstance(validation, dict) else None
+            else:
+                validation = {"valid": True, "guidance": None}
+                reward_override_payload = None
+                attempt_timings["validation_ms"] = 0.0
+                validation_valid = True
 
-        evaluation = StepEvaluation(validation=validation, reward=reward)
-        # Teacher reviews once; no retries beyond the first attempt.
-        should_retry = False
+            reward_skipped = True
+            if reward_override_payload is not None:
+                reward = self._build_placeholder_reward("teacher_certified")
+            elif require_validation and not validation_valid:
+                reward = self._build_placeholder_reward("validation_failed")
+            else:
+                reward = self._build_placeholder_reward("deferred")
 
-        guidance_text = validation.get("guidance") if isinstance(validation, dict) else None
-        if should_retry:
-            guidance_message = guidance_text if isinstance(guidance_text, str) else ""
-            attempt_timings["guidance_ms"] = 0.0
-            if guidance_message:
+            evaluation = StepEvaluation(validation=validation, reward=reward)
+            should_retry = bool(allow_retry and require_validation and not validation_valid and attempts <= self._orchestration.max_retries)
+
+            guidance_text = validation.get("guidance") if isinstance(validation, dict) else None
+            if should_retry and isinstance(guidance_text, str) and guidance_text.strip():
+                guidance_message = guidance_text.strip()
+                attempt_timings["guidance_ms"] = 0.0
                 execution_context.append_guidance(step.id, guidance_message)
                 guidance.append(guidance_message)
+            else:
+                guidance_message = ""
 
-        total_elapsed = sum(attempt_timings.values())
-        attempt_timings["total_ms"] = round(total_elapsed, 3)
+            total_elapsed = sum(attempt_timings.values())
+            attempt_timings["total_ms"] = round(total_elapsed, 3)
 
-        augmented_metadata = self._augment_step_metadata(
-            student_result.metadata,
-            structured_output,
-            attempt_timings,
-            reward_skipped,
-        )
-        student_result.metadata = augmented_metadata
-        status_label = "completed"
-        if require_validation:
-            status_label = "passed" if validation_valid else "failed"
-        combined_status = (
-            student_status.strip()
-            if isinstance(student_status, str) and student_status.strip()
-            else status_label
-        )
-
-        execution_context.register_step_attempt(
-            step.id,
-            attempts,
-            evaluation,
-            timings=attempt_timings,
-            reward_skipped=reward_skipped,
-            status=combined_status,
-        )
-
-        context_entry = self._build_context_entry(structured_output, student_result.output)
-        context_entry["status"] = combined_status
-        step_meta["context_entry"] = context_entry
-        step_meta["status"] = combined_status
-
-        event_output = {
-            "trace": student_result.trace,
-            "output": structured_output,
-            "evaluation": evaluation.to_dict(),
-            "metadata": augmented_metadata,
-            "runtime": {
-                "reward_skipped": reward_skipped,
-                "timings_ms": attempt_timings,
-            },
-            "status": combined_status,
-            "artifacts": self._ensure_jsonable(artifacts),
-            "deliverable": self._ensure_jsonable(deliverable),
-        }
-        if context_entry is not None:
-            event_output["context_entry"] = context_entry
-
-        manager.push_intermediate_step(
-            IntermediateStepPayload(
-                UUID=attempt_id,
-                event_type=IntermediateStepType.TASK_END,
-                name=f"step_{step.id}",
-                data=StreamEventData(output=event_output),
+            augmented_metadata = self._augment_step_metadata(
+                student_result.metadata,
+                structured_output,
+                attempt_timings,
+                reward_skipped,
             )
-        )
+            student_result.metadata = augmented_metadata
+            status_label = "completed"
+            if require_validation:
+                status_label = "passed" if validation_valid else "failed"
+            combined_status = (
+                student_status.strip()
+                if isinstance(student_status, str) and student_status.strip()
+                else status_label
+            )
 
-        if not should_retry:
-            return _StepExecutionOutcome(
-                result=student_result,
-                evaluation=evaluation,
-                attempts=attempts,
-                context_entry=context_entry,
+            execution_context.register_step_attempt(
+                step.id,
+                attempts,
+                evaluation,
+                timings=attempt_timings,
                 reward_skipped=reward_skipped,
                 status=combined_status,
-                artifacts=artifacts,
-                deliverable=deliverable,
             )
+
+            context_entry = self._build_context_entry(structured_output, student_result.output)
+            context_entry["status"] = combined_status
+            step_meta["context_entry"] = context_entry
+            step_meta["status"] = combined_status
+
+            event_output = {
+                "trace": student_result.trace,
+                "output": structured_output,
+                "evaluation": evaluation.to_dict(),
+                "metadata": augmented_metadata,
+                "runtime": {
+                    "reward_skipped": reward_skipped,
+                    "timings_ms": attempt_timings,
+                },
+                "status": combined_status,
+                "artifacts": self._ensure_jsonable(artifacts),
+                "deliverable": self._ensure_jsonable(deliverable),
+            }
+            if context_entry is not None:
+                event_output["context_entry"] = context_entry
+
+            manager.push_intermediate_step(
+                IntermediateStepPayload(
+                    UUID=attempt_id,
+                    event_type=IntermediateStepType.TASK_END,
+                    name=f"step_{step.id}",
+                    data=StreamEventData(output=event_output),
+                )
+            )
+
+            if not should_retry:
+                return _StepExecutionOutcome(
+                    result=student_result,
+                    evaluation=evaluation,
+                    attempts=attempts,
+                    context_entry=context_entry,
+                    reward_skipped=reward_skipped,
+                    status=combined_status,
+                    artifacts=artifacts,
+                    deliverable=deliverable,
+                )
 
     async def _determine_adaptive_mode(
         self,
@@ -336,10 +390,14 @@ class Orchestrator:
     ) -> AdaptiveModeDecision:
         adaptive_cfg = self._adaptive
         if not adaptive_cfg.enabled:
-            return AdaptiveModeDecision(mode="escalate")
+            return AdaptiveModeDecision(mode="escalate", source="adaptive_disabled")
 
         if adaptive_cfg.mode_override:
-            return AdaptiveModeDecision(mode=adaptive_cfg.mode_override, confidence=1.0)
+            return AdaptiveModeDecision(
+                mode=adaptive_cfg.mode_override,
+                confidence=1.0,
+                source="mode_override",
+            )
 
         fingerprint = context.metadata.get("persona_fingerprint")
         certification_needed = (
@@ -352,6 +410,7 @@ class Orchestrator:
                 mode="paired",
                 confidence=None,
                 certification=True,
+                source="certification_required",
             )
             return decision
 
@@ -363,12 +422,13 @@ class Orchestrator:
                 mode = self._map_confidence_to_mode(confidence)
             if not mode:
                 fallback_mode = adaptive_cfg.probe.fallback_mode
-                mode = fallback_mode if fallback_mode in {"coach", "escalate"} else "coach"
+                mode = fallback_mode if fallback_mode in {"paired", "coach", "escalate"} else "paired"
             decision = AdaptiveModeDecision(
                 mode=mode,
                 confidence=confidence,
                 certification=False,
                 probe=probe_result,
+                source="capability_probe",
             )
             if isinstance(fingerprint, str):
                 self._record_certification_state(fingerprint, False)
@@ -377,8 +437,10 @@ class Orchestrator:
         fallback_mode = self._capability_probe.fallback_mode if self._capability_probe else adaptive_cfg.probe.fallback_mode
         if isinstance(fingerprint, str):
             self._record_certification_state(fingerprint, False)
+        fallback_source = "probe_disabled" if self._capability_probe is None else "probe_fallback"
         return AdaptiveModeDecision(
-            mode=fallback_mode if fallback_mode in {"coach", "escalate"} else "coach",
+            mode=fallback_mode if fallback_mode in {"paired", "coach", "escalate"} else "paired",
+            source=fallback_source,
         )
 
     async def _run_capability_probe(
@@ -388,8 +450,38 @@ class Orchestrator:
         dossier: TriageDossier,
         fingerprint: Any,
     ) -> CapabilityProbeDecision | None:
+        manager = context.intermediate_step_manager
         if self._capability_probe is None:
+            probe_uuid = str(uuid4())
+            logger.info("Orchestrator: capability probe disabled; using fallback mode")
+            manager.push_intermediate_step(
+                IntermediateStepPayload(
+                    UUID=probe_uuid,
+                    event_type=IntermediateStepType.CUSTOM_START,
+                    name="capability_probe",
+                    data=StreamEventData(input={"status": "disabled"}),
+                )
+            )
+            manager.push_intermediate_step(
+                IntermediateStepPayload(
+                    UUID=probe_uuid,
+                    event_type=IntermediateStepType.CUSTOM_END,
+                    name="capability_probe",
+                    data=StreamEventData(output={"status": "disabled"}),
+                )
+            )
             return None
+        probe_name = type(self._capability_probe).__name__
+        probe_uuid = str(uuid4())
+        logger.info("Orchestrator: invoking capability probe %s", probe_name)
+        manager.push_intermediate_step(
+            IntermediateStepPayload(
+                UUID=probe_uuid,
+                event_type=IntermediateStepType.CUSTOM_START,
+                name="capability_probe",
+                data=StreamEventData(input={"client": probe_name}),
+            )
+        )
         try:
             decision = await self._capability_probe.arun(
                 task=task,
@@ -399,12 +491,39 @@ class Orchestrator:
             )
         except Exception as exc:
             logger.exception("Capability probe execution failed: %s", exc)
+            manager.push_intermediate_step(
+                IntermediateStepPayload(
+                    UUID=probe_uuid,
+                    event_type=IntermediateStepType.CUSTOM_END,
+                    name="capability_probe",
+                    data=StreamEventData(output={"error": str(exc)}),
+                )
+            )
             return CapabilityProbeDecision(
                 mode=None,
                 confidence=None,
                 raw={"error": str(exc)},
             )
         context.set_capability_probe({"mode": decision.mode, "confidence": decision.confidence})
+        logger.info(
+            "Orchestrator: capability probe response mode=%s confidence=%s",
+            decision.mode,
+            f"{decision.confidence:.2f}" if isinstance(decision.confidence, (int, float)) else "n/a",
+        )
+        manager.push_intermediate_step(
+            IntermediateStepPayload(
+                UUID=probe_uuid,
+                event_type=IntermediateStepType.CUSTOM_END,
+                name="capability_probe",
+                data=StreamEventData(
+                    output={
+                        "mode": decision.mode,
+                        "confidence": decision.confidence,
+                        "raw": decision.raw,
+                    }
+                ),
+            )
+        )
         return decision
 
     def _map_confidence_to_mode(self, confidence: Optional[float]) -> Optional[str]:
@@ -430,6 +549,44 @@ class Orchestrator:
             fingerprint = context.metadata.get("persona_fingerprint")
             if isinstance(fingerprint, str):
                 self._record_certification_state(fingerprint, True)
+
+    def _emit_adaptive_route_event(
+        self,
+        context: ExecutionContext,
+        decision: AdaptiveModeDecision,
+        *,
+        reason: str | None = None,
+    ) -> None:
+        manager = context.intermediate_step_manager
+        route_uuid = str(uuid4())
+        manager.push_intermediate_step(
+            IntermediateStepPayload(
+                UUID=route_uuid,
+                event_type=IntermediateStepType.CUSTOM_START,
+                name="adaptive_route",
+                data=StreamEventData(input={"mode": decision.mode}),
+            )
+        )
+        payload: Dict[str, Any] = {
+            "mode": decision.mode,
+            "confidence": decision.confidence,
+            "certification": decision.certification,
+        }
+        if reason:
+            payload["reason"] = reason
+        if decision.probe is not None:
+            payload["probe_mode"] = decision.probe.mode
+            payload["probe_confidence"] = decision.probe.confidence
+        if decision.probe and decision.probe.raw:
+            payload["probe_raw"] = decision.probe.raw
+        manager.push_intermediate_step(
+            IntermediateStepPayload(
+                UUID=route_uuid,
+                event_type=IntermediateStepType.CUSTOM_END,
+                name="adaptive_route",
+                data=StreamEventData(output=payload),
+            )
+        )
 
     def _build_triage_dossier(self, task: str, context: ExecutionContext) -> TriageDossier:
         session_metadata = context.metadata.get("session_metadata")
