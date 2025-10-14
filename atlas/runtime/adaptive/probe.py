@@ -12,7 +12,7 @@ from atlas.utils.llm_client import LLMClient
 _DEFAULT_PROBE_LLM = LLMParameters(
     provider=LLMProvider.GOOGLE,
     model="gemini/gemini-2.5-flash",
-    api_key_env="GOOGLE_API_KEY",
+    api_key_env="GEMINI_API_KEY",
     temperature=0.2,
     timeout_seconds=20.0,
 )
