@@ -298,6 +298,36 @@ async def _assemble_session(
         "steps": step_payloads,
         "session_metadata": session_metadata,
     }
+    session_reward = _coerce_json(detailed.get("reward"))
+    if isinstance(session_reward, dict) and session_reward:
+        session_payload["session_reward"] = session_reward
+    student_learning = detailed.get("student_learning") or session_metadata.get("student_learning")
+    if isinstance(student_learning, str) and student_learning.strip():
+        session_payload["student_learning"] = student_learning.strip()
+    teacher_learning = detailed.get("teacher_learning") or session_metadata.get("teacher_learning")
+    if isinstance(teacher_learning, str) and teacher_learning.strip():
+        session_payload["teacher_learning"] = teacher_learning.strip()
+    adaptive_summary = session_metadata.get("adaptive_summary")
+    if isinstance(adaptive_summary, dict):
+        session_payload["adaptive_summary"] = adaptive_summary
+    triage_dossier = session_metadata.get("triage_dossier")
+    if isinstance(triage_dossier, dict):
+        session_payload["triage_dossier"] = triage_dossier
+    personas_used = session_metadata.get("personas_used")
+    if isinstance(personas_used, list):
+        session_payload["personas_used"] = personas_used
+    persona_updates = session_metadata.get("persona_updates")
+    if persona_updates:
+        session_payload["persona_updates"] = persona_updates
+    persona_usage = session_metadata.get("persona_usage")
+    if isinstance(persona_usage, dict) and persona_usage:
+        session_payload["persona_usage"] = persona_usage
+    teacher_notes = session_metadata.get("teacher_notes")
+    if isinstance(teacher_notes, list):
+        session_payload["teacher_notes"] = teacher_notes
+    reward_summary = session_metadata.get("reward_summary")
+    if isinstance(reward_summary, dict):
+        session_payload["reward_summary"] = reward_summary
     if events_payload:
         session_payload["trajectory_events"] = events_payload
     return session_payload

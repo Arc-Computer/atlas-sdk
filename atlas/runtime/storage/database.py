@@ -7,6 +7,7 @@ from typing import Any
 from typing import Dict
 from typing import Iterable
 from typing import List
+from typing import Optional
 from typing import Sequence
 from uuid import UUID
 
@@ -18,9 +19,11 @@ except ModuleNotFoundError as exc:
     _ASYNCPG_ERROR = exc
 
 from atlas.config.models import StorageConfig
+from atlas.runtime.persona_memory.constants import canonical_persona_name, persona_aliases
 from atlas.runtime.models import IntermediateStep
 from atlas.types import Plan
 from atlas.types import StepResult
+from atlas.runtime.schema import AtlasRewardBreakdown
 
 
 class Database:
@@ -149,11 +152,29 @@ class Database:
                 session_id,
             )
 
+    async def log_session_reward(
+        self,
+        session_id: int,
+        reward: AtlasRewardBreakdown | Dict[str, Any] | None,
+        student_learning: Optional[str],
+        teacher_learning: Optional[str],
+    ) -> None:
+        pool = self._require_pool()
+        serialized_reward = self._serialize_json(reward.to_dict() if hasattr(reward, "to_dict") else reward) if reward else None
+        async with pool.acquire() as connection:
+            await connection.execute(
+                "UPDATE sessions SET reward = $1, student_learning = $2, teacher_learning = $3 WHERE id = $4",
+                serialized_reward,
+                student_learning,
+                teacher_learning,
+                session_id,
+            )
+
     async def fetch_sessions(self, limit: int = 50, offset: int = 0) -> List[dict[str, Any]]:
         pool = self._require_pool()
         async with pool.acquire() as connection:
             rows = await connection.fetch(
-                "SELECT id, task, status, metadata, final_answer, created_at, completed_at"
+                "SELECT id, task, status, metadata, final_answer, reward, student_learning, teacher_learning, created_at, completed_at"
                 " FROM sessions ORDER BY created_at DESC LIMIT $1 OFFSET $2",
                 limit,
                 offset,
@@ -164,7 +185,7 @@ class Database:
         pool = self._require_pool()
         async with pool.acquire() as connection:
             row = await connection.fetchrow(
-                "SELECT id, task, status, metadata, final_answer, created_at, completed_at"
+                "SELECT id, task, status, metadata, final_answer, reward, student_learning, teacher_learning, created_at, completed_at"
                 " FROM sessions WHERE id = $1",
                 session_id,
             )
@@ -226,7 +247,7 @@ class Database:
             return {}
         pool = self._require_pool()
         query = (
-            "SELECT memory_id, reward, retry_count, applied_at"
+            "SELECT memory_id, reward, retry_count, applied_at, mode"
             " FROM persona_memory_usage"
             " WHERE memory_id = ANY($1::uuid[])"
         )
@@ -246,6 +267,7 @@ class Database:
                     "reward": reward,
                     "retry_count": row.get("retry_count"),
                     "applied_at": row.get("applied_at"),
+                    "mode": row.get("mode"),
                 }
             )
         return usage
@@ -285,8 +307,11 @@ class Database:
     async def create_persona_memory(self, record: Dict[str, Any]) -> None:
         """Create or update a persona memory row."""
         pool = self._require_pool()
+        record = dict(record)
+        record["persona"] = canonical_persona_name(record.get("persona"))
         instruction_payload = self._serialize_json(record["instruction"])
         reward_payload = self._serialize_json(record.get("reward_snapshot"))
+        metadata_payload = self._serialize_json(record.get("metadata", {}))
         async with pool.acquire() as connection:
             await connection.execute(
                 """
@@ -300,9 +325,10 @@ class Database:
                     source_session_id,
                     reward_snapshot,
                     retry_count,
+                    metadata,
                     status
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 ON CONFLICT (memory_id) DO UPDATE SET
                     agent_name = EXCLUDED.agent_name,
                     tenant_id = EXCLUDED.tenant_id,
@@ -312,6 +338,7 @@ class Database:
                     source_session_id = EXCLUDED.source_session_id,
                     reward_snapshot = EXCLUDED.reward_snapshot,
                     retry_count = EXCLUDED.retry_count,
+                    metadata = EXCLUDED.metadata,
                     status = EXCLUDED.status,
                     updated_at = NOW()
                 """,
@@ -324,6 +351,7 @@ class Database:
                 record.get("source_session_id"),
                 reward_payload,
                 record.get("retry_count"),
+                metadata_payload,
                 record["status"],
             )
 
@@ -339,26 +367,35 @@ class Database:
         pool = self._require_pool()
         if statuses is not None and len(statuses) == 0:
             return []
+        persona_alias_list = list(persona_aliases(canonical_persona_name(persona)))
         query = (
             "SELECT memory_id, agent_name, tenant_id, persona, trigger_fingerprint, instruction,"
-            " source_session_id, reward_snapshot, retry_count, status, created_at, updated_at"
+            " source_session_id, reward_snapshot, retry_count, metadata, status, created_at, updated_at"
             " FROM persona_memory"
             " WHERE agent_name = $1 AND tenant_id = $2 AND persona = $3 AND trigger_fingerprint = $4"
         )
-        params: list[Any] = [agent_name, tenant_id, persona, fingerprint]
-        if statuses is not None:
-            params.append(statuses)
-            query += f" AND status = ANY(${len(params)})"
-        query += " ORDER BY created_at ASC"
+        results: list[Any] = []
         async with pool.acquire() as connection:
-            rows = await connection.fetch(query, *params)
-        results: list[Dict[str, Any]] = []
+            for alias in persona_alias_list:
+                params: list[Any] = [agent_name, tenant_id, alias, fingerprint]
+                if statuses is not None:
+                    params.append(statuses)
+                    alias_query = query + f" AND status = ANY(${len(params)})"
+                else:
+                    alias_query = query
+                alias_query += " ORDER BY created_at ASC"
+                rows = await connection.fetch(alias_query, *params)
+                results.extend(rows)
+        rows = sorted(results, key=lambda row: row["created_at"]) if results else []
+        canonical_records: list[Dict[str, Any]] = []
         for row in rows:
             record = dict(row)
+            record["persona"] = canonical_persona_name(record.get("persona"))
             record["instruction"] = self._deserialize_json(record.get("instruction"))
             record["reward_snapshot"] = self._deserialize_json(record.get("reward_snapshot"))
-            results.append(record)
-        return results
+            record["metadata"] = self._deserialize_json(record.get("metadata")) or {}
+            canonical_records.append(record)
+        return canonical_records
 
     async def update_persona_memory_status(
         self,
@@ -388,6 +425,7 @@ class Database:
         session_id: int,
         reward: Dict[str, Any] | None,
         retries: int | None,
+        mode: str | None = None,
     ) -> None:
         """Record usage of a persona memory within a session."""
         pool = self._require_pool()
@@ -395,13 +433,36 @@ class Database:
         async with pool.acquire() as connection:
             await connection.execute(
                 """
-                INSERT INTO persona_memory_usage (memory_id, session_id, reward, retry_count)
-                VALUES ($1, $2, $3, $4)
+                INSERT INTO persona_memory_usage (memory_id, session_id, reward, retry_count, mode)
+                VALUES ($1, $2, $3, $4, $5)
                 """,
                 memory_id,
                 session_id,
                 reward_payload,
                 retries,
+                mode,
+            )
+
+    async def update_session_metadata(self, session_id: int, metadata: Dict[str, Any]) -> None:
+        """Replace metadata payload for a session."""
+        pool = self._require_pool()
+        payload = self._serialize_json(metadata) if metadata is not None else None
+        async with pool.acquire() as connection:
+            await connection.execute(
+                "UPDATE sessions SET metadata = $2 WHERE id = $1",
+                session_id,
+                payload,
+            )
+
+    async def update_persona_metadata(self, memory_id: UUID, metadata: Dict[str, Any]) -> None:
+        """Replace persona metadata payload."""
+        pool = self._require_pool()
+        metadata_payload = self._serialize_json(metadata)
+        async with pool.acquire() as connection:
+            await connection.execute(
+                "UPDATE persona_memory SET metadata = $2, updated_at = NOW() WHERE memory_id = $1",
+                memory_id,
+                metadata_payload,
             )
 
     def _require_pool(self) -> asyncpg.Pool:

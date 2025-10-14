@@ -2,6 +2,8 @@
 
 Atlas wraps your Bring-Your-Own-Agent (BYOA) in a guided Teacher → Student → Reward loop. Install the SDK from PyPI, point it at your agent, and Atlas handles planning, orchestration, evaluation, and optional persistence for you.
 
+> Atlas defaults to an in-memory workflow—leave `storage: null` in your config for quick experiments. You can add PostgreSQL later if you want durable telemetry.
+
 ## Install in Minutes
 
 ```bash
@@ -19,9 +21,8 @@ pip install arc-atlas
 Set API keys before running Atlas:
 
 ```bash
-export OPENAI_API_KEY=sk-...
-# Optional judges (only if you enable the RIM helpers)
-export GOOGLE_API_KEY=...
+export OPENAI_API_KEY=sk-... # your api key
+export GOOGLE_API_KEY=... # for reward system
 ```
 
 Atlas reads additional provider keys from adapter-specific `llm.api_key_env` fields.
@@ -35,7 +36,7 @@ agent:
   type: openai
   name: quickstart-openai-agent
   system_prompt: |
-    You are the Atlas Student. Follow instructions carefully and keep responses concise.
+    You are an Agent. Follow instructions carefully and keep responses concise.
   tools: []
   llm:
     provider: openai
@@ -73,12 +74,16 @@ from atlas import core
 result = core.run(
     task="Summarise the latest Atlas SDK updates",
     config_path="atlas_quickstart.yaml",
+    stream_progress=True,
 )
 
 print(result.final_answer)
 ```
 
 `result` is an `atlas.types.Result` containing the final answer, reviewed plan, and per-step evaluations. Set `stream_progress=True` to mirror planner/executor telemetry in your terminal.
+The console summary includes the adaptive mode, confidence, certification flag, and session reward so you can watch the J-curve without any database setup.
+
+Need the structured metadata? Access `ExecutionContext.get().metadata` after the run or export later via the CLI once storage is configured.
 
 ## Wrap Your Existing Agent
 
@@ -163,17 +168,22 @@ Atlas retries requests based on the adapter’s `retry` policy and normalises JS
 ## Optional: Persist Runs with PostgreSQL
 
 ```bash
-docker compose -f docker/docker-compose.yaml up -d postgres
+# Start a local Postgres via Docker (requires Docker Desktop/Engine)
+atlas storage up  # writes atlas-postgres.yaml and starts the container
 
-export STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas_arc_demo
+# Or run docker compose yourself if you prefer:
+# docker compose -f docker/docker-compose.yaml up -d postgres
+
+# Point Atlas at the database
+export STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas
 ```
 
-Add a `storage` section to your config when you want Atlas to log plans, attempts, and telemetry into Postgres for later inspection.
+Add a `storage` section to your config when you want Atlas to log plans, attempts, and telemetry into Postgres for later inspection. If Docker isn’t available, install Postgres manually and provide the same connection URL.
 
 ## Observe and Export
 
-- Set `stream_progress=True` in `core.run` to stream planner/executor/judge events.
-- Export stored sessions with `arc-atlas --database-url postgresql://... --output traces.jsonl`.
+- Set `stream_progress=True` in `core.run` to stream planner/executor/judge events alongside the adaptive summary.
+- Export stored sessions with `arc-atlas --database-url postgresql://... --output traces.jsonl`—the JSONL includes `adaptive_summary`, `session_reward`, learning notes, and persona usage.
 - Explore `docs/examples/` for telemetry and export walkthroughs.
 
 ## Next Steps

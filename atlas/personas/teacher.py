@@ -10,25 +10,24 @@ from typing import Dict
 from typing import List
 from typing import Sequence
 from typing import Tuple
-from typing import Literal
-from typing import cast
 
-from atlas.config.models import TeacherConfig
+from atlas.config.models import TeacherConfig, ToolDefinition
 from atlas.prompts import RewrittenTeacherPrompts
+from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.types import Plan
 from atlas.types import Step
 from atlas.utils.llm_client import LLMClient
-from atlas.runtime.orchestration.execution_context import ExecutionContext
 
 
 class Teacher:
-    def __init__(self, config: TeacherConfig, prompts: RewrittenTeacherPrompts) -> None:
+    def __init__(self, config: TeacherConfig, prompts: RewrittenTeacherPrompts, tools: List[ToolDefinition] | None = None) -> None:
         self._config = config
         self._client = LLMClient(config.llm)
         self._plan_cache: Dict[str, Tuple[float, Plan]] = {}
         self._plan_prompt = prompts.plan_review
         self._validation_prompt = prompts.validation
         self._guidance_prompt = prompts.guidance
+        self._tools = tools or []
 
     def update_prompts(self, prompts: RewrittenTeacherPrompts) -> None:
         """Replace teacher prompts and clear any cached plan reviews."""
@@ -44,22 +43,40 @@ class Teacher:
         self._plan_cache.clear()
 
     async def areview_plan(self, task: str, plan: Plan) -> Plan:
+        mode = self._active_mode()
+        if mode in {"auto", "paired"}:
+            return plan.model_copy(update={"execution_mode": "single_shot"})
+        reviewed = await self._review_plan_llm(task, plan, force_refresh=(mode == "escalate"))
+        return reviewed
+
+    async def _review_plan_llm(self, task: str, plan: Plan, *, force_refresh: bool = False) -> Plan:
         cache_key = self._cache_key(task, plan)
         now = time.time()
         cached = self._plan_cache.get(cache_key)
-        if cached and now - cached[0] <= self._config.plan_cache_seconds:
+        if cached and not force_refresh and now - cached[0] <= self._config.plan_cache_seconds:
             return cached[1]
         context = ExecutionContext.get()
         context.metadata["active_actor"] = "teacher"
         context.metadata["_reasoning_origin"] = ("teacher", "plan_review")
+
+        payload = {
+            "task": task,
+            "plan": plan.model_dump(),
+            "available_tools": self._serialize_tools(),
+        }
+
         messages = [
             {"role": "system", "content": self._plan_prompt},
             {
                 "role": "user",
-                "content": json.dumps({"task": task, "plan": plan.model_dump()}, ensure_ascii=False) + "\nReturn json.",
+                "content": json.dumps(payload, ensure_ascii=False) + "\nReturn json.",
             },
         ]
-        response = await self._client.acomplete(messages, response_format={"type": "json_object"})
+        response = await self._client.acomplete(
+            messages,
+            response_format={"type": "json_object"},
+            overrides=self._token_overrides(self._config.max_review_tokens),
+        )
         if not response.content.strip():
             self._consume_reasoning_metadata("teacher", "plan_review")
             return plan
@@ -74,10 +91,6 @@ class Teacher:
             self._record_reasoning("teacher", "plan_review", response.reasoning)
         normalised = self._normalise_plan_payload(payload)
         reviewed = Plan.model_validate(normalised)
-        execution_mode = self._coerce_execution_mode(normalised.get("execution_mode"))
-        if execution_mode is None:
-            execution_mode = self._infer_execution_mode(reviewed)
-        reviewed = reviewed.model_copy(update={"execution_mode": execution_mode})
         self._plan_cache[cache_key] = (now, reviewed)
         self._consume_reasoning_metadata("teacher", "plan_review")
         return reviewed
@@ -91,6 +104,9 @@ class Teacher:
         prior_guidance: Sequence[str],
         attempt_guidance: Sequence[str],
     ) -> Dict[str, Any]:
+        mode = self._active_mode()
+        if mode == "auto":
+            return self._build_auto_validation(structured_output)
         context = ExecutionContext.get()
         context.metadata["active_actor"] = "teacher"
         context.metadata["_reasoning_origin"] = ("teacher", "validation")
@@ -112,7 +128,11 @@ class Teacher:
                 + "\nReturn json.",
             },
         ]
-        response = await self._client.acomplete(messages, response_format={"type": "json_object"})
+        response = await self._client.acomplete(
+            messages,
+            response_format={"type": "json_object"},
+            overrides=self._token_overrides(self._config.validation_max_tokens),
+        )
         parsed = json.loads(response.content)
         result: Dict[str, Any] = {
             "valid": bool(parsed.get("valid", False)),
@@ -135,6 +155,11 @@ class Teacher:
         reason = structured_output.get("reason")
         if reason is not None:
             result["reason"] = reason
+        if mode == "coach" and isinstance(result.get("guidance"), str):
+            result["guidance"] = self._shorten_guidance(result["guidance"])
+        if mode == "paired" and self._is_certification_run():
+            if result.get("valid"):
+                result["certification_reward"] = self._build_certification_reward(structured_output)
         return result
 
     async def agenerate_guidance(self, step: Step, evaluation: Dict[str, Any]) -> str:
@@ -175,6 +200,26 @@ class Teacher:
     def collect_results(self, step_outputs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         return sorted(step_outputs, key=lambda item: item.get("step_id", 0))
 
+    def _build_auto_validation(self, structured_output: Dict[str, Any]) -> Dict[str, Any]:
+        result: Dict[str, Any] = {
+            "valid": True,
+            "guidance": None,
+            "status": structured_output.get("status"),
+        }
+        deliverable = structured_output.get("deliverable")
+        if deliverable is not None:
+            result["deliverable"] = deliverable
+        artifacts = structured_output.get("artifacts")
+        if artifacts is not None:
+            result["artifacts"] = artifacts
+        reason = structured_output.get("reason")
+        if reason is not None:
+            result["reason"] = reason
+        text_output = structured_output.get("text")
+        if text_output is not None:
+            result["text"] = text_output
+        return result
+
     def _build_validation_payload(
         self,
         step: Step,
@@ -197,11 +242,71 @@ class Teacher:
             "validated_context": self._jsonify(prior_results),
             "prior_guidance": list(prior_guidance),
             "attempt_guidance": list(attempt_guidance),
+            "available_tools": self._serialize_tools(),
         }
         return payload
 
     def _cache_key(self, task: str, plan: Plan) -> str:
         return json.dumps({"task": task, "plan": plan.model_dump()}, sort_keys=True)
+
+    def _serialize_tools(self) -> List[Dict[str, Any]]:
+        """Serialize tool definitions for inclusion in teacher prompts."""
+        if not self._tools:
+            return []
+        serialized = []
+        for tool in self._tools:
+            tool_info = {
+                "name": tool.name,
+                "description": tool.description,
+            }
+            if tool.parameters and tool.parameters.properties:
+                tool_info["parameters"] = {
+                    "type": tool.parameters.type,
+                    "properties": tool.parameters.properties,
+                    "required": tool.parameters.required,
+                }
+            serialized.append(tool_info)
+        return serialized
+
+    def _token_overrides(self, configured_limit: int | None) -> Dict[str, Any] | None:
+        limit = configured_limit if configured_limit is not None else self._config.llm.max_output_tokens
+        if limit is None:
+            return None
+        return {"max_tokens": limit}
+
+    def _active_mode(self) -> str:
+        context = ExecutionContext.get()
+        adaptive = context.metadata.get("adaptive", {}) if isinstance(context.metadata, dict) else {}
+        mode = adaptive.get("active_mode")
+        if isinstance(mode, str) and mode:
+            return mode
+        return "escalate"
+
+    def _is_certification_run(self) -> bool:
+        context = ExecutionContext.get()
+        adaptive = context.metadata.get("adaptive", {}) if isinstance(context.metadata, dict) else {}
+        return bool(adaptive.get("certification_run"))
+
+    def _build_certification_reward(self, structured_output: Dict[str, Any]) -> Dict[str, Any]:
+        evidence_note = structured_output.get("reason")
+        raw_payload = {
+            "source": "teacher_certification",
+            "structured_output": structured_output,
+        }
+        if evidence_note:
+            raw_payload["reason"] = evidence_note
+        return {
+            "score": 0.95,
+            "rationale": "Teacher certification pass",
+            "judges": [],
+            "raw": raw_payload,
+        }
+
+    def _shorten_guidance(self, guidance: str) -> str:
+        sentences = [segment.strip() for segment in guidance.split(".") if segment.strip()]
+        if not sentences:
+            return guidance
+        return ". ".join(sentences[:2]) + ("." if not guidance.strip().endswith(".") else "")
 
     def _run_async(self, coroutine):
         try:
@@ -216,11 +321,6 @@ class Teacher:
         if not isinstance(payload, dict):
             return payload
         payload.pop("total_estimated_time", None)
-        mode = self._coerce_execution_mode(payload.get("execution_mode"))
-        if mode is not None:
-            payload["execution_mode"] = mode
-        elif "execution_mode" in payload:
-            payload.pop("execution_mode", None)
         steps = payload.get("steps")
         if isinstance(steps, list):
             for step in steps:
@@ -232,48 +332,6 @@ class Teacher:
                     if "tool_params" not in step:
                         step["tool_params"] = None
         return payload
-
-    def _coerce_execution_mode(self, value: Any) -> Literal["stepwise", "single_shot"] | None:
-        if not isinstance(value, str):
-            return None
-        lowered = value.strip().lower()
-        if lowered in {"stepwise", "single_shot"}:
-            return cast(Literal["stepwise", "single_shot"], lowered)
-        return None
-
-    def _infer_execution_mode(self, plan: Plan) -> Literal["stepwise", "single_shot"]:
-        return "single_shot" if self._plan_is_trivial(plan) else "stepwise"
-
-    def _plan_is_trivial(self, plan: Plan) -> bool:
-        if not plan.steps:
-            return True
-        if len(plan.steps) > 2:
-            return False
-        for step in plan.steps:
-            if step.tool:
-                return False
-            if step.tool_params:
-                return False
-            if step.depends_on:
-                return False
-            if not self._is_simple_description(step.description):
-                return False
-        return True
-
-    def _is_simple_description(self, description: str) -> bool:
-        if not isinstance(description, str):
-            return False
-        text = description.strip()
-        if not text:
-            return False
-        if len(text) > 80:
-            return False
-        if "\n" in text:
-            return False
-        for char in (";", "|", "{", "}", "[", "]"):
-            if char in text:
-                return False
-        return True
 
     def _record_reasoning(self, actor: str, key: str, payload: Dict[str, Any]) -> None:
         if not payload:

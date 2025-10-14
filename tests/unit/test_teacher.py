@@ -1,7 +1,10 @@
 import asyncio
 import json
 
-from atlas.config.models import LLMParameters, LLMProvider, TeacherConfig
+import pytest
+
+from atlas.config.models import AdaptiveProbeConfig, LLMParameters, LLMProvider, TeacherConfig
+from atlas.runtime.adaptive import CapabilityProbeClient
 from atlas.personas.teacher import Teacher
 from atlas.prompts import RewrittenTeacherPrompts
 from atlas.types import Plan, Step
@@ -73,6 +76,8 @@ def test_teacher_live_contracts():
         assert set(validation.keys()) >= {"valid", "guidance"}
         assert isinstance(validation["valid"], bool)
         assert validation["guidance"] is None or isinstance(validation["guidance"], str)
+        assert teacher._client.overrides[0] and teacher._client.overrides[0].get("max_tokens") == config.max_review_tokens
+        assert teacher._client.overrides[1] and teacher._client.overrides[1].get("max_tokens") == config.validation_max_tokens
         guidance = await teacher.agenerate_guidance(step, {"validation": {"guidance": "Take another pass."}})
         assert guidance == "Take another pass."
 
@@ -82,8 +87,10 @@ def test_teacher_live_contracts():
 class _FakeTeacherClient:
     def __init__(self) -> None:
         self.reasoning = {"reasoning_content": [{"type": "thought", "text": "check constraints"}]}
+        self.overrides: list[dict[str, object] | None] = []
 
     async def acomplete(self, messages, response_format=None, overrides=None):
+        self.overrides.append(overrides)
         if response_format and response_format.get("type") == "json_object":
             user_payload = messages[-1]["content"]
             if "steps" in user_payload:
@@ -130,6 +137,8 @@ def test_teacher_records_reasoning_metadata():
             attempt_guidance=[],
         )
         assert validation["reasoning"]["reasoning_content"][0]["text"] == "check constraints"
+        assert teacher._client.overrides[0] and teacher._client.overrides[0].get("max_tokens") == config.max_review_tokens
+        assert teacher._client.overrides[1] and teacher._client.overrides[1].get("max_tokens") == config.validation_max_tokens
         guidance = await teacher.agenerate_guidance(
             plan.steps[0],
             {"validation": {"guidance": "Provide more detail."}},
@@ -137,4 +146,214 @@ def test_teacher_records_reasoning_metadata():
         assert guidance == "Provide more detail."
         store = ExecutionContext.get().metadata.get("reasoning_traces", {})
         assert "teacher" in store and store["teacher"], "Teacher reasoning should be recorded"
+    asyncio.run(runner())
+
+
+class _StaticResponseClient:
+    def __init__(self, payload: dict[str, object], *, reasoning: dict[str, object] | None = None) -> None:
+        self._payload = payload
+        self.reasoning = reasoning or {}
+
+    async def acomplete(self, messages, response_format=None, overrides=None):
+        return LLMResponse(content=json.dumps(self._payload), raw={}, reasoning=self.reasoning)
+
+
+class _ProbeClientStub:
+    def __init__(self, payload: dict[str, object], *, reasoning: dict[str, object] | None = None) -> None:
+        self._payload = payload
+        self.reasoning = reasoning or {}
+
+    async def acomplete(self, messages, response_format=None, overrides=None):
+        return LLMResponse(content=json.dumps(self._payload), raw={}, reasoning=self.reasoning)
+
+
+def test_capability_probe_prefers_auto_mode_with_helpful_stats():
+    async def runner() -> None:
+        probe = CapabilityProbeClient(AdaptiveProbeConfig())
+        probe._client = _ProbeClientStub(
+            {
+                "mode": "auto",
+                "confidence": 0.92,
+                "evidence": ["persona_helpful_ratio=0.75"],
+                "recommended_personas": ["senior"],
+            }
+        )
+        metadata = {"persona_usage": {"teacher_validation": {"helpful": 3, "harmful": 0}}}
+        dossier = {"summary": "known workflow", "risks": [{"severity": "medium"}]}
+        decision = await probe.arun(
+            task="refine report",
+            dossier=dossier,
+            fingerprint="fp-1",
+            execution_metadata=metadata,
+        )
+        assert decision.mode == "auto"
+        assert decision.confidence == pytest.approx(0.92, rel=1e-2)
+        assert decision.raw["evidence"] == ["persona_helpful_ratio=0.75"]
+        assert decision.raw["recommended_personas"] == ["senior"]
+
+    asyncio.run(runner())
+
+
+def test_capability_probe_escalates_on_high_risk_signals():
+    async def runner() -> None:
+        probe = CapabilityProbeClient(AdaptiveProbeConfig())
+        probe._client = _ProbeClientStub(
+            {
+                "mode": "escalate",
+                "confidence": 0.34,
+                "evidence": ["risk_high_severity", "persona_helpful_ratio=0.33"],
+            }
+        )
+        metadata = {"persona_usage": {"teacher_guidance": {"helpful": 1, "harmful": 2}}}
+        dossier = {"summary": "critical outage", "risks": [{"severity": "critical"}]}
+        decision = await probe.arun(
+            task="restore service",
+            dossier=dossier,
+            fingerprint="fp-2",
+            execution_metadata=metadata,
+        )
+        assert decision.mode == "escalate"
+        assert decision.confidence == pytest.approx(0.34, rel=1e-2)
+        assert "risk_high_severity" in decision.raw["evidence"]
+        assert "persona_helpful_ratio=0.33" in decision.raw["evidence"]
+
+    asyncio.run(runner())
+
+
+def test_areview_plan_refreshes_cache_on_escalation():
+    async def runner() -> None:
+        ExecutionContext.get().reset()
+        ExecutionContext.get().metadata["adaptive"] = {"active_mode": "coach"}
+        config = TeacherConfig(
+            llm=_gpt5_params(),
+            max_review_tokens=1024,
+            plan_cache_seconds=60,
+            guidance_max_tokens=512,
+            validation_max_tokens=512,
+        )
+        prompts = RewrittenTeacherPrompts(
+            plan_review="Respond with JSON containing a 'steps' array.",
+            validation="Return JSON {\"valid\": bool, \"guidance\": str | null}.",
+            guidance="Return short guidance.",
+        )
+        teacher = Teacher(config, prompts)
+        plan = Plan(steps=[Step(id=1, description="draft summary", depends_on=[])])
+        teacher._client = _StaticResponseClient(
+            {"steps": [{"id": 1, "description": "coach plan", "depends_on": [], "tool": None, "tool_params": None}]}
+        )
+        reviewed_coach = await teacher.areview_plan("Summarize Atlas", plan)
+        assert reviewed_coach.steps[0].description == "coach plan"
+        ExecutionContext.get().metadata["adaptive"]["active_mode"] = "escalate"
+        teacher._client = _StaticResponseClient(
+            {"steps": [{"id": 1, "description": "escalated plan", "depends_on": [], "tool": None, "tool_params": None}]}
+        )
+        reviewed_escalate = await teacher.areview_plan("Summarize Atlas", plan)
+        assert reviewed_escalate.steps[0].description == "escalated plan"
+
+    asyncio.run(runner())
+
+
+def test_areview_plan_respects_certification_mode():
+    async def runner() -> None:
+        ExecutionContext.get().reset()
+        ExecutionContext.get().metadata["adaptive"] = {"active_mode": "paired", "certification_run": True}
+        config = TeacherConfig(
+            llm=_gpt5_params(),
+            max_review_tokens=1024,
+            plan_cache_seconds=0,
+            guidance_max_tokens=512,
+            validation_max_tokens=512,
+        )
+        prompts = RewrittenTeacherPrompts(
+            plan_review="Respond with JSON containing a 'steps' array.",
+            validation="Return JSON {\"valid\": bool, \"guidance\": str | null}.",
+            guidance="Return short guidance.",
+        )
+        teacher = Teacher(config, prompts)
+        plan = Plan(steps=[Step(id=1, description="draft summary", depends_on=[])])
+        reviewed = await teacher.areview_plan("Summarize Atlas", plan)
+        assert reviewed.execution_mode == "single_shot"
+        assert reviewed.steps == plan.steps
+
+    asyncio.run(runner())
+
+
+def test_avalidate_step_injects_certification_reward_in_paired_mode():
+    async def runner() -> None:
+        ExecutionContext.get().reset()
+        ExecutionContext.get().metadata["adaptive"] = {"active_mode": "paired", "certification_run": True}
+        config = TeacherConfig(
+            llm=_gpt5_params(),
+            max_review_tokens=1024,
+            plan_cache_seconds=0,
+            guidance_max_tokens=512,
+            validation_max_tokens=512,
+        )
+        prompts = RewrittenTeacherPrompts(
+            plan_review="Respond with JSON containing a 'steps' array.",
+            validation="Return JSON {\"valid\": bool, \"guidance\": str | null}.",
+            guidance="Return JSON guidance.",
+        )
+        teacher = Teacher(config, prompts)
+        teacher._client = _StaticResponseClient({"valid": True, "guidance": "All clear."})
+        step = Step(id=1, description="compile", depends_on=[])
+        structured_output = {
+            "status": "ok",
+            "deliverable": {"report": "complete"},
+            "reason": "Meets certification bar.",
+        }
+        result = await teacher.avalidate_step(
+            step,
+            trace="trace",
+            structured_output=structured_output,
+            prior_results={},
+            prior_guidance=[],
+            attempt_guidance=[],
+        )
+        assert result["valid"] is True
+        assert result["guidance"] == "All clear."
+        reward = result.get("certification_reward")
+        assert isinstance(reward, dict), "Certification reward should be attached in paired certification runs"
+        assert reward["score"] == pytest.approx(0.95, rel=1e-3)
+        assert reward["raw"]["structured_output"]["reason"] == "Meets certification bar."
+
+    import pytest
+
+    asyncio.run(runner())
+
+
+def test_avalidate_step_trims_guidance_in_coach_mode():
+    async def runner() -> None:
+        ExecutionContext.get().reset()
+        ExecutionContext.get().metadata["adaptive"] = {"active_mode": "coach"}
+        config = TeacherConfig(
+            llm=_gpt5_params(),
+            max_review_tokens=1024,
+            plan_cache_seconds=0,
+            guidance_max_tokens=512,
+            validation_max_tokens=512,
+        )
+        prompts = RewrittenTeacherPrompts(
+            plan_review="Respond with JSON containing a 'steps' array.",
+            validation="Return JSON {\"valid\": bool, \"guidance\": str | null}.",
+            guidance="Return JSON guidance.",
+        )
+        teacher = Teacher(config, prompts)
+        guidance_text = "First sentence. Second sentence. Third sentence with extra detail."
+        teacher._client = _StaticResponseClient({"valid": False, "guidance": guidance_text})
+        step = Step(id=1, description="draft", depends_on=[])
+        structured_output = {
+            "status": "needs_support",
+        }
+        result = await teacher.avalidate_step(
+            step,
+            trace="trace",
+            structured_output=structured_output,
+            prior_results={},
+            prior_guidance=[],
+            attempt_guidance=[],
+        )
+        assert result["valid"] is False
+        assert result["guidance"] == "First sentence. Second sentence"
+
     asyncio.run(runner())

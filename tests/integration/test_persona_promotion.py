@@ -130,7 +130,7 @@ async def test_persona_promotion_flow(monkeypatch: pytest.MonkeyPatch) -> None:
                 "persona_memory": {
                     "promotion_samples": 2,
                     "promotion_threshold": 0.05,
-                    "persona_caps": {"student_executor": 2},
+                    "persona_caps": {"student": 2},
                 }
             },
         },
@@ -152,19 +152,20 @@ async def test_persona_promotion_flow(monkeypatch: pytest.MonkeyPatch) -> None:
             "memory_id": candidate_id,
             "agent_name": agent_name,
             "tenant_id": tenant_id,
-            "persona": "student_executor",
+            "persona": "student",
             "trigger_fingerprint": fingerprint,
             "instruction": {"append": "Provide extra quantitative detail."},
             "source_session_id": None,
             "reward_snapshot": {"score": 0.3},
             "retry_count": 2,
+            "metadata": {"tags": ["candidate"], "helpful_count": 0, "harmful_count": 0, "neutral_count": 0},
             "status": "candidate",
         }
     )
     seed_session = await database.create_session("promotion-seed")
-    await database.log_persona_memory_usage(candidate_id, seed_session, reward={"score": 0.4}, retries=2)
+    await database.log_persona_memory_usage(candidate_id, seed_session, reward={"score": 0.4}, retries=2, mode="coach")
     seed_session_2 = await database.create_session("promotion-seed-2")
-    await database.log_persona_memory_usage(candidate_id, seed_session_2, reward={"score": 0.9}, retries=1)
+    await database.log_persona_memory_usage(candidate_id, seed_session_2, reward={"score": 0.9}, retries=1, mode="auto")
 
     active_duplicate_1 = uuid4()
     active_duplicate_2 = uuid4()
@@ -174,12 +175,13 @@ async def test_persona_promotion_flow(monkeypatch: pytest.MonkeyPatch) -> None:
             "memory_id": active_duplicate_1,
             "agent_name": agent_name,
             "tenant_id": tenant_id,
-            "persona": "student_executor",
+            "persona": "student",
             "trigger_fingerprint": fingerprint,
             "instruction": duplicate_instruction,
             "source_session_id": None,
             "reward_snapshot": {"score": 0.5},
             "retry_count": 1,
+            "metadata": {"tags": ["seed"], "helpful_count": 1, "harmful_count": 0, "neutral_count": 0, "last_reward": 0.5},
             "status": "active",
         }
     )
@@ -188,12 +190,13 @@ async def test_persona_promotion_flow(monkeypatch: pytest.MonkeyPatch) -> None:
             "memory_id": active_duplicate_2,
             "agent_name": agent_name,
             "tenant_id": tenant_id,
-            "persona": "student_executor",
+            "persona": "student",
             "trigger_fingerprint": fingerprint,
             "instruction": duplicate_instruction,
             "source_session_id": None,
             "reward_snapshot": {"score": 0.45},
             "retry_count": 1,
+            "metadata": {"tags": ["seed"], "helpful_count": 1, "harmful_count": 0, "neutral_count": 0, "last_reward": 0.45},
             "status": "active",
         }
     )
@@ -230,7 +233,7 @@ async def test_persona_promotion_flow(monkeypatch: pytest.MonkeyPatch) -> None:
         active_rows = await connection.fetch(
             "SELECT memory_id, status FROM persona_memory WHERE tenant_id = $1 AND persona = $2",
             tenant_id,
-            "student_executor",
+            "student",
         )
     await verification_db.disconnect()
 

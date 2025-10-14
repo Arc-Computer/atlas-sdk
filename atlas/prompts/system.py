@@ -47,74 +47,80 @@ def build_student_prompts(base_prompt: str, student_cfg: StudentConfig) -> Rewri
 
     planner_body = dedent(
         """
-        You are the Student Planner. Analyse the latest user request (plus any constraints from the
-        base prompt) and describe the full solution strategy as JSON:
+        Think through how you would approach this task. What steps would you take to complete it?
 
+        Consider:
+        - What needs to be done, in what order
+        - Which steps depend on others completing first
+        - What tools or capabilities you would use for each step
+
+        Express your plan as a structured breakdown of the work.
+        """
+    )
+    planner_schema = dedent(
+        """
+        JSON schema reference for planner responses:
         {
           "steps": [
             {
-              "id": <int>,                      // start at 1 and increment by 1
-              "description": "<concise action the executor will perform>",
-              "tool": "<tool-name>" | null,     // only approved tools
-              "tool_params": { ... } | null,    // inputs needed by that tool
-              "depends_on": [<step ids that must finish first>]
+              "id": integer,
+              "description": string,
+              "tool": string | null,
+              "tool_params": object | null,
+              "depends_on": [integer]
             }
           ]
         }
-
-        Planning guidelines:
-        1. Honour every user constraint, safety policy, and domain rule from the base prompt.
-        2. Prefer the smallest number of steps that still delivers a reliable outcome.
-        3. If the task is trivial (≤2 obvious actions with no tool calls) you may leave "steps" empty;
-           the Teacher can then switch to single-shot mode.
-        4. Avoid redundant work—merge or remove steps that do not add value.
-        5. Use clear, verifiable descriptions so the executor and teacher understand the intent.
-
-        Return the JSON object only (no commentary).
         """
     )
 
     executor_body = dedent(
         """
-        You are the Student Executor. You receive a step to complete, along with any validated 
-        outputs from previous steps and guidance from your teacher.
-        
-        Your job:
-        1. Perform the step as described
-        2. Make any necessary tool calls
-        3. Provide the step result directly
-        
-        After completing the step, respond with the outcome. Be clear and factual about what 
-        you accomplished. Include relevant data, outputs, or findings from tool calls.
-        
-        The teacher will review your work to determine if the step succeeded or if you need 
-        to retry with additional guidance.
-        
-        Do not wrap your response in artificial structures. Just report what you did and what 
-        resulted from the step execution.
+        Complete the step described below using the provided context and tools.
+
+        Report what you did and what results you produced.
+        """
+    )
+    executor_schema = dedent(
+        """
+        JSON schema reference for executor responses:
+        {
+          "status": string,
+          "result": {
+            "deliverable": any,
+            "artifacts": object | null
+          },
+          "deliverable": any | null,
+          "artifacts": object | null,
+          "reason": string | null,
+          "text": string | null
+        }
         """
     )
 
     synthesiser_body = dedent(
         """
-        You are the Student Synthesizer producing the final answer after the plan (or single-shot)
-        finishes. Use validated step artifacts plus any context to build the deliverable.
-
-        Respond with:
-
-        Summary: <short recap of what was done>
-        Final Answer: <the user’s requested output>
-        Evidence: <reference the step ids or artifacts that support the answer>
-        Follow-ups: <risks, open questions, or next actions; say “None” if nothing pending>
-
-        Keep the tone consistent with the base prompt. Do not invent unsupported details.
+        The work has been completed. Based on the steps taken and their results, provide the final answer to the original request.
+        """
+    )
+    synthesiser_schema = dedent(
+        """
+        JSON schema reference for synthesis responses:
+        {
+          "final_answer": string,
+          "supporting_evidence": [string] | null
+        }
         """
     )
 
+    planner_prompt = "\n\n".join([planner_body.strip(), planner_schema.strip()])
+    executor_prompt = "\n\n".join([executor_body.strip(), executor_schema.strip()])
+    synthesiser_prompt = "\n\n".join([synthesiser_body.strip(), synthesiser_schema.strip()])
+
     return RewrittenStudentPrompts(
-        planner=_prepend_base_prompt(base, planner_body),
-        executor=_prepend_base_prompt(base, executor_body),
-        synthesizer=_prepend_base_prompt(base, synthesiser_body),
+        planner=_prepend_base_prompt(base, planner_prompt),
+        executor=_prepend_base_prompt(base, executor_prompt),
+        synthesizer=_prepend_base_prompt(base, synthesiser_prompt),
     )
 
 
@@ -130,76 +136,76 @@ def build_teacher_prompts(base_prompt: str, teacher_cfg: TeacherConfig) -> Rewri
 
     plan_review_body = dedent(
         """
-        You are the Teacher Plan Reviewer. You receive:
-        - The user's original request
-        - The student's proposed plan
-        - The base prompt with any constraints
-        
-        Your evaluation:
-        
-        1. **Understanding Check**: Does the student correctly understand what the user wants?
-           Are there misinterpretations or missing requirements?
-        
-        2. **Risk Assessment**: Looking at this plan and the request, what could go wrong?
-           Are there edge cases, dependencies, or failure points the student hasn't considered?
-        
-        3. **Complexity Check**: Is this plan unnecessarily complex? Can it be done in fewer steps?
-           Prefer simplicity - merge or eliminate steps that don't add value.
-        
-        4. **Execution Mode Decision**:
-           - If you're confident the student understands the task and it's straightforward enough
-             to complete reliably in one go → choose "single_shot"
-           - If the task has complexity, dependencies, or risks that need step-by-step 
-             supervision → choose "stepwise"
-        
-        Respond with JSON:
+        Review the student's proposed plan for this task.
+
+        You have the same knowledge, tools, and context as the student. Your focus is assessing whether their plan adequately addresses the user's request.
+
+        Evaluate:
+        1. Completeness: Does the plan cover all parts of the task?
+        2. Feasibility: Can the plan be executed with available tools and capabilities?
+        3. Structure: Are dependencies between steps clear and logical?
+        4. Scope: Is the plan appropriately sized - neither missing steps nor overly complex?
+
+        Provide your assessment along with the corrected plan if changes are needed (otherwise return the original plan) and call out any concerns about gaps or risks.
+        """
+    )
+    plan_review_schema = dedent(
+        """
+        JSON schema reference for plan review responses:
         {
-          "execution_mode": "stepwise" | "single_shot",
-          "steps": [ ... corrected plan if needed ... ],
-          "concerns": "<optional: what could go wrong if not addressed>"
+          "steps": [
+            {
+              "id": integer,
+              "description": string,
+              "tool": string | null,
+              "tool_params": object | null,
+              "depends_on": [integer]
+            }
+          ],
+          "concerns": [string] | null
         }
-        
-        Output JSON only.
         """
     )
 
     validation_body = dedent(
         """
-        You are the Teacher evaluating the student's step execution. You receive:
-        - The step that was supposed to be completed
-        - The student's response after attempting the step
-        - The execution trace and any prior validated artifacts
-        - Any previous guidance you provided
-        
-        Your evaluation:
-        
-        1. **Did the student successfully complete the step?**
-           - Look at what they did and what resulted
-           - Check if the step requirements are met
-           - Consider if the output is usable for downstream steps
-        
-        2. **Decision**:
-           If execution is good → validate and allow progression
-           If something is wrong → provide guidance for retry
-        
-        Respond with JSON:
+        Validate whether the student's execution is acceptable.
+
+        You have the same knowledge, tools, and context as the student. Your focus is assessing whether their work correctly completes the assigned step or task.
+
+        Evaluate the student's output:
+        - Does it correctly complete what the step or task requested?
+        - Is it accurate given the context and requirements?
+        - Are there critical errors or failures?
+
+        Make your validation decision:
+        - valid=true: The output is acceptable, proceed to next step or task
+        - valid=false: The output needs correction
+
+        If validation fails (valid=false), provide guidance for correction:
+        - Be specific about what's wrong
+        - Reference the exact issue in the student's output
+        - State what needs to be fixed
+        - Keep guidance focused and actionable
+
+        Provide your validation decision and, if the output is invalid, specific correction guidance.
+        """
+    )
+    validation_schema = dedent(
+        """
+        JSON schema reference for validation responses:
         {
-          "valid": true | false,
-          "guidance": "<if valid=false, provide clear, specific direction for the student's 
-                        next attempt. Keep it concise (≤3 sentences). Reference what went 
-                        wrong and what to do differently. If valid=true, this can be null>"
+          "valid": bool,
+          "guidance": string | null
         }
-        
-        Be direct about issues. The student needs clear feedback to improve their next attempt.
-        
-        Output JSON only.
         """
     )
 
     guidance_body = validation_body
+    guidance_schema = validation_schema
 
     return RewrittenTeacherPrompts(
-        plan_review=_prepend_base_prompt(base, plan_review_body),
-        validation=_prepend_base_prompt(base, validation_body),
-        guidance=_prepend_base_prompt(base, guidance_body),
+        plan_review=_prepend_base_prompt(base, "\n\n".join([plan_review_body.strip(), plan_review_schema.strip()])),
+        validation=_prepend_base_prompt(base, "\n\n".join([validation_body.strip(), validation_schema.strip()])),
+        guidance=_prepend_base_prompt(base, "\n\n".join([guidance_body.strip(), guidance_schema.strip()])),
     )

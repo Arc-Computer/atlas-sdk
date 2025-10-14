@@ -20,6 +20,7 @@ from atlas.utils.reactive.subject import Subject
 
 if typing.TYPE_CHECKING:
     from atlas.types import StepEvaluation
+    from atlas.utils.triage import TriageDossier
 
 
 class _Singleton(type):
@@ -139,6 +140,75 @@ class ExecutionContext:
     def append_guidance(self, step_id: int, guidance: str) -> None:
         entry = self._step_metadata(step_id)
         entry.setdefault("guidance", []).append(guidance)
+
+    def set_triage_dossier(self, dossier: "TriageDossier") -> None:
+        """Attach a triage dossier snapshot to the context metadata."""
+
+        self.metadata.setdefault("triage", {})
+        self.metadata["triage"]["dossier"] = dossier.model_dump()
+
+    def set_capability_probe(self, payload: dict[str, typing.Any]) -> None:
+        """Record capability probe output for downstream consumers."""
+
+        adaptive_meta = self.metadata.setdefault("adaptive", {})
+        adaptive_meta["probe"] = dict(payload)
+
+    def set_session_reward(
+        self,
+        reward: typing.Any | None,
+        *,
+        student_learning: str | None = None,
+        teacher_learning: str | None = None,
+    ) -> None:
+        """Record session-level reward and learning payloads."""
+
+        if reward is None:
+            self.metadata.pop("session_reward", None)
+        else:
+            if hasattr(reward, "to_dict"):
+                reward_payload = reward.to_dict()
+            elif isinstance(reward, dict):
+                reward_payload = reward
+            else:
+                reward_payload = typing.cast(typing.Any, reward)
+            self.metadata["session_reward"] = reward_payload
+        if student_learning is not None:
+            self.metadata["session_student_learning"] = student_learning
+        if teacher_learning is not None:
+            self.metadata["session_teacher_learning"] = teacher_learning
+
+    def record_mode_decision(
+        self,
+        mode: str,
+        *,
+        confidence: float | None = None,
+        reason: str | None = None,
+        evidence: typing.Sequence[str] | None = None,
+        certification: bool = False,
+    ) -> None:
+        """Append a new adaptive-mode decision to metadata."""
+
+        adaptive_meta = self.metadata.setdefault("adaptive", {})
+        entry: dict[str, typing.Any] = {"mode": mode}
+        if confidence is not None:
+            entry["confidence"] = float(confidence)
+        if reason:
+            entry["reason"] = reason
+        if evidence:
+            entry["evidence"] = list(evidence)
+        if certification:
+            entry["certification"] = True
+        history = adaptive_meta.setdefault("mode_history", [])
+        history.append(entry)
+        adaptive_meta["active_mode"] = mode
+        if certification:
+            adaptive_meta["certification_run"] = True
+
+    def mark_certification_run(self, value: bool = True) -> None:
+        """Flag whether the current run is a certification pass."""
+
+        adaptive_meta = self.metadata.setdefault("adaptive", {})
+        adaptive_meta["certification_run"] = bool(value)
 
     @property
     def intermediate_step_manager(self) -> "IntermediateStepManager":

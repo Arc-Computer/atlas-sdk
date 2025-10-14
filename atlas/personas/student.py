@@ -228,13 +228,11 @@ class Student:
         if not isinstance(artifacts, dict):
             artifacts = {}
         deliverable = structured_output.get("deliverable")
-        status = structured_output.get("status", "ok")
         guidance_reason = structured_output.get("reason")
         raw_text = structured_output.get("text")
         result_payload = structured_output.get("result", {})
         if not isinstance(result_payload, dict):
             result_payload = {"deliverable": deliverable, "artifacts": artifacts}
-        metadata["status"] = status
         metadata["artifacts"] = artifacts
         metadata["deliverable"] = deliverable
         metadata["result"] = result_payload
@@ -249,7 +247,7 @@ class Student:
             output=output_payload,
             messages=final_state.messages,
             metadata=metadata,
-            status=status,
+            status=(structured_output.get("status") or "unknown"),
             artifacts=artifacts,
             deliverable=deliverable,
         )
@@ -448,7 +446,7 @@ class Student:
         parsed: Dict[str, Any] | None = None
         if isinstance(raw_text, str):
             parsed = self._maybe_parse_executor_json(raw_text)
-        status = "ok"
+        status: str | None = None
         deliverable: Any = raw_text
         artifacts: Dict[str, Any] = {}
         reason: str | None = None
@@ -456,7 +454,8 @@ class Student:
         if isinstance(parsed, dict):
             candidate_status = parsed.get("status")
             if isinstance(candidate_status, str):
-                status = candidate_status.strip().lower() or status
+                cleaned = candidate_status.strip()
+                status = cleaned if cleaned else None
             candidate_result = parsed.get("result")
             if isinstance(candidate_result, dict):
                 result_payload = candidate_result
@@ -471,12 +470,13 @@ class Student:
         if not result_payload:
             result_payload = {"deliverable": deliverable, "artifacts": artifacts}
         normalised = {
-            "status": status,
             "deliverable": deliverable,
             "artifacts": artifacts,
             "result": result_payload,
             "text": raw_text,
         }
+        if status is not None:
+            normalised["status"] = status
         if reason is not None:
             normalised["reason"] = reason
         return normalised

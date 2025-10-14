@@ -9,12 +9,14 @@ from typing import Any
 from typing import Dict
 from typing import List
 from typing import Literal
+from typing import Optional
 from typing import Sequence
 
 from pydantic import BaseModel
 from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import field_validator
+from pydantic import model_validator
 
 class RetryPolicy(BaseModel):
     """Retry behavior for adapter calls."""
@@ -157,79 +159,82 @@ class TeacherPrompts(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    plan_review: str = (
-        "{base_prompt}\n\nYou are the Teacher Plan Reviewer. You receive:\n"
-        "- The user's original request\n"
-        "- The student's proposed plan\n"
-        "- The base prompt with any constraints\n\n"
-        "Your evaluation:\n\n"
-        "1. **Understanding Check**: Does the student correctly understand what the user wants?\n"
-        "   Are there misinterpretations or missing requirements?\n\n"
-        "2. **Risk Assessment**: Looking at this plan and the request, what could go wrong?\n"
-        "   Are there edge cases, dependencies, or failure points the student hasn't considered?\n\n"
-        "3. **Complexity Check**: Is this plan unnecessarily complex? Can it be done in fewer steps?\n"
-        "   Prefer simplicity - merge or eliminate steps that don't add value.\n\n"
-        "4. **Execution Mode Decision**:\n"
-        "   - If you're confident the student understands the task and it's straightforward enough\n"
-        "     to complete reliably in one go → choose \"single_shot\"\n"
-        "   - If the task has complexity, dependencies, or risks that need step-by-step\n"
-        "     supervision → choose \"stepwise\"\n\n"
-        "Respond with JSON:\n"
-        "{\n"
-        "  \"execution_mode\": \"stepwise\" | \"single_shot\",\n"
-        "  \"steps\": [ ... corrected plan if needed ... ],\n"
-        "  \"concerns\": \"<optional: what could go wrong if not addressed>\"\n"
-        "}\n\n"
-        "Output JSON only."
-    )
-    validation: str = (
-        "{base_prompt}\n\nYou are the Teacher evaluating the student's step execution. You receive:\n"
-        "- The step that was supposed to be completed\n"
-        "- The student's response after attempting the step\n"
-        "- The execution trace and any prior validated artifacts\n"
-        "- Any previous guidance you provided\n\n"
-        "Your evaluation:\n\n"
-        "1. **Did the student successfully complete the step?**\n"
-        "   - Look at what they did and what resulted\n"
-        "   - Check if the step requirements are met\n"
-        "   - Consider if the output is usable for downstream steps\n\n"
-        "2. **Decision**:\n"
-        "   If execution is good → validate and allow progression\n"
-        "   If something is wrong → provide guidance for retry\n\n"
-        "Respond with JSON:\n"
-        "{\n"
-        "  \"valid\": true | false,\n"
-        "  \"guidance\": \"<if valid=false, provide clear, specific direction for the student's \n"
-        "                next attempt. Keep it concise (≤3 sentences). Reference what went \n"
-        "                wrong and what to do differently. If valid=true, this can be null>\"\n"
-        "}\n\n"
-        "Be direct about issues. The student needs clear feedback to improve their next attempt.\n\n"
-        "Output JSON only."
-    )
-    guidance: str = (
-        "{base_prompt}\n\nYou are the Teacher evaluating the student's step execution. You receive:\n"
-        "- The step that was supposed to be completed\n"
-        "- The student's response after attempting the step\n"
-        "- The execution trace and any prior validated artifacts\n"
-        "- Any previous guidance you provided\n\n"
-        "Your evaluation:\n\n"
-        "1. **Did the student successfully complete the step?**\n"
-        "   - Look at what they did and what resulted\n"
-        "   - Check if the step requirements are met\n"
-        "   - Consider if the output is usable for downstream steps\n\n"
-        "2. **Decision**:\n"
-        "   If execution is good → validate and allow progression\n"
-        "   If something is wrong → provide guidance for retry\n\n"
-        "Respond with JSON:\n"
-        "{\n"
-        "  \"valid\": true | false,\n"
-        "  \"guidance\": \"<if valid=false, provide clear, specific direction for the student's \n"
-        "                next attempt. Keep it concise (≤3 sentences). Reference what went \n"
-        "                wrong and what to do differently. If valid=true, this can be null>\"\n"
-        "}\n\n"
-        "Be direct about issues. The student needs clear feedback to improve their next attempt.\n\n"
-        "Output JSON only."
-    )
+    plan_review: str
+    validation: str
+    guidance: str
+
+AdaptiveMode = Literal["auto", "paired", "coach", "escalate"]
+
+
+class AdaptiveProbeThresholds(BaseModel):
+    """Confidence thresholds that map capability probe scores to execution modes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    auto: float = Field(default=0.85, ge=0.0, le=1.0)
+    paired: float = Field(default=0.65, ge=0.0, le=1.0)
+    coach: float = Field(default=0.35, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _validate_order(self) -> "AdaptiveProbeThresholds":
+        if not (self.auto >= self.paired >= self.coach):
+            raise ValueError("confidence thresholds must satisfy auto ≥ paired ≥ coach")
+        return self
+
+
+class AdaptiveProbeConfig(BaseModel):
+    """Settings that control capability probe behaviour."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    llm: "LLMParameters | None" = None
+    thresholds: AdaptiveProbeThresholds = Field(default_factory=AdaptiveProbeThresholds)
+    fallback_mode: Literal["paired", "coach", "escalate"] = "paired"
+    evidence_limit: int = Field(default=6, ge=1, le=32)
+    timeout_seconds: float = Field(default=15.0, ge=1.0)
+
+
+class RewardObjectiveConfig(BaseModel):
+    """Allows BYOA deployments to override the default reward objective."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["rim", "python"] = "rim"
+    import_path: Optional[str] = None
+    attribute: Optional[str] = None
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+    timeout_seconds: float | None = Field(default=None, ge=0.0)
+    focus_prompt: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_python_target(self) -> "RewardObjectiveConfig":
+        if self.type == "python" and not self.import_path:
+            raise ValueError("reward.import_path is required when type='python'")
+        return self
+
+
+class AdaptiveTeachingConfig(BaseModel):
+    """Global adaptive-teaching controls for the runtime."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    certify_first_run: bool = True
+    mode_override: AdaptiveMode | None = None
+    triage_adapter: str | None = None
+    default_tags: List[str] = Field(default_factory=list)
+    probe: AdaptiveProbeConfig = Field(default_factory=AdaptiveProbeConfig)
+    reward: RewardObjectiveConfig = Field(default_factory=RewardObjectiveConfig)
+
+    @field_validator("default_tags", mode="before")
+    @classmethod
+    def _coerce_tags(cls, value: Any) -> List[str]:
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            tags = [str(item).strip() for item in value if str(item).strip()]
+            return tags
+        return [str(value).strip()] if str(value).strip() else []
 
 
 class PromptRewriteConfig(BaseModel):
@@ -259,10 +264,10 @@ class TeacherConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     llm: LLMParameters
-    max_review_tokens: int = Field(default=2048, ge=1)
+    max_review_tokens: int | None = Field(default=None, ge=1)
     plan_cache_seconds: int = Field(default=300, ge=0)
-    guidance_max_tokens: int = Field(default=512, ge=1)
-    validation_max_tokens: int = Field(default=512, ge=1)
+    guidance_max_tokens: int | None = Field(default=None, ge=1)
+    validation_max_tokens: int | None = Field(default=None, ge=1)
     prompts: TeacherPrompts | None = None
     prompt_guidance: Dict[str, str] = Field(default_factory=dict)
 
@@ -279,6 +284,7 @@ class RIMConfig(BaseModel):
     variance_threshold: float = Field(default=0.15, ge=0.0)
     uncertainty_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
     parallel_workers: int = Field(default=4, ge=1, le=32)
+    judge_prompt: str | None = None
 
 class OrchestrationConfig(BaseModel):
     """Controls sequential execution semantics."""
@@ -306,10 +312,11 @@ class AtlasConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agent: AdapterUnion = Field(discriminator="type")
-    student: StudentConfig
+    student: StudentConfig = Field(default_factory=StudentConfig)
     teacher: TeacherConfig
-    orchestration: OrchestrationConfig
+    orchestration: OrchestrationConfig = Field(default_factory=OrchestrationConfig)
     rim: RIMConfig
     storage: StorageConfig | None = None
     prompt_rewrite: PromptRewriteConfig | None = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    adaptive_teaching: AdaptiveTeachingConfig = Field(default_factory=AdaptiveTeachingConfig)

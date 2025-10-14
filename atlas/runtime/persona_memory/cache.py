@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import os
+import typing
 from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence
 
 from atlas.config.models import AtlasConfig
 
-from atlas.runtime.storage.database import Database
+if typing.TYPE_CHECKING:
+    from atlas.runtime.storage.database import Database
 
 Truthies = {"1", "true", "yes", "on"}
 
@@ -33,7 +35,7 @@ class PersonaMemoryCache:
 
     async def get_or_load(
         self,
-        database: Database,
+        database: "Database",
         key: PersonaMemoryKey,
         statuses: Sequence[str] | None,
         *,
