@@ -706,7 +706,8 @@ class Orchestrator:
         else:
             organized_results = sorted(step_summaries, key=lambda item: item.get("step_id", 0))
         context.metadata["single_shot_results"] = organized_results
-        final_answer = await self._student.asynthesize_final_answer(task, organized_results)
+        deliverable = outcome.deliverable or result.metadata.get("deliverable")
+        final_answer = deliverable if isinstance(deliverable, str) and deliverable.strip() else result.output
         return Result(final_answer=final_answer, plan=plan, step_results=step_results)
 
     async def _run_stepwise(self, task: str, plan: Plan) -> Result:
