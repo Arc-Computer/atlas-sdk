@@ -1,17 +1,60 @@
 # Atlas SDK
+[![Atlas SDK hero](public/atlas-sdk.jpeg)](public/atlas-sdk.jpeg)
 
-Atlas SDK is the continual-learning runtime that turns every task into a structured learning episode. It wraps any agent (OpenAI, Claude, Gemini, local models, or your own stack) with an adaptive dual-agent reasoning loop (student + teacher) guided by reward signals, so agents stay fast on familiar work while escalating supervision on new or risky tasks. The SDK records rich telemetry, surfaces adaptive signals in real time, and exports production data for downstream training.
-
-> **How it relates to [ATLAS](https://github.com/Arc-Computer/ATLAS)**  
-> This repository delivers the runtime harness that powers continual learning in production. The `ATLAS` repo focuses on training models that ingest the structured traces produced here. Run the SDK to capture adaptive episodes; feed those traces into ATLAS to retrain and evaluate new policies.
+Atlas enables continual learning for agents to adapt, learn, and transfer knowledge in live environments.
 
 [![PyPI version](https://img.shields.io/pypi/v/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
 
-![Atlas SDK Adaptive Runtime](public/runtime-2.png)
+Atlas SDK is the continual-learning runtime that turns every task into a structured learning episode. It wraps any agent (OpenAI, Claude, Gemini, local models, or your own stack) with an adaptive dual-agent reasoning loop guided by reward signals, so agents stay fast on familiar work while escalating supervision on new or risky tasks. The SDK records rich telemetry, surfaces adaptive signals in real time, and exports production data for downstream training.
 
+> **How it relates to [ATLAS](https://github.com/Arc-Computer/ATLAS)**  
+> This repository delivers the runtime harness that powers continual learning in production. The `ATLAS` repo focuses on training models that ingest the structured traces produced here. Run the SDK to capture adaptive episodes; feed those traces into ATLAS to retrain and evaluate new policies.
+
+---
+
+With the split between SDK (runtime) and ATLAS (training) in mind, here's what our runtime gives you out of the box.
+
+## Key Highlights (v0.1.3)
+
+- **Adaptive Runtime** – Every request is triaged up front. We run a quick “can the agent handle this?” probe and pick the right lane: stay fully automated when confidence is high, ask the teacher to double-check the final answer, or run step-by-step with retries when risk is higher.
+- **Persistent Learning Memory** – After each task, we store what guidance helped and what didn’t. Helpful tips are ready for the next run, and you can plug in Postgres when you want a durable trail of persona memories.
+- **Production Telemetry & Export** – Out of the box you get a terminal feed that shows lane decisions, probe confidence, certification flags, and reward scores. Export the same telemetry to JSONL with one CLI call (`arc-atlas`) so training pipelines can consume it without extra wiring.
+- **Bring-Your-Own-Agent Harness** – Point the SDK at whatever agent you already run—OpenAI-compatible chat, a Python function, or an HTTP endpoint. Drop your prompts and tools into the provided YAML templates and the runtime handles the rest.
+- **Lightweight Defaults** – Your first run doesn’t spin up databases or exporters. All the heavier integrations (storage, dashboards, advanced telemetry) stay optional until you explicitly enable them.
+
+---
+
+## Quick Start
+
+**1. Install the SDK**
 ```bash
 pip install arc-atlas
+```
+
+**2. Configure your API keys**
+```bash
+export OPENAI_API_KEY=sk-...
+export GOOGLE_API_KEY=...
+```
+
+**3. Run an Example**
+
+Create a python file `run_quickstart.py`:
+```python
+from atlas import core
+
+result = core.run(
+    task="Summarise the latest Atlas SDK updates",
+    config_path="configs/examples/openai_agent.yaml", # Assumes you cloned the repo
+)
+
+print(result.final_answer)
+```
+
+Then run the script:
+```bash
+python run_quickstart.py
 ```
 
 ---
@@ -22,39 +65,20 @@ The README hits the highlights. For the complete guide—including configuration
 
 ---
 
-## Key Highlights (v0.1.3)
+## Architecture
 
-- **Adaptive Runtime** – A capability probe selects one of four execution lanes (`auto`, `paired`, `coach`, `escalate`) per request, keeping latency low on routine flows while escalating complex work to supervised review.
-- **Persistent Learning Memory** – Guidance and instructions from each episode are tagged by reward (helpful vs harmful) and automatically reused, with optional Postgres persistence when you need durable history.
-- **Production Telemetry & Export** – The console streamer surfaces adaptive mode, confidence, certification flags, and reward summaries in real time; the JSONL exporter captures the full trajectory for downstream training.
-- **Bring-Your-Own-Agent Harness** – Connect Python callables, HTTP services, or OpenAI-compatible endpoints via structured YAML prompts for student and teacher personas.
-- **Lightweight Defaults** – Storage, exporters, and other heavy integrations are opt-in so your first run stays quick; enable them when you are ready to promote persona memories or wire dashboards.
+![Atlas SDK Adaptive Runtime](public/runtime-2.png)
 
----
-
-## Quick Start
-
-```bash
-python3.13 -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -e .[dev]
+```
+1. core.run()                 # load config, adapter, execution context
+2. planner role creates plan  # BYOA bridge composes dependency-aware steps
+3. validator role reviews     # ensures tooling, dependencies, and risks are handled
+4. Orchestrator.arun()        # executes steps, applies guidance, records telemetry
+5. Evaluator.ajudge()         # aggregates reward signals (process/helpfulness/custom)
+6. Database.log_*()           # optional persistence of plans, attempts, trajectory events
 ```
 
-Run an example configuration:
-
-```python
-from atlas import core
-
-result = core.run(
-    task="Summarise the latest Atlas SDK updates",
-    config_path="configs/examples/openai_agent.yaml",
-)
-
-print(result.final_answer)
-```
-
-Atlas returns an `atlas.types.Result` containing the final answer, the reviewed plan, and per-step evaluations.
+Trajectory events stream through `ExecutionContext.event_stream`, enabling live console streaming and durable storage via `atlas/runtime/storage/database.py` and `atlas/runtime/storage/schema.sql`.
 
 ---
 
@@ -198,21 +222,6 @@ agent:
     base_url: http://localhost:8080/agent
     timeout_seconds: 60
 ```
-
----
-
-## Architecture
-
-```
-1. core.run()                 # load config, adapter, execution context
-2. planner role creates plan  # BYOA bridge composes dependency-aware steps
-3. validator role reviews     # ensures tooling, dependencies, and risks are handled
-4. Orchestrator.arun()        # executes steps, applies guidance, records telemetry
-5. Evaluator.ajudge()         # aggregates reward signals (process/helpfulness/custom)
-6. Database.log_*()           # optional persistence of plans, attempts, trajectory events
-```
-
-Trajectory events stream through `ExecutionContext.event_stream`, enabling live console streaming and durable storage via `atlas/runtime/storage/database.py` and `atlas/runtime/storage/schema.sql`.
 
 ---
 
