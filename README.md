@@ -8,7 +8,7 @@ Atlas SDK is the continual-learning runtime that turns every task into a structu
 [![PyPI version](https://img.shields.io/pypi/v/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
 
-![Atlas SDK hero](public/atlas-sdk.jpeg)
+![Atlas SDK Adaptive Runtime](public/runtime-2.png)
 
 ```bash
 pip install arc-atlas
