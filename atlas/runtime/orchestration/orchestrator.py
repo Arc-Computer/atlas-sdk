@@ -531,9 +531,7 @@ class Orchestrator:
                 "description": single_step.description,
                 "status": outcome.status,
                 "output": result.output,
-                "artifacts": outcome.artifacts,
-                "deliverable": outcome.deliverable,
-                "reason": result.metadata.get("reason"),
+                "deliverable": outcome.deliverable or result.metadata.get("deliverable"),
             }
         )
         step_results.append(
@@ -561,6 +559,40 @@ class Orchestrator:
         context_outputs: Dict[int, Dict[str, Any]] = {}
         step_summaries: List[Dict[str, Any]] = []
         step_results: List[StepResult] = []
+        execution_mode = str(context.metadata.get("execution_mode", "stepwise") or "stepwise")
+
+        def _store_outcome(step: Step, outcome: _StepExecutionOutcome) -> None:
+            if outcome.context_entry is not None:
+                context_outputs[step.id] = outcome.context_entry
+            student_result = outcome.result
+            evaluation = outcome.evaluation
+            attempts = outcome.attempts
+            step_summaries.append(
+                {
+                    "step_id": step.id,
+                    "description": step.description,
+                    "status": outcome.status,
+                    "output": student_result.output,
+                    "artifacts": outcome.artifacts,
+                    "deliverable": student_result.deliverable,
+                    "reason": student_result.metadata.get("reason"),
+                    "trace": student_result.trace,
+                    "evaluation": evaluation.to_dict(),
+                    "metadata": student_result.metadata,
+                    "attempts": attempts,
+                }
+            )
+            step_results.append(
+                StepResult(
+                    step_id=step.id,
+                    trace=student_result.trace,
+                    output=student_result.output,
+                    evaluation=evaluation,
+                    attempts=attempts,
+                    metadata=student_result.metadata,
+                )
+            )
+
         for level in levels:
             if len(level) == 1:
                 step_id = level[0]
@@ -573,111 +605,65 @@ class Orchestrator:
                     require_validation=True,
                     allow_retry=True,
                 )
-                if outcome.context_entry is not None:
-                    context_outputs[step.id] = outcome.context_entry
-                result = outcome.result
-                evaluation = outcome.evaluation
-                attempts = outcome.attempts
-                step_summaries.append(
-                    {
-                        "step_id": step.id,
-                        "description": step.description,
-                        "status": outcome.status,
-                        "output": result.output,
-                        "artifacts": outcome.artifacts,
-                        "deliverable": result.deliverable,
-                        "reason": result.metadata.get("reason"),
-                        "trace": result.trace,
-                        "evaluation": evaluation.to_dict(),
-                        "metadata": result.metadata,
-                        "attempts": attempts,
-                    }
-                )
-                step_results.append(
-                    StepResult(
-                        step_id=step.id,
-                        trace=result.trace,
-                        output=result.output,
-                        evaluation=evaluation,
-                        attempts=attempts,
-                        metadata=result.metadata,
-                    )
-                )
+                _store_outcome(step, outcome)
             else:
                 steps = [self._lookup_step(plan, step_id) for step_id in level]
-                tasks = [
-                    self._run_step(
-                        task,
-                        step,
-                        dict(context_outputs),
-                        context,
-                        require_validation=True,
-                        allow_retry=True,
-                    )
-                    for step in steps
-                ]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                captured_exception: Exception | None = None
-                for step, outcome in zip(steps, results):
-                    if isinstance(outcome, Exception):
-                        evaluation = self._build_error_evaluation(str(outcome))
-                        step_summaries.append(
-                            {
-                                "step_id": step.id,
-                                "description": step.description,
-                                "output": "",
-                                "trace": "",
-                                "evaluation": evaluation.to_dict(),
-                                "metadata": {},
-                                "attempts": 0,
-                            }
+                if execution_mode == "escalate":
+                    for step in steps:
+                        outcome = await self._run_step(
+                            task,
+                            step,
+                            context_outputs,
+                            context,
+                            require_validation=True,
+                            allow_retry=True,
                         )
-                        step_results.append(
-                            StepResult(
-                                step_id=step.id,
-                                trace="",
-                                output="",
-                                evaluation=evaluation,
-                                attempts=0,
-                                metadata={},
+                        _store_outcome(step, outcome)
+                else:
+                    tasks = [
+                        self._run_step(
+                            task,
+                            step,
+                            dict(context_outputs),
+                            context,
+                            require_validation=True,
+                            allow_retry=True,
+                        )
+                        for step in steps
+                    ]
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    captured_exception: Exception | None = None
+                    for step, outcome in zip(steps, results):
+                        if isinstance(outcome, Exception):
+                            evaluation = self._build_error_evaluation(str(outcome))
+                            step_summaries.append(
+                                {
+                                    "step_id": step.id,
+                                    "description": step.description,
+                                    "output": "",
+                                    "trace": "",
+                                    "evaluation": evaluation.to_dict(),
+                                    "metadata": {},
+                                    "attempts": 0,
+                                }
                             )
-                        )
-                        if captured_exception is None:
-                            captured_exception = outcome
-                        continue
+                            step_results.append(
+                                StepResult(
+                                    step_id=step.id,
+                                    trace="",
+                                    output="",
+                                    evaluation=evaluation,
+                                    attempts=0,
+                                    metadata={},
+                                )
+                            )
+                            if captured_exception is None:
+                                captured_exception = outcome
+                            continue
 
-                    if outcome.context_entry is not None:
-                        context_outputs[step.id] = outcome.context_entry
-                    result = outcome.result
-                    evaluation = outcome.evaluation
-                    attempts = outcome.attempts
-                    step_summaries.append(
-                        {
-                            "step_id": step.id,
-                            "description": step.description,
-                            "status": outcome.status,
-                            "output": result.output,
-                            "artifacts": outcome.artifacts,
-                            "deliverable": result.deliverable,
-                            "reason": result.metadata.get("reason"),
-                            "trace": result.trace,
-                            "evaluation": evaluation.to_dict(),
-                            "metadata": result.metadata,
-                            "attempts": attempts,
-                        }
-                    )
-                    step_results.append(
-                        StepResult(
-                            step_id=step.id,
-                            trace=result.trace,
-                            output=result.output,
-                            evaluation=evaluation,
-                            attempts=attempts,
-                            metadata=result.metadata,
-                        )
-                    )
-                if captured_exception is not None:
-                    raise captured_exception
+                        _store_outcome(step, outcome)
+                    if captured_exception is not None:
+                        raise captured_exception
 
         organized_results = self._teacher.collect_results(step_summaries)
         final_answer = await self._student.asynthesize_final_answer(task, organized_results)

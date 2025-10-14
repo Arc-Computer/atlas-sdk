@@ -1,4 +1,4 @@
-"""Atlas CLI entry point supporting triage scaffolding and local storage helpers."""
+"""Atlas CLI entry point supporting triage scaffolding and optional storage helpers."""
 
 from __future__ import annotations
 
@@ -126,6 +126,7 @@ def _cmd_storage_up(args: argparse.Namespace) -> int:
         return 1
     compose_path.write_text(_COMPOSE_TEMPLATE, encoding="utf-8")
     print(f"Wrote Docker Compose file to {compose_path}")
+    print("Storage is optional—skip this step when you only need in-memory runs.")
 
     if args.no_start:
         _print_storage_instructions(compose_path)
@@ -157,16 +158,21 @@ def _cmd_storage_up(args: argparse.Namespace) -> int:
 def _print_storage_instructions(compose_path: Path) -> None:
     connection_url = "postgresql://atlas:atlas@localhost:5433/atlas"
     print()
-    print("To connect Atlas to this instance, set either of the following:")
+    print("To connect Atlas to this instance (optional), set either of the following:")
     print(f"  export STORAGE__DATABASE_URL={connection_url}")
     print("or add the same value to your Atlas YAML config under storage.database_url.")
     print()
     print("To stop the container, run:")
     print(f"  docker compose -f {compose_path} down")
+    print()
+    print("Once connected, CLI exports will include adaptive summaries, reward highlights, and persona usage telemetry.")
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="atlas", description="Atlas SDK command-line tools.")
+    parser = argparse.ArgumentParser(
+        prog="atlas",
+        description="Atlas SDK command-line tools for triage scaffolding and optional storage utilities.",
+    )
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
 
     triage_parser = subparsers.add_parser("triage", help="Triage helper commands.")
@@ -188,7 +194,7 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument("--force", action="store_true", help="Overwrite the output file if it already exists.")
     init_parser.set_defaults(handler=_cmd_triage_init)
 
-    storage_parser = subparsers.add_parser("storage", help="Local storage helpers.")
+    storage_parser = subparsers.add_parser("storage", help="Optional storage helpers for PostgreSQL persistence.")
     storage_subparsers = storage_parser.add_subparsers(dest="storage_command", metavar="<subcommand>")
 
     up_parser = storage_subparsers.add_parser(

@@ -161,7 +161,7 @@ class ConsoleTelemetryStreamer:
                     rim_scores.append(f"{identifier}:{float(judge_score):.2f}")
         rim_display = ", ".join(rim_scores) if rim_scores else "none"
         self._write(
-            f"STEP {step_id}: retry {attempt} | reward score: {score_text} | RIM scores: {rim_display}"
+            f"STEP {step_id}: retry {attempt} | Reward score={score_text} | RIM scores: {rim_display}"
         )
 
     def _capture_plan_metadata(self) -> None:
@@ -215,12 +215,26 @@ class ConsoleTelemetryStreamer:
             self._write(f"  {line}")
         attempt_summary, judge_calls = self._compute_metrics(result)
         runtime = self._session_duration()
-        summary_line = (
-            f"Summary | execution_mode={execution_mode} | total_runtime={runtime} | judge_calls={judge_calls}"
-        )
+        adaptive_summary = metadata.get("adaptive_summary") if isinstance(metadata, dict) else {}
+        summary_line = f"Summary | execution_mode={execution_mode} | total_runtime={runtime} | judge_calls={judge_calls}"
+        mode_display = adaptive_summary.get("adaptive_mode") if isinstance(adaptive_summary, dict) else None
+        if isinstance(mode_display, str) and mode_display and mode_display != execution_mode:
+            summary_line += f" | adaptive_mode={mode_display}"
+        confidence = adaptive_summary.get("confidence") if isinstance(adaptive_summary, dict) else None
+        if isinstance(confidence, (int, float)):
+            summary_line += f" | adaptive_confidence={confidence:.2f}"
+        certification_flag = adaptive_summary.get("certification_run") if isinstance(adaptive_summary, dict) else None
+        if certification_flag:
+            summary_line += " | certification=True"
         self._write(summary_line)
         if attempt_summary:
             self._write(f"  attempts: {attempt_summary}")
+        reward_line = self._format_reward_highlight(metadata)
+        if reward_line:
+            self._write(f"  {reward_line}")
+        learning_lines = self._collect_learning_highlights(metadata)
+        for label, value in learning_lines:
+            self._write(f"  {label}: {self._shorten(value, 160)}")
 
     def _render_plan(self, plan_payload: Any) -> None:
         if not isinstance(plan_payload, dict):
@@ -271,6 +285,39 @@ class ConsoleTelemetryStreamer:
                 for entry in notes[-3:]
             )
             self._write(f"  recent decisions: {summary}")
+
+    def _format_reward_highlight(self, metadata: Dict[str, Any]) -> str | None:
+        reward_payload = metadata.get("session_reward")
+        if isinstance(reward_payload, dict):
+            score = reward_payload.get("score")
+            if isinstance(score, (int, float)):
+                rationale = reward_payload.get("rationale")
+                message = f"Reward score={score:.2f}"
+                if isinstance(rationale, str) and rationale.strip():
+                    message += f" ({self._shorten(rationale.strip(), 80)})"
+                return message
+        summary = metadata.get("reward_summary")
+        if isinstance(summary, dict):
+            score = summary.get("score")
+            if isinstance(score, (int, float)):
+                return f"Reward score={score:.2f}"
+            average = summary.get("average")
+            if isinstance(average, (int, float)):
+                count = summary.get("count")
+                if isinstance(count, int):
+                    return f"Reward average={average:.2f} across {count} steps"
+                return f"Reward average={average:.2f}"
+        return None
+
+    def _collect_learning_highlights(self, metadata: Dict[str, Any]) -> list[tuple[str, str]]:
+        highlights: list[tuple[str, str]] = []
+        student_learning = metadata.get("student_learning")
+        if isinstance(student_learning, str) and student_learning.strip():
+            highlights.append(("student_learning", student_learning.strip()))
+        teacher_learning = metadata.get("teacher_learning")
+        if isinstance(teacher_learning, str) and teacher_learning.strip():
+            highlights.append(("teacher_learning", teacher_learning.strip()))
+        return highlights
 
     def _compute_metrics(self, result: Result) -> Tuple[str, int]:
         attempt_counts: dict[int, int] = {}

@@ -3,7 +3,8 @@ import json
 
 import pytest
 
-from atlas.config.models import LLMParameters, LLMProvider, TeacherConfig
+from atlas.config.models import AdaptiveProbeConfig, LLMParameters, LLMProvider, TeacherConfig
+from atlas.runtime.adaptive import CapabilityProbeClient
 from atlas.personas.teacher import Teacher
 from atlas.prompts import RewrittenTeacherPrompts
 from atlas.types import Plan, Step
@@ -151,54 +152,105 @@ class _StaticResponseClient:
         return LLMResponse(content=json.dumps(self._payload), raw={}, reasoning=self.reasoning)
 
 
-def test_adaptive_probe_prefers_auto_mode_with_helpful_stats():
+class _ProbeClientStub:
+    def __init__(self, payload: dict[str, object], *, reasoning: dict[str, object] | None = None) -> None:
+        self._payload = payload
+        self.reasoning = reasoning or {}
+
+    async def acomplete(self, messages, response_format=None, overrides=None):
+        return LLMResponse(content=json.dumps(self._payload), raw={}, reasoning=self.reasoning)
+
+
+def test_capability_probe_prefers_auto_mode_with_helpful_stats():
     async def runner() -> None:
-        ExecutionContext.get().reset()
-        config = TeacherConfig(
-            llm=_gpt5_params(),
-            max_review_tokens=1024,
-            plan_cache_seconds=0,
-            guidance_max_tokens=512,
-            validation_max_tokens=512,
-        )
-        prompts = RewrittenTeacherPrompts(
-            plan_review="Respond with JSON containing a 'steps' array.",
-            validation="Return JSON {\"valid\": bool, \"guidance\": str | null}.",
-            guidance="Return short guidance.",
-        )
-        teacher = Teacher(config, prompts)
-        metadata = {
-            "persona_memories": {
-                "teacher_validation": [
-                    {
-                        "metadata": {
-                            "helpful_count": 3,
-                            "harmful_count": 0,
-                            "neutral_count": 1,
-                            "tags": ["persona:senior", "domain:finops"],
-                        }
-                    }
-                ]
+        probe = CapabilityProbeClient(AdaptiveProbeConfig())
+        probe._client = _ProbeClientStub(
+            {
+                "mode": "auto",
+                "confidence": 0.92,
+                "evidence": ["persona_helpful_ratio=0.75"],
+                "recommended_personas": ["senior"],
             }
-        }
+        )
+        metadata = {"persona_usage": {"teacher_validation": {"helpful": 3, "harmful": 0}}}
         dossier = {"summary": "known workflow", "risks": [{"severity": "medium"}]}
-        decision = await teacher.adaptive_probe(
-            "refine report",
-            dossier,
+        decision = await probe.arun(
+            task="refine report",
+            dossier=dossier,
             fingerprint="fp-1",
             execution_metadata=metadata,
         )
-        assert decision["mode"] == "auto"
-        assert decision["confidence"] == pytest.approx(0.9, rel=1e-2)
-        assert "persona_helpful_ratio=0.75" in decision["evidence"]
-        assert decision["recommended_personas"] == ["senior"]
+        assert decision.mode == "auto"
+        assert decision.confidence == pytest.approx(0.92, rel=1e-2)
+        assert decision.raw["evidence"] == ["persona_helpful_ratio=0.75"]
+        assert decision.raw["recommended_personas"] == ["senior"]
 
     asyncio.run(runner())
 
 
-def test_adaptive_probe_escalates_on_high_risk_or_negative_signals():
+def test_capability_probe_escalates_on_high_risk_signals():
+    async def runner() -> None:
+        probe = CapabilityProbeClient(AdaptiveProbeConfig())
+        probe._client = _ProbeClientStub(
+            {
+                "mode": "escalate",
+                "confidence": 0.34,
+                "evidence": ["risk_high_severity", "persona_helpful_ratio=0.33"],
+            }
+        )
+        metadata = {"persona_usage": {"teacher_guidance": {"helpful": 1, "harmful": 2}}}
+        dossier = {"summary": "critical outage", "risks": [{"severity": "critical"}]}
+        decision = await probe.arun(
+            task="restore service",
+            dossier=dossier,
+            fingerprint="fp-2",
+            execution_metadata=metadata,
+        )
+        assert decision.mode == "escalate"
+        assert decision.confidence == pytest.approx(0.34, rel=1e-2)
+        assert "risk_high_severity" in decision.raw["evidence"]
+        assert "persona_helpful_ratio=0.33" in decision.raw["evidence"]
+
+    asyncio.run(runner())
+
+
+def test_areview_plan_refreshes_cache_on_escalation():
     async def runner() -> None:
         ExecutionContext.get().reset()
+        ExecutionContext.get().metadata["adaptive"] = {"active_mode": "coach"}
+        config = TeacherConfig(
+            llm=_gpt5_params(),
+            max_review_tokens=1024,
+            plan_cache_seconds=60,
+            guidance_max_tokens=512,
+            validation_max_tokens=512,
+        )
+        prompts = RewrittenTeacherPrompts(
+            plan_review="Respond with JSON containing a 'steps' array.",
+            validation="Return JSON {\"valid\": bool, \"guidance\": str | null}.",
+            guidance="Return short guidance.",
+        )
+        teacher = Teacher(config, prompts)
+        plan = Plan(steps=[Step(id=1, description="draft summary", depends_on=[])])
+        teacher._client = _StaticResponseClient(
+            {"steps": [{"id": 1, "description": "coach plan", "depends_on": [], "tool": None, "tool_params": None}]}
+        )
+        reviewed_coach = await teacher.areview_plan("Summarize Atlas", plan)
+        assert reviewed_coach.steps[0].description == "coach plan"
+        ExecutionContext.get().metadata["adaptive"]["active_mode"] = "escalate"
+        teacher._client = _StaticResponseClient(
+            {"steps": [{"id": 1, "description": "escalated plan", "depends_on": [], "tool": None, "tool_params": None}]}
+        )
+        reviewed_escalate = await teacher.areview_plan("Summarize Atlas", plan)
+        assert reviewed_escalate.steps[0].description == "escalated plan"
+
+    asyncio.run(runner())
+
+
+def test_areview_plan_respects_certification_mode():
+    async def runner() -> None:
+        ExecutionContext.get().reset()
+        ExecutionContext.get().metadata["adaptive"] = {"active_mode": "paired", "certification_run": True}
         config = TeacherConfig(
             llm=_gpt5_params(),
             max_review_tokens=1024,
@@ -212,31 +264,10 @@ def test_adaptive_probe_escalates_on_high_risk_or_negative_signals():
             guidance="Return short guidance.",
         )
         teacher = Teacher(config, prompts)
-        metadata = {
-            "persona_memories": {
-                "teacher_guidance": [
-                    {
-                        "metadata": {
-                            "helpful_count": 1,
-                            "harmful_count": 2,
-                            "neutral_count": 0,
-                            "tags": ["persona:analyst"],
-                        }
-                    }
-                ]
-            }
-        }
-        dossier = {"summary": "critical outage", "risks": [{"severity": "critical"}]}
-        decision = await teacher.adaptive_probe(
-            "restore service",
-            dossier,
-            fingerprint="fp-2",
-            execution_metadata=metadata,
-        )
-        assert decision["mode"] == "escalate"
-        assert decision["confidence"] == pytest.approx(0.35, rel=1e-2)
-        assert "risk_high_severity" in decision["evidence"]
-        assert "persona_helpful_ratio=0.33" in decision["evidence"]
+        plan = Plan(steps=[Step(id=1, description="draft summary", depends_on=[])])
+        reviewed = await teacher.areview_plan("Summarize Atlas", plan)
+        assert reviewed.execution_mode == "single_shot"
+        assert reviewed.steps == plan.steps
 
     asyncio.run(runner())
 

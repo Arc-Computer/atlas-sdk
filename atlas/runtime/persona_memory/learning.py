@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import typing
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -13,9 +14,10 @@ from uuid import UUID, uuid4
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.runtime.persona_memory.constants import canonical_persona_name
 from atlas.runtime.persona_memory.fingerprint import FingerprintInputs
-from atlas.runtime.storage.database import Database
 from atlas.types import Result, StepResult
 
+if typing.TYPE_CHECKING:
+    from atlas.runtime.storage.database import Database
 logger = logging.getLogger(__name__)
 
 MAX_INSTRUCTION_CHARS = 500
@@ -172,7 +174,7 @@ def extract_candidates(context: ExecutionContext, result: Result) -> List[Candid
     return candidates
 
 
-async def write_candidates(database: Database, session_id: int, candidates: Iterable[CandidateSpec]) -> List[UUID]:
+async def write_candidates(database: "Database", session_id: int, candidates: Iterable[CandidateSpec]) -> List[UUID]:
     """Persist persona memory candidates, avoiding duplicates."""
     created_ids: list[UUID] = []
     grouped: dict[tuple[str, str, str, str], list[CandidateSpec]] = defaultdict(list)

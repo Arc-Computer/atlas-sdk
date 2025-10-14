@@ -57,6 +57,22 @@ def build_student_prompts(base_prompt: str, student_cfg: StudentConfig) -> Rewri
         Express your plan as a structured breakdown of the work.
         """
     )
+    planner_schema = dedent(
+        """
+        JSON schema reference for planner responses:
+        {
+          "steps": [
+            {
+              "id": integer,
+              "description": string,
+              "tool": string | null,
+              "tool_params": object | null,
+              "depends_on": [integer]
+            }
+          ]
+        }
+        """
+    )
 
     executor_body = dedent(
         """
@@ -65,17 +81,46 @@ def build_student_prompts(base_prompt: str, student_cfg: StudentConfig) -> Rewri
         Report what you did and what results you produced.
         """
     )
+    executor_schema = dedent(
+        """
+        JSON schema reference for executor responses:
+        {
+          "status": string,
+          "result": {
+            "deliverable": any,
+            "artifacts": object | null
+          },
+          "deliverable": any | null,
+          "artifacts": object | null,
+          "reason": string | null,
+          "text": string | null
+        }
+        """
+    )
 
     synthesiser_body = dedent(
         """
         The work has been completed. Based on the steps taken and their results, provide the final answer to the original request.
         """
     )
+    synthesiser_schema = dedent(
+        """
+        JSON schema reference for synthesis responses:
+        {
+          "final_answer": string,
+          "supporting_evidence": [string] | null
+        }
+        """
+    )
+
+    planner_prompt = "\n\n".join([planner_body.strip(), planner_schema.strip()])
+    executor_prompt = "\n\n".join([executor_body.strip(), executor_schema.strip()])
+    synthesiser_prompt = "\n\n".join([synthesiser_body.strip(), synthesiser_schema.strip()])
 
     return RewrittenStudentPrompts(
-        planner=_prepend_base_prompt(base, planner_body),
-        executor=_prepend_base_prompt(base, executor_body),
-        synthesizer=_prepend_base_prompt(base, synthesiser_body),
+        planner=_prepend_base_prompt(base, planner_prompt),
+        executor=_prepend_base_prompt(base, executor_prompt),
+        synthesizer=_prepend_base_prompt(base, synthesiser_prompt),
     )
 
 
@@ -108,6 +153,24 @@ def build_teacher_prompts(base_prompt: str, teacher_cfg: TeacherConfig) -> Rewri
         Provide your assessment with an execution mode recommendation, the corrected plan if changes are needed (otherwise the original plan), and any concerns about gaps or risks.
         """
     )
+    plan_review_schema = dedent(
+        """
+        JSON schema reference for plan review responses:
+        {
+          "execution_mode": "single_shot" | "stepwise",
+          "steps": [
+            {
+              "id": integer,
+              "description": string,
+              "tool": string | null,
+              "tool_params": object | null,
+              "depends_on": [integer]
+            }
+          ],
+          "concerns": [string] | null
+        }
+        """
+    )
 
     validation_body = dedent(
         """
@@ -133,11 +196,21 @@ def build_teacher_prompts(base_prompt: str, teacher_cfg: TeacherConfig) -> Rewri
         Provide your validation decision and, if the output is invalid, specific correction guidance.
         """
     )
+    validation_schema = dedent(
+        """
+        JSON schema reference for validation responses:
+        {
+          "valid": bool,
+          "guidance": string | null
+        }
+        """
+    )
 
     guidance_body = validation_body
+    guidance_schema = validation_schema
 
     return RewrittenTeacherPrompts(
-        plan_review=_prepend_base_prompt(base, plan_review_body),
-        validation=_prepend_base_prompt(base, validation_body),
-        guidance=_prepend_base_prompt(base, guidance_body),
+        plan_review=_prepend_base_prompt(base, "\n\n".join([plan_review_body.strip(), plan_review_schema.strip()])),
+        validation=_prepend_base_prompt(base, "\n\n".join([validation_body.strip(), validation_schema.strip()])),
+        guidance=_prepend_base_prompt(base, "\n\n".join([guidance_body.strip(), guidance_schema.strip()])),
     )

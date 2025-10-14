@@ -95,7 +95,7 @@ def test_console_streamer_renders_events_and_summary():
     assert "Plan ready" in output
     assert "retry 2" in output
     assert "guidance" in output
-    assert "reward score: 0.80" in output
+    assert "Reward score=0.80" in output
     assert "RIM scores" in output
 
 

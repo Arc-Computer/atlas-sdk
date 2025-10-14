@@ -5,7 +5,8 @@
 
 This guide explains how Atlas SDK’s continual-learning runtime wires triage → capability
 probe → adaptive controller, how to customise the configuration surface, and how to
-inspect runs via the CLI.
+inspect runs via the CLI. You can exercise the full loop with a single YAML file—storage
+and telemetry exporters are optional add-ons when you’re ready to persist runs.
 
 ---
 
@@ -26,6 +27,9 @@ inspect runs via the CLI.
 4. **Reward + Memory** – Certification verdicts are reused as the reward signal,
    avoiding a second evaluator pass. Persona metadata (helpful/harmful counts, last mode,
    tags) and usage records capture the adaptive outcome for telemetry and promotion.
+5. **Adaptive summary** – Every run emits an `adaptive_summary` block capturing the active
+   mode, confidence, certification status, and probe details. The console streamer surfaces
+   this alongside reward highlights so you can track the J-curve trend before exporting data.
 
 Mermaid summary (mirrors `docs/adaptive_controller.md`):
 
@@ -49,7 +53,32 @@ flowchart TD
 
 ---
 
-## 2. Configuration Surface
+## 2. Lightweight Default Setup
+
+The quickest path is to leave `storage: null` in your config and run:
+
+```python
+from atlas import core
+
+result = core.run(
+    task="Summarise the latest Atlas SDK updates in 3 bullet points.",
+    config_path="configs/examples/openai_agent.yaml",
+    stream_progress=True,  # optional console telemetry with adaptive summary + reward
+)
+
+print("Final answer:", result.final_answer)
+```
+
+The console output will show the reviewed plan, per-step verdicts, and a session summary such as:
+
+```
+Summary | execution_mode=coach | adaptive_confidence=0.68 | certification=True | Reward score=0.87
+```
+
+When you later enable storage, the same metadata flows into JSONL exports via `adaptive_summary`,
+`session_reward`, and learning notes—perfect for plotting an adaptive J-curve or auditing persona changes.
+
+## 3. Configuration Surface
 
 `AtlasConfig.adaptive_teaching` now accepts the following fields:
 
@@ -88,7 +117,7 @@ Starter adapters live under `examples/triage_adapters/` for reference.
 
 ---
 
-## 3. Telemetry & CLI Usage
+## 4. Telemetry & CLI Usage
 
 ### Console output
 
@@ -147,7 +176,7 @@ arc-atlas \
 
 ---
 
-## 4. Developer Checklist
+## 5. Developer Checklist
 
 1. Configure `adaptive_teaching` in your Atlas config (triage adapter, thresholds, tags).
 2. Use `atlas triage init` to scaffold a dossier builder for your domain.

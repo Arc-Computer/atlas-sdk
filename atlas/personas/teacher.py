@@ -48,14 +48,14 @@ class Teacher:
         mode = self._active_mode()
         if mode in {"auto", "paired"}:
             return plan.model_copy(update={"execution_mode": "single_shot"})
-        reviewed = await self._review_plan_llm(task, plan)
+        reviewed = await self._review_plan_llm(task, plan, force_refresh=(mode == "escalate"))
         return reviewed
 
-    async def _review_plan_llm(self, task: str, plan: Plan) -> Plan:
+    async def _review_plan_llm(self, task: str, plan: Plan, *, force_refresh: bool = False) -> Plan:
         cache_key = self._cache_key(task, plan)
         now = time.time()
         cached = self._plan_cache.get(cache_key)
-        if cached and now - cached[0] <= self._config.plan_cache_seconds:
+        if cached and not force_refresh and now - cached[0] <= self._config.plan_cache_seconds:
             return cached[1]
         context = ExecutionContext.get()
         context.metadata["active_actor"] = "teacher"

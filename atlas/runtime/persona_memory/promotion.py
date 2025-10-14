@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import typing
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Mapping, MutableMapping, Optional, Sequence, Set
 from uuid import UUID
@@ -12,7 +13,9 @@ from atlas.config.models import AtlasConfig
 from atlas.runtime.persona_memory.constants import CANONICAL_PERSONAS, canonical_persona_name, persona_aliases
 from atlas.runtime.persona_memory.fingerprint import FingerprintInputs
 from atlas.runtime.persona_memory.learning import _sanitize_text  # type: ignore[attr-defined]
-from atlas.runtime.storage.database import Database
+
+if typing.TYPE_CHECKING:
+    from atlas.runtime.storage.database import Database
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +171,7 @@ def get_promotion_settings(config: AtlasConfig | None) -> PromotionSettings:
 
 
 async def promote_and_compact(
-    database: Database,
+    database: "Database",
     fingerprint_inputs: FingerprintInputs,
     fingerprint_hash: str,
     settings: PromotionSettings,

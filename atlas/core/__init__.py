@@ -111,6 +111,7 @@ async def arun(
         )
     base_student_prompts = build_student_prompts(base_prompt, config.student)
     base_teacher_prompts = build_teacher_prompts(base_prompt, config.teacher)
+    adaptive_teaching_cfg = getattr(config, "adaptive_teaching", AdaptiveTeachingConfig())
     execution_context.metadata["prompt_rewrite"] = {
         "student": {
             "planner": base_student_prompts.planner,
@@ -126,11 +127,13 @@ async def arun(
     student = _build_student(adapter, config, base_student_prompts)
     teacher = Teacher(config.teacher, base_teacher_prompts, adapter_config.tools)
     evaluator = _build_evaluator_instance(config, getattr(adaptive_teaching_cfg, "reward", None))
-    adaptive_teaching_cfg = getattr(config, "adaptive_teaching", AdaptiveTeachingConfig())
     execution_context.metadata["adaptive_default_tags"] = list(getattr(adaptive_teaching_cfg, "default_tags", []) or [])
+    execution_context.metadata.setdefault("adaptive_certified_fingerprints", set())
     triage_adapter = _load_triage_adapter(getattr(adaptive_teaching_cfg, "triage_adapter", None))
-    fingerprint_inputs: FingerprintInputs | None = None
-    persona_fingerprint: str | None = None
+    fingerprint_inputs: FingerprintInputs | None = extract_fingerprint_inputs(task, config, execution_context)
+    persona_fingerprint: str | None = build_fingerprint(fingerprint_inputs)
+    execution_context.metadata["persona_fingerprint_inputs"] = fingerprint_inputs
+    execution_context.metadata["persona_fingerprint"] = persona_fingerprint
     database = Database(config.storage) if config.storage else None
     session_id: int | None = None
     try:
