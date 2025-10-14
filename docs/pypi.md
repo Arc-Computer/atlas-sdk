@@ -4,6 +4,12 @@ Atlas wraps your Bring-Your-Own-Agent (BYOA) in a guided Teacher → Student →
 
 > Atlas defaults to an in-memory workflow—leave `storage: null` in your config for quick experiments. You can add PostgreSQL later if you want durable telemetry.
 
+## What's New in v0.1.3
+
+- **Adaptive Runtime** – Capability probe selects execution mode (`auto`, `paired`, `coach`, `escalate`) per request based on task complexity and historical performance.
+- **Persistent Learning Memory** – Guidance from each episode is tagged by reward and automatically reused on similar tasks.
+- **Fingerprint-Based Certification** – First-run tasks get certified, enabling auto mode on future similar requests when confidence is high.
+
 ## Install in Minutes
 
 ```bash
@@ -60,9 +66,19 @@ orchestration:
   step_timeout_seconds: 600
   emit_intermediate_steps: true
 rim:
-  active_judges:
-    process: false
-    helpfulness: false
+  small_model:
+    provider: google
+    model: gemini/gemini-2.5-flash
+    api_key_env: GOOGLE_API_KEY
+    max_output_tokens: 8096
+  large_model:
+    provider: google
+    model: gemini/gemini-2.5-flash
+    api_key_env: GOOGLE_API_KEY
+    max_output_tokens: 8096
+  judge_prompt: 'reward the agent for attending the issues mentioned in the task'
+  variance_threshold: 0.15
+  uncertainty_threshold: 0.3
 storage: null
 ```
 
