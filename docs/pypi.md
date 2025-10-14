@@ -163,12 +163,17 @@ Atlas retries requests based on the adapter’s `retry` policy and normalises JS
 ## Optional: Persist Runs with PostgreSQL
 
 ```bash
-docker compose -f docker/docker-compose.yaml up -d postgres
+# Start a local Postgres via Docker (requires Docker Desktop/Engine)
+atlas storage up  # writes atlas-postgres.yaml and starts the container
 
-export STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas_arc_demo
+# Or run docker compose yourself if you prefer:
+# docker compose -f docker/docker-compose.yaml up -d postgres
+
+# Point Atlas at the database
+export STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas
 ```
 
-Add a `storage` section to your config when you want Atlas to log plans, attempts, and telemetry into Postgres for later inspection.
+Add a `storage` section to your config when you want Atlas to log plans, attempts, and telemetry into Postgres for later inspection. If Docker isn’t available, install Postgres manually and provide the same connection URL.
 
 ## Observe and Export
 

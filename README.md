@@ -78,24 +78,29 @@ The container mounts your repo at `/workspace`, so you can edit code locally and
 
 ## Using `pip install arc-atlas`
 
-When you install the SDK from PyPI you still need a PostgreSQL URL if you want persistence. The easiest path is to reuse the bundled Compose file:
+When you install the SDK from PyPI you still need a PostgreSQL URL if you want persistence. The CLI now ships with a helper that can prepare a local Postgres for you:
 
 ```bash
 pip install arc-atlas
+# Option A – use Docker (recommended)
+atlas storage up  # writes atlas-postgres.yaml and starts the container
+
+# Option B – run docker compose yourself if you prefer
 docker compose -f docker/docker-compose.yaml up -d postgres
 
 # Either export these for the current shell or ensure they're present in .env
-export STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas_arc_demo
+export STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas
 export OPENAI_API_KEY=sk-...
 # Optional Process/Helpfulness judges
 export GOOGLE_API_KEY=...
 
 python -m atlas.core.run --config path/to/config.yaml --task "Summarise the Atlas SDK"
 ```
-
-- `docker-compose` exposes Postgres on host port `5433`; keep the URL in sync if you change the mapping.
+- `atlas storage up` requires Docker on PATH; it writes `atlas-postgres.yaml` and runs `docker compose -f atlas-postgres.yaml up -d postgres` behind the scenes. If Docker is unavailable, the command prints the exact compose invocation to run manually.
+- The compose configuration exposes Postgres on host port `5433`; keep the URL in sync if you change the mapping.
 - You can point `storage.database_url` inside your YAML config or rely on the `STORAGE__DATABASE_URL` environment variable shown above.
 - If storage is optional for your workflow, set `storage: null` in the config—runs will skip persistence but still execute end-to-end.
+- No Docker? Install Postgres by hand (local package manager, managed instance, etc.) and point `STORAGE__DATABASE_URL` at that server instead.
 
 ---
 

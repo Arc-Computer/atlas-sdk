@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_USER: atlas
       POSTGRES_PASSWORD: atlas
-      POSTGRES_DB: atlas_arc_demo
+      POSTGRES_DB: atlas
     ports:
       - "5433:5432"
     volumes:
@@ -19,7 +19,7 @@ services:
     environment:
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
-      STORAGE__DATABASE_URL: postgresql://atlas:atlas@postgres:5432/atlas_arc_demo
+      STORAGE__DATABASE_URL: postgresql://atlas:atlas@postgres:5432/atlas
     depends_on:
       - postgres
     volumes:
