@@ -6,7 +6,7 @@ agent:
   tools: []
   llm:
     provider: openai
-    model: o4-mini
+    model: gpt-5-mini
     api_key_env: OPENAI_API_KEY
     temperature: 0.2
     max_output_tokens: 2048
@@ -15,21 +15,21 @@ agent:
 teacher:
   llm:
     provider: openai
-    model: gpt-4o-mini
+    model: gpt-5-mini
     api_key_env: OPENAI_API_KEY
     temperature: 0.1
     max_output_tokens: 1024
 
 rim:
   small_model:
-    provider: openai
-    model: gpt-4o-mini
-    api_key_env: OPENAI_API_KEY
+    provider: google
+    model: gemini/gemini-2.5-flash
+    api_key_env: GOOGLE_API_KEY
     max_output_tokens: 512
   large_model:
-    provider: openai
-    model: gpt-4o
-    api_key_env: OPENAI_API_KEY
+    provider: google
+    model: gemini/gemini-2.5-flash
+    api_key_env: GOOGLE_API_KEY
     max_output_tokens: 768
   judge_prompt: 'reward the agent for attending the issues mentioned in the task'
   variance_threshold: 0.15
