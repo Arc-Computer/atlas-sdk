@@ -146,18 +146,13 @@ def build_teacher_prompts(base_prompt: str, teacher_cfg: TeacherConfig) -> Rewri
         3. Structure: Are dependencies between steps clear and logical?
         4. Scope: Is the plan appropriately sized - neither missing steps nor overly complex?
 
-        Based on your assessment, recommend an execution strategy:
-        - "single_shot": Task can be completed directly in one response (simple, no tool orchestration needed)
-        - "stepwise": Task requires step-by-step execution with validation (complex, tool-dependent, or multi-stage)
-
-        Provide your assessment with an execution mode recommendation, the corrected plan if changes are needed (otherwise the original plan), and any concerns about gaps or risks.
+        Provide your assessment along with the corrected plan if changes are needed (otherwise return the original plan) and call out any concerns about gaps or risks.
         """
     )
     plan_review_schema = dedent(
         """
         JSON schema reference for plan review responses:
         {
-          "execution_mode": "single_shot" | "stepwise",
           "steps": [
             {
               "id": integer,

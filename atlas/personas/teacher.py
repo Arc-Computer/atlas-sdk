@@ -10,8 +10,6 @@ from typing import Dict
 from typing import List
 from typing import Sequence
 from typing import Tuple
-from typing import Literal
-from typing import cast
 
 from atlas.config.models import TeacherConfig, ToolDefinition
 from atlas.prompts import RewrittenTeacherPrompts
@@ -89,10 +87,6 @@ class Teacher:
             self._record_reasoning("teacher", "plan_review", response.reasoning)
         normalised = self._normalise_plan_payload(payload)
         reviewed = Plan.model_validate(normalised)
-        execution_mode = self._coerce_execution_mode(normalised.get("execution_mode"))
-        if execution_mode is None:
-            execution_mode = self._infer_execution_mode(reviewed)
-        reviewed = reviewed.model_copy(update={"execution_mode": execution_mode})
         self._plan_cache[cache_key] = (now, reviewed)
         self._consume_reasoning_metadata("teacher", "plan_review")
         return reviewed
@@ -313,11 +307,6 @@ class Teacher:
         if not isinstance(payload, dict):
             return payload
         payload.pop("total_estimated_time", None)
-        mode = self._coerce_execution_mode(payload.get("execution_mode"))
-        if mode is not None:
-            payload["execution_mode"] = mode
-        elif "execution_mode" in payload:
-            payload.pop("execution_mode", None)
         steps = payload.get("steps")
         if isinstance(steps, list):
             for step in steps:
@@ -329,48 +318,6 @@ class Teacher:
                     if "tool_params" not in step:
                         step["tool_params"] = None
         return payload
-
-    def _coerce_execution_mode(self, value: Any) -> Literal["stepwise", "single_shot"] | None:
-        if not isinstance(value, str):
-            return None
-        lowered = value.strip().lower()
-        if lowered in {"stepwise", "single_shot"}:
-            return cast(Literal["stepwise", "single_shot"], lowered)
-        return None
-
-    def _infer_execution_mode(self, plan: Plan) -> Literal["stepwise", "single_shot"]:
-        return "single_shot" if self._plan_is_trivial(plan) else "stepwise"
-
-    def _plan_is_trivial(self, plan: Plan) -> bool:
-        if not plan.steps:
-            return True
-        if len(plan.steps) > 2:
-            return False
-        for step in plan.steps:
-            if step.tool:
-                return False
-            if step.tool_params:
-                return False
-            if step.depends_on:
-                return False
-            if not self._is_simple_description(step.description):
-                return False
-        return True
-
-    def _is_simple_description(self, description: str) -> bool:
-        if not isinstance(description, str):
-            return False
-        text = description.strip()
-        if not text:
-            return False
-        if len(text) > 80:
-            return False
-        if "\n" in text:
-            return False
-        for char in (";", "|", "{", "}", "[", "]"):
-            if char in text:
-                return False
-        return True
 
     def _record_reasoning(self, actor: str, key: str, payload: Dict[str, Any]) -> None:
         if not payload:
