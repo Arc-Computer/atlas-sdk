@@ -47,7 +47,7 @@ Run an example configuration:
 from atlas import core
 
 result = core.run(
-    task="Summarise the latest financial news",
+    task="Summarise the latest Atlas SDK updates",
     config_path="configs/examples/openai_agent.yaml",
 )
 
