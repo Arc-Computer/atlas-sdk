@@ -1,6 +1,6 @@
 # Atlas SDK
 
-Atlas SDK is the continual-learning runtime that turns every task into a structured learning episode. It wraps your Bring-Your-Own-Agent (OpenAI, Claude, Gemini, local models, or your own stack) with an adaptive dual-agent reasoning loop (student + teacher) guided by reward signals, so agents stay fast on familiar work while escalating supervision on new or risky tasks. The SDK records rich telemetry, surfaces adaptive signals in real time, and exports production data for downstream training.
+Atlas SDK is the continual-learning runtime that turns every task into a structured learning episode. It wraps any agent (OpenAI, Claude, Gemini, local models, or your own stack) with an adaptive dual-agent reasoning loop (student + teacher) guided by reward signals, so agents stay fast on familiar work while escalating supervision on new or risky tasks. The SDK records rich telemetry, surfaces adaptive signals in real time, and exports production data for downstream training.
 
 > **How it relates to [ATLAS](https://github.com/Arc-Computer/ATLAS)**  
 > This repository delivers the runtime harness that powers continual learning in production. The `ATLAS` repo focuses on training world models and analytics that ingest the structured traces produced here. Run the SDK to capture adaptive episodes; feed those traces into ATLAS to retrain and evaluate new policies.
