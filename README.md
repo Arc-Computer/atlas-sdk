@@ -1,6 +1,9 @@
 # Atlas SDK
 
-Atlas is infrastructure for continual learning in LLM agents. It wraps any agent (OpenAI, Claude, Gemini, local models, or your own stack) with a closed-loop Student → Teacher → Reward system so the agent improves from every interaction. The runtime SDK handles planning, orchestration, evaluation, telemetry, and exportable traces; the same data feeds Atlas core’s online and offline optimisation workflows.
+Atlas SDK is the continual-learning runtime that turns every task into a structured learning episode. It wraps your Bring-Your-Own-Agent (OpenAI, Claude, Gemini, local models, or your own stack) with an adaptive dual-agent reasoning loop (student + teacher) guided by reward signals, so agents stay fast on familiar work while escalating supervision on new or risky tasks. The SDK records rich telemetry, surfaces adaptive signals in real time, and exports production data for downstream training.
+
+> **How it relates to [ATLAS](https://github.com/Arc-Computer/ATLAS)**  
+> This repository delivers the runtime harness that powers continual learning in production. The `ATLAS` repo focuses on training world models and analytics that ingest the structured traces produced here. Run the SDK to capture adaptive episodes; feed those traces into ATLAS to retrain and evaluate new policies.
 
 [![PyPI version](https://img.shields.io/pypi/v/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
 [![PyPI downloads](https://img.shields.io/pypi/dm/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
@@ -19,13 +22,13 @@ The README hits the highlights. For the complete guide—including configuration
 
 ---
 
-## Key Features
+## Key Highlights (v0.1.3)
 
-- **Bring-Your-Own-Agent (BYOA) Adapters** – Drop in HTTP, Python, or OpenAI agents without rewriting core logic.
-- **Teacher / Student Loop** – Plans and executes tasks sequentially with review, validation, and retry guidance.
-- **Reward System (RIM)** – Runs configurable judges (process, helpfulness, custom) to score every step.
-- **Trajectory Capture** – Emits intermediate steps that can be streamed, logged, or audited later.
-- **PostgreSQL Persistence** – Ships with an async persistence layer and schema for sessions, attempts, guidance, and events.
+- **Adaptive Runtime** – A capability probe selects one of four execution lanes (`auto`, `paired`, `coach`, `escalate`) per request, keeping latency low on routine flows while escalating complex work to supervised review.
+- **Persistent Learning Memory** – Guidance and instructions from each episode are tagged by reward (helpful vs harmful) and automatically reused, with optional Postgres persistence when you need durable history.
+- **Production Telemetry & Export** – The console streamer surfaces adaptive mode, confidence, certification flags, and reward summaries in real time; the JSONL exporter captures the full trajectory for downstream training.
+- **Bring-Your-Own-Agent Harness** – Connect Python callables, HTTP services, or OpenAI-compatible endpoints via structured YAML prompts for student and teacher personas.
+- **Lightweight Defaults** – Storage, exporters, and other heavy integrations are opt-in so your first run stays quick; enable them when you are ready to promote persona memories or wire dashboards.
 
 ---
 
@@ -68,7 +71,7 @@ docker compose -f docker/docker-compose.yaml up --build
 ```
 
 - `postgres` starts a local PostgreSQL instance with a persisted volume (`atlas_pg_data`).
-- `atlas` builds the SDK, installs it in editable mode, and runs the ARC demo by default.
+- `atlas` builds the SDK image, installs the package, and runs the ARC demo entrypoint by default (see `docker/entrypoint.sh`).
 - Pass a custom command to run other configs:  
   `docker compose -f docker/docker-compose.yaml run --rm atlas python -m atlas.cli.main --help`
 
@@ -94,7 +97,19 @@ export OPENAI_API_KEY=sk-...
 # Optional Process/Helpfulness judges
 export GOOGLE_API_KEY=...
 
-python -m atlas.core.run --config path/to/config.yaml --task "Summarise the Atlas SDK"
+# Minimal runner script example (save as run_atlas.py)
+# -----------------------------------------------
+# from atlas import core
+#
+# result = core.run(
+#     task="Summarise the Atlas SDK",
+#     config_path="path/to/config.yaml",
+#     stream_progress=True,
+# )
+# print(result.final_answer)
+#
+# Then execute:
+# python run_atlas.py
 ```
 - `atlas storage up` requires Docker on PATH; it writes `atlas-postgres.yaml` and runs `docker compose -f atlas-postgres.yaml up -d postgres` behind the scenes. If Docker is unavailable, the command prints the exact compose invocation to run manually.
 - The compose configuration exposes Postgres on host port `5433`; keep the URL in sync if you change the mapping.
@@ -114,10 +129,10 @@ JSONL with the bundled exporter:
 atlas.core.run(...)
 
 # 2. Export the captured sessions to JSONL (use the unique CLI name to avoid PATH collisions)
-arc-atlas --database-url postgresql://localhost:5432/atlas --output traces.jsonl --limit 25
+arc-atlas --database-url postgresql://localhost:5433/atlas --output traces.jsonl --limit 25
 
 # (Fall back to python -m if shell PATH ordering is unpredictable)
-python -m atlas.cli.export --database-url postgresql://localhost:5432/atlas --output traces.jsonl --limit 25
+python -m atlas.cli.export --database-url postgresql://localhost:5433/atlas --output traces.jsonl --limit 25
 
 # 3. Load the dataset inside the Atlas core repo
 from trainers.runtime_dataset import load_runtime_traces
@@ -147,19 +162,19 @@ Configuration files live in `configs/examples/`. Each YAML document is validated
 | Section | Purpose |
 | ------- | ------- |
 | `agent` | Adapter settings (endpoint, Python import path, OpenAI model) and tool schemas |
-| `student` | Planner / executor / synthesizer prompts and token limits |
-| `teacher` | LLM parameters for plan review, validation, and retry guidance |
+| `student` | Limits and prompt templates for the planning / execution / synthesis roles that drive your agent |
+| `teacher` | Parameters for the validation and guidance role (LLM settings, cache behaviour, prompt overrides) |
 | `orchestration` | Retry policy, per-step timeout, and trajectory emission flags |
 | `rim` | Judge definitions, weights, aggregation strategy, thresholds |
 | `storage` | Optional PostgreSQL connection info for persistence |
 
-Atlas combines your adapter's `system_prompt` with opinionated templates from `atlas.prompts` to construct the built-in personas:
+Atlas ships opinionated prompt templates for three cooperative roles:
 
-1. **Planner Student** – drafts a dependency-aware plan
-2. **Executor Student** – runs each step and returns a trace
-3. **Teacher** – reviews plans, validates execution, and issues retries/guidance
+1. **Planner** – drafts a dependency-aware plan that sequences tools and actions.
+2. **Executor** – carries out each step and produces structured outputs (status, artifacts, deliverables).
+3. **Validator / Guide** – inspects execution, supplies corrective guidance, and triggers certification rewards when needed.
 
-Override the defaults by providing explicit `student.prompts` and `teacher.prompts` blocks in your configuration. Each template can reference `{base_prompt}` to splice in the adapter prompt.
+Override the defaults by providing explicit `student.prompts` and `teacher.prompts` blocks in your configuration. You can tailor each role’s prompt text directly—no `{base_prompt}` substitution required—while keeping token budgets and retry settings consistent.
 
 ### Example: HTTP Adapter (excerpt)
 
@@ -189,21 +204,15 @@ agent:
 ## Architecture
 
 ```
-1. core.run()                 # load config, adapter, context
-2. Student.create_plan()      # ATLAS-derived planning graph via BYOA bridge
-3. Teacher.review_plan()      # validates dependencies and tools
-4. Orchestrator.arun()        # sequential execution, retries, telemetry
-5. Evaluator.ajudge()         # process/helpfulness judges aggregate scores
+1. core.run()                 # load config, adapter, execution context
+2. planner role creates plan  # BYOA bridge composes dependency-aware steps
+3. validator role reviews     # ensures tooling, dependencies, and risks are handled
+4. Orchestrator.arun()        # executes steps, applies guidance, records telemetry
+5. Evaluator.ajudge()         # aggregates reward signals (process/helpfulness/custom)
 6. Database.log_*()           # optional persistence of plans, attempts, trajectory events
 ```
 
 Trajectory events stream through `ExecutionContext.event_stream`, enabling live console streaming and durable storage via `atlas/runtime/storage/database.py` and `atlas/runtime/storage/schema.sql`.
-
-**RIM Model Guidance**
-
-- Tier-1 judges (process/helpfulness): Gemini 2.5 Flash or Grok-4 Fast provide fast, low-cost scores.
-- Tier-2 arbiter: Gemini 2.5 Pro reconciles disagreements with high fidelity.
-- Supplied examples show how to point `rim.judges[].llm` and `rim.arbiter` at different providers if desired.
 
 ---
 
@@ -227,7 +236,7 @@ Plan ready with steps:
   guidance: cite the repository README
 === Atlas task completed in 12.4s ===
 Final answer:
-  Atlas SDK ships a teacher-student loop...
+  Atlas SDK ships an adaptive dual-agent reasoning harness...
 - gather dataset A | attempts: 1 | score: 0.91
 - synthesise findings | attempts: 2 | score: 0.88
 RIM scores | max: 0.91 | avg: 0.89
@@ -248,7 +257,7 @@ When persistence is enabled, every run captures plans, telemetry, and reward dat
 
 ```bash
 arc-atlas \
-  --database-url postgresql://atlas:atlas@localhost:5432/atlas \
+  --database-url postgresql://atlas:atlas@localhost:5433/atlas \
   --output traces.jsonl \
   --limit 25 \
   --trajectory-event-limit 500
@@ -267,7 +276,7 @@ Each line in the output is an `AtlasSessionTrace` record:
 ```json
 {
   "task": "Summarize the Atlas SDK",
-  "final_answer": "The SDK wraps BYOA agents with a Student/Teacher loop...",
+  "final_answer": "The SDK routes BYOA agents through an adaptive dual-agent reasoning loop guided by rewards...",
   "plan": {"steps": [...]},
   "steps": [
     {
@@ -297,7 +306,7 @@ The structure aligns with `AtlasSessionTrace`, `AtlasStepTrace`, and `AtlasRewar
 2. Execute `arc-atlas --database-url ... --output traces.jsonl`.
 3. Call `load_runtime_traces("traces.jsonl")` (from the core repo) to build training datasets.
 
-Because each step output is now a JSON object, parse the string to access `status` and `artifacts` (e.g. `json.loads(step_output)["artifacts"]["final_answer"]`). Examples live in `docs/sdk/export-traces.mdx`.
+Each exported step embeds the original executor text along with `metadata.structured_output`, so you can extract fields like `status` or `artifacts` directly from that JSON payload. Examples live in `docs/examples/export_runtime_traces.md`.
 
 ---
 
@@ -315,7 +324,7 @@ The suite covers dependency parsing, prompt rewriting, student/teacher orchestra
 
 - Python 3.10+ (project is developed and validated with 3.13).
 - Development extras (`pip install -e .[dev]`) install pytest tooling for local validation; core telemetry streams rely solely on the standard library.
-- Vendored NeMo components live under `atlas/roles/` and `atlas/utils/reactive/`; SPDX headers are retained and must remain intact.
+- Reactive stream helpers live under `atlas/utils/reactive/`; SPDX headers are retained and must remain intact.
 - Aim for descriptive naming and concise docstrings so the intent is evident without extra commentary.
 
 ---
