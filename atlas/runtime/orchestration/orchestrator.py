@@ -83,12 +83,10 @@ class Orchestrator:
         self._adaptive = adaptive_config or AdaptiveTeachingConfig()
         self._triage_adapter = triage_adapter or default_build_dossier
         self._capability_probe = capability_probe
-        self._current_retry_limit: int = self._orchestration.max_retries
 
     async def arun(self, task: str) -> Result:
         context = ExecutionContext.get()
         context.mark_certification_run(False)
-        self._current_retry_limit = self._orchestration.max_retries
         manager = context.intermediate_step_manager
         orchestration_id = str(uuid4())
         manager.push_intermediate_step(
@@ -106,7 +104,6 @@ class Orchestrator:
         decision = await self._determine_adaptive_mode(task, context, dossier)
         mode = decision.mode or "escalate"
         context.metadata["execution_mode"] = mode
-        self._current_retry_limit = self._retry_limit_for_mode(mode)
         self._store_mode_metadata(context, decision)
 
         if mode in {"auto", "paired"}:
@@ -218,17 +215,7 @@ class Orchestrator:
         prior_guidance = list(step_meta.get("guidance", []))
 
         structured_output = self._obtain_structured_output(student_result)
-        status_candidate = structured_output.get("status")
-        if isinstance(status_candidate, str) and status_candidate.strip():
-            raw_status = status_candidate
-        else:
-            status_fallback = student_result.status if isinstance(student_result.status, str) else None
-            raw_status = status_fallback.strip() if isinstance(status_fallback, str) and status_fallback.strip() else "ok"
-        status_normalised = raw_status.strip().lower() if isinstance(raw_status, str) else "ok"
-        if not status_normalised:
-            status_normalised = "ok"
-        if not isinstance(raw_status, str):
-            raw_status = "ok"
+        student_status = structured_output.get("status")
         artifacts = student_result.artifacts
         deliverable = student_result.deliverable
 
@@ -246,7 +233,7 @@ class Orchestrator:
             validation_valid = bool(validation.get("valid"))
             reward_override_payload = validation.pop("certification_reward", None) if isinstance(validation, dict) else None
         else:
-            validation = {"valid": True, "guidance": None, "status": raw_status}
+            validation = {"valid": True, "guidance": None}
             reward_override_payload = None
             attempt_timings["validation_ms"] = 0.0
             validation_valid = True
@@ -260,7 +247,8 @@ class Orchestrator:
             reward = self._build_placeholder_reward("deferred")
 
         evaluation = StepEvaluation(validation=validation, reward=reward)
-        should_retry = bool(allow_retry and require_validation and not validation_valid and attempts <= self._current_retry_limit)
+        # Teacher reviews once; no retries beyond the first attempt.
+        should_retry = False
 
         guidance_text = validation.get("guidance") if isinstance(validation, dict) else None
         if should_retry:
@@ -280,6 +268,14 @@ class Orchestrator:
             reward_skipped,
         )
         student_result.metadata = augmented_metadata
+        status_label = "completed"
+        if require_validation:
+            status_label = "passed" if validation_valid else "failed"
+        combined_status = (
+            student_status.strip()
+            if isinstance(student_status, str) and student_status.strip()
+            else status_label
+        )
 
         execution_context.register_step_attempt(
             step.id,
@@ -287,12 +283,13 @@ class Orchestrator:
             evaluation,
             timings=attempt_timings,
             reward_skipped=reward_skipped,
-            status=raw_status,
+            status=combined_status,
         )
 
         context_entry = self._build_context_entry(structured_output, student_result.output)
+        context_entry["status"] = combined_status
         step_meta["context_entry"] = context_entry
-        step_meta["status"] = raw_status
+        step_meta["status"] = combined_status
 
         event_output = {
             "trace": student_result.trace,
@@ -303,7 +300,7 @@ class Orchestrator:
                 "reward_skipped": reward_skipped,
                 "timings_ms": attempt_timings,
             },
-            "status": raw_status,
+            "status": combined_status,
             "artifacts": self._ensure_jsonable(artifacts),
             "deliverable": self._ensure_jsonable(deliverable),
         }
@@ -326,7 +323,7 @@ class Orchestrator:
                 attempts=attempts,
                 context_entry=context_entry,
                 reward_skipped=reward_skipped,
-                status=raw_status,
+                status=combined_status,
                 artifacts=artifacts,
                 deliverable=deliverable,
             )
@@ -421,11 +418,6 @@ class Orchestrator:
         if confidence >= thresholds.coach:
             return "coach"
         return "escalate"
-
-    def _retry_limit_for_mode(self, mode: str) -> int:
-        if mode == "auto":
-            return 0
-        return self._orchestration.max_retries
 
     def _store_mode_metadata(self, context: ExecutionContext, decision: AdaptiveModeDecision) -> None:
         context.record_mode_decision(

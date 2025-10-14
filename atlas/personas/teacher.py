@@ -13,7 +13,7 @@ from typing import Tuple
 from typing import Literal
 from typing import cast
 
-from atlas.config.models import TeacherConfig
+from atlas.config.models import TeacherConfig, ToolDefinition
 from atlas.prompts import RewrittenTeacherPrompts
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.types import Plan
@@ -22,13 +22,14 @@ from atlas.utils.llm_client import LLMClient
 
 
 class Teacher:
-    def __init__(self, config: TeacherConfig, prompts: RewrittenTeacherPrompts) -> None:
+    def __init__(self, config: TeacherConfig, prompts: RewrittenTeacherPrompts, tools: List[ToolDefinition] | None = None) -> None:
         self._config = config
         self._client = LLMClient(config.llm)
         self._plan_cache: Dict[str, Tuple[float, Plan]] = {}
         self._plan_prompt = prompts.plan_review
         self._validation_prompt = prompts.validation
         self._guidance_prompt = prompts.guidance
+        self._tools = tools or []
 
     def update_prompts(self, prompts: RewrittenTeacherPrompts) -> None:
         """Replace teacher prompts and clear any cached plan reviews."""
@@ -59,11 +60,18 @@ class Teacher:
         context = ExecutionContext.get()
         context.metadata["active_actor"] = "teacher"
         context.metadata["_reasoning_origin"] = ("teacher", "plan_review")
+
+        payload = {
+            "task": task,
+            "plan": plan.model_dump(),
+            "available_tools": self._serialize_tools(),
+        }
+
         messages = [
             {"role": "system", "content": self._plan_prompt},
             {
                 "role": "user",
-                "content": json.dumps({"task": task, "plan": plan.model_dump()}, ensure_ascii=False) + "\nReturn json.",
+                "content": json.dumps(payload, ensure_ascii=False) + "\nReturn json.",
             },
         ]
         response = await self._client.acomplete(messages, response_format={"type": "json_object"})
@@ -232,11 +240,31 @@ class Teacher:
             "validated_context": self._jsonify(prior_results),
             "prior_guidance": list(prior_guidance),
             "attempt_guidance": list(attempt_guidance),
+            "available_tools": self._serialize_tools(),
         }
         return payload
 
     def _cache_key(self, task: str, plan: Plan) -> str:
         return json.dumps({"task": task, "plan": plan.model_dump()}, sort_keys=True)
+
+    def _serialize_tools(self) -> List[Dict[str, Any]]:
+        """Serialize tool definitions for inclusion in teacher prompts."""
+        if not self._tools:
+            return []
+        serialized = []
+        for tool in self._tools:
+            tool_info = {
+                "name": tool.name,
+                "description": tool.description,
+            }
+            if tool.parameters and tool.parameters.properties:
+                tool_info["parameters"] = {
+                    "type": tool.parameters.type,
+                    "properties": tool.parameters.properties,
+                    "required": tool.parameters.required,
+                }
+            serialized.append(tool_info)
+        return serialized
 
     def _active_mode(self) -> str:
         context = ExecutionContext.get()
