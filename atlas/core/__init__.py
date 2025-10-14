@@ -128,7 +128,6 @@ async def arun(
     teacher = Teacher(config.teacher, base_teacher_prompts, adapter_config.tools)
     evaluator = _build_evaluator_instance(config, getattr(adaptive_teaching_cfg, "reward", None))
     execution_context.metadata["adaptive_default_tags"] = list(getattr(adaptive_teaching_cfg, "default_tags", []) or [])
-    execution_context.metadata.setdefault("adaptive_certified_fingerprints", set())
     triage_adapter = _load_triage_adapter(getattr(adaptive_teaching_cfg, "triage_adapter", None))
     fingerprint_inputs: FingerprintInputs | None = extract_fingerprint_inputs(task, config, execution_context)
     persona_fingerprint: str | None = build_fingerprint(fingerprint_inputs)
