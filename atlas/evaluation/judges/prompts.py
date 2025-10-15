@@ -32,21 +32,28 @@ Report uncertainty in [0.0, 1.0]. Use > 0.3 when evidence is limited or conflict
 
 Step 4: Extract the BEHAVIORAL PATTERN the student should learn (not task-specific content).
 Rules for student_learning:
-- Focus on the MISTAKE PATTERN, not the specific task content
+- For FAILURES: Focus on the MISTAKE PATTERN, not the specific task content
+- For SUCCESSES: Focus on the EFFICIENT APPROACH that worked, emphasizing how to replicate it faster/cheaper
 - Remove all domain-specific terms and make it cross-domain applicable
-- Describe the cognitive/procedural error, not the content error
+- Describe the cognitive/procedural pattern, not the content
 - Be concrete and actionable for future similar situations
 
-Examples of GOOD student_learning (cross-domain patterns):
+Examples of GOOD student_learning for FAILURES (cross-domain patterns):
 ✓ "When facing time-sensitive situations with incomplete information, establish a systematic evidence collection process before taking corrective action. Distinguish between symptoms and root causes by mapping dependencies first."
 ✓ "For tasks involving multiple simultaneous signals or alerts, correlate them by timeline and common attributes before concluding causation. Avoid acting on isolated data points without context."
 ✓ "When dealing with cascading failures or dependencies, trace impact both upstream and downstream before proposing solutions. Missing indirect effects leads to incomplete remediation."
-✓ "For high-visibility incidents requiring stakeholder updates, separate 'what we know' from 'what we're investigating' from 'what we're doing'. Communicate incomplete information clearly rather than making premature conclusions."
+
+Examples of GOOD student_learning for SUCCESSES (efficiency patterns):
+✓ "For straightforward information synthesis tasks, directly structure the final answer without intermediate reasoning steps. This reduces token usage by 40% while maintaining accuracy."
+✓ "When task requirements are explicit and unambiguous, skip exploratory analysis and proceed directly to solution construction. Validate against requirements at the end rather than iteratively."
+✓ "For well-defined transformations or formatting tasks, generate the complete output in a single pass rather than building incrementally. This approach is 2-3x faster with equivalent quality."
+✓ "When dealing with structured data requests, identify the minimal information set required and query it directly. Avoid over-fetching or exploratory queries that increase latency."
 
 Examples of BAD student_learning:
 ✗ "Check the firewall logs next time" (domain-specific, not a pattern)
 ✗ "Answer the question correctly" (too generic)
 ✗ "Pay more attention to details" (not actionable)
+✗ "Good job" (not instructive for future behavior)
 
 Step 5: Extract the TEACHING PATTERN the teacher should learn (not task-specific advice).
 Rules for teacher_learning:

@@ -107,13 +107,23 @@ def extract_candidates(context: ExecutionContext, result: Result) -> List[Candid
     threshold = context.metadata.get("persona_reward_threshold", DEFAULT_REWARD_THRESHOLD)
     seen: set[tuple[str, str, str]] = set()
     candidates: list[CandidateSpec] = []
+    session_student_learning = context.metadata.get("session_student_learning")
+
     for step in result.step_results:
         step_meta = steps_metadata.get(step.step_id, {})
         attempts_meta = step_meta.get("attempts") or []
         guidance_list: Sequence[str] = step_meta.get("guidance") or []
-        guidance_text = _sanitize_text(guidance_list[-1] if guidance_list else step.metadata.get("guidance") if step.metadata else None)
+
+        # Use step-level guidance if available, otherwise use session-level RIM learning
+        guidance_text = _sanitize_text(
+            guidance_list[-1] if guidance_list
+            else step.metadata.get("guidance") if step.metadata
+            else session_student_learning
+        )
+
         if not guidance_text:
             continue
+
         retry_count = step.attempts or len(attempts_meta) or None
         reward = getattr(step.evaluation, "reward", None)
         score = getattr(reward, "score", None)
