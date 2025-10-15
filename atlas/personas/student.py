@@ -117,6 +117,7 @@ class Student:
         prompt = self._compose_planner_prompt(task)
         try:
             response = await self._adapter.ainvoke(prompt, metadata={"mode": "planning"})
+            response = self._unwrap_adapter_payload(response)
             if isinstance(response, (dict, list)):
                 payload = response
             else:
@@ -267,6 +268,7 @@ class Student:
         prompt = self._compose_synthesis_prompt(task, step_results)
         try:
             response = await self._adapter.ainvoke(prompt, metadata={"mode": "synthesis"})
+            response = self._unwrap_adapter_payload(response)
             if isinstance(response, str):
                 final_answer = response
             else:
@@ -881,6 +883,17 @@ class Student:
         status = getattr(message, "status", None)
         if status:
             payload["status"] = status
+        return payload
+
+    def _unwrap_adapter_payload(self, payload: Any) -> Any:
+        """Extract textual content from adapter responses carrying auxiliary metadata."""
+        if (
+            isinstance(payload, dict)
+            and "content" in payload
+            and isinstance(payload["content"], (str, list, dict))
+            and set(payload.keys()).issubset({"content", "tool_calls", "usage"})
+        ):
+            return payload["content"]
         return payload
 
     def _extract_reasoning_metadata(self, messages: Sequence[BaseMessage]) -> Dict[str, Any]:
