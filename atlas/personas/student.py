@@ -887,13 +887,21 @@ class Student:
 
     def _unwrap_adapter_payload(self, payload: Any) -> Any:
         """Extract textual content from adapter responses carrying auxiliary metadata."""
+        if not isinstance(payload, dict):
+            return payload
+        content = payload.get("content")
+        tool_calls = payload.get("tool_calls")
+        if tool_calls:
+            if isinstance(content, str) and content.strip():
+                return content
+            return json.dumps(tool_calls)
+        allowed_keys = {"content", "usage"}
         if (
-            isinstance(payload, dict)
-            and "content" in payload
-            and isinstance(payload["content"], (str, list, dict))
-            and set(payload.keys()).issubset({"content", "tool_calls", "usage"})
+            "content" in payload
+            and isinstance(content, (str, list, dict))
+            and set(payload.keys()).issubset(allowed_keys)
         ):
-            return payload["content"]
+            return content
         return payload
 
     def _extract_reasoning_metadata(self, messages: Sequence[BaseMessage]) -> Dict[str, Any]:

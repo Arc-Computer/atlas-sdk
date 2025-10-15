@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 
 import pytest
@@ -315,3 +316,18 @@ def test_student_stream_event_usage_fallback_without_payload():
         assert ExecutionContext.get().metadata.get("token_usage") is None
     finally:
         subscription.unsubscribe()
+
+
+def test_student_unwraps_tool_calls_to_json():
+    student = object.__new__(Student)
+    payload = {
+        "content": "",
+        "tool_calls": [
+            {"name": "return_plan", "arguments": {"steps": [{"id": 1, "description": "demo", "depends_on": []}]}}
+        ],
+    }
+    result = student._unwrap_adapter_payload(payload)
+    assert isinstance(result, str)
+    parsed = json.loads(result)
+    assert parsed[0]["name"] == "return_plan"
+    assert parsed[0]["arguments"]["steps"][0]["id"] == 1
