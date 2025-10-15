@@ -125,6 +125,19 @@ def extract_token_usage(result: Any, metadata: Dict[str, Any]) -> Optional[int]:
         step_meta = getattr(step, "metadata", {}) or {}
         step_tokens: Optional[int] = None
 
+        usage_info = step_meta.get("usage")
+        if isinstance(usage_info, dict):
+            total = usage_info.get("total_tokens")
+            prompt = usage_info.get("prompt_tokens")
+            completion = usage_info.get("completion_tokens")
+            if isinstance(total, (int, float)):
+                step_tokens = max(step_tokens or 0, int(total))
+            else:
+                prompt_val = int(prompt) if isinstance(prompt, (int, float)) else 0
+                completion_val = int(completion) if isinstance(completion, (int, float)) else 0
+                if prompt_val or completion_val:
+                    step_tokens = max(step_tokens or 0, prompt_val + completion_val)
+
         token_info = step_meta.get("token_counts")
         if isinstance(token_info, dict):
             approx = token_info.get("approx_total")

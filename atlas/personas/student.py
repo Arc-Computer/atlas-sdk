@@ -27,6 +27,7 @@ from atlas.config.models import StudentConfig
 from atlas.config.models import ToolDefinition
 from atlas.connectors.langchain_bridge import BYOABridgeLLM
 from atlas.connectors.langchain_bridge import build_bridge
+from atlas.connectors.utils import normalise_usage_payload
 from atlas.runtime.agent_loop.tool_loop import ToolCallAgentGraph
 from atlas.runtime.agent_loop.tool_loop import ToolCallAgentGraphState
 from atlas.prompts import RewrittenStudentPrompts
@@ -79,6 +80,39 @@ class Student:
         )
         self._llm_stream_state: Dict[str, Dict[str, Any]] = {}
 
+    def _apply_usage_payload(self, usage: Any) -> Dict[str, int] | None:
+        normalised = normalise_usage_payload(usage)
+        if not isinstance(normalised, dict):
+            return None
+        def _coerce(value: Any) -> int | None:
+            if isinstance(value, (int, float)):
+                return int(value)
+            return None
+        prompt_tokens = _coerce(normalised.get("prompt_tokens"))
+        completion_tokens = _coerce(normalised.get("completion_tokens"))
+        total_tokens = _coerce(normalised.get("total_tokens"))
+        if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
+            total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
+        if prompt_tokens is None and completion_tokens is None and total_tokens is None:
+            return None
+        context = ExecutionContext.get()
+        totals = context.metadata.setdefault(
+            "token_usage",
+            {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+        )
+        if prompt_tokens is not None:
+            totals["prompt_tokens"] = int(totals.get("prompt_tokens", 0)) + prompt_tokens
+        if completion_tokens is not None:
+            totals["completion_tokens"] = int(totals.get("completion_tokens", 0)) + completion_tokens
+        if total_tokens is not None:
+            totals["total_tokens"] = int(totals.get("total_tokens", 0)) + total_tokens
+        totals["calls"] = int(totals.get("calls", 0)) + 1
+        return {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+        }
+
     def update_prompts(self, student_prompts: RewrittenStudentPrompts) -> None:
         """Refresh student prompts and rebuild execution graph to honour new instructions."""
         if (
@@ -117,6 +151,7 @@ class Student:
         prompt = self._compose_planner_prompt(task)
         try:
             response = await self._adapter.ainvoke(prompt, metadata={"mode": "planning"})
+            self._apply_usage_payload(getattr(response, "usage", None))
             response = self._unwrap_adapter_payload(response)
             if isinstance(response, (dict, list)):
                 payload = response
@@ -224,6 +259,12 @@ class Student:
                         },
                     }
                 )
+        additional_kwargs = getattr(output_message, "additional_kwargs", None)
+        usage_metadata = normalise_usage_payload(additional_kwargs.get("usage")) if isinstance(additional_kwargs, dict) else None
+        if usage_metadata:
+            if "usage" not in metadata:
+                self._apply_usage_payload(usage_metadata)
+            metadata["usage"] = usage_metadata
         structured_output = self._normalise_executor_message(output_message)
         artifacts = structured_output.get("artifacts") or {}
         if not isinstance(artifacts, dict):
@@ -268,6 +309,7 @@ class Student:
         prompt = self._compose_synthesis_prompt(task, step_results)
         try:
             response = await self._adapter.ainvoke(prompt, metadata={"mode": "synthesis"})
+            self._apply_usage_payload(getattr(response, "usage", None))
             response = self._unwrap_adapter_payload(response)
             if isinstance(response, str):
                 final_answer = response
@@ -752,22 +794,11 @@ class Student:
                 if isinstance(serialized_output, dict):
                     extra = serialized_output.get("additional_kwargs")
                     if isinstance(extra, dict):
-                        candidate_usage = extra.get("usage")
-                        if isinstance(candidate_usage, dict):
-                            usage_payload = candidate_usage
-                if usage_payload:
+                        usage_payload = extra.get("usage")
+                usage_snapshot = self._apply_usage_payload(usage_payload) if usage_payload is not None else None
+                if usage_snapshot:
                     metadata = dict(metadata)
-                    metadata["usage"] = usage_payload
-                    context = ExecutionContext.get()
-                    totals = context.metadata.setdefault(
-                        "token_usage",
-                        {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
-                    )
-                    for field in ("prompt_tokens", "completion_tokens", "total_tokens"):
-                        value = usage_payload.get(field)
-                        if isinstance(value, (int, float)):
-                            totals[field] = int(totals.get(field, 0)) + int(value)
-                    totals["calls"] = int(totals.get("calls", 0)) + 1
+                    metadata["usage"] = usage_snapshot
                 manager.push_intermediate_step(
                     IntermediateStepPayload(
                         UUID=run_id,
