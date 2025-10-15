@@ -140,19 +140,20 @@ class BYOABridgeLLM(BaseChatModel):
                 content = json.dumps(content)
             parts.append(f"{message.type.upper()}: {content}")
         return "\n\n".join(parts)
-    def _parse_response(self, response: Any) -> Tuple[str, List[ToolCall]]:
+    def _parse_response(self, response: Any) -> Tuple[str, List[ToolCall], Optional[Dict[str, Any]]]:
         original_response = response
         if isinstance(response, str):
             try:
                 parsed = json.loads(response)
             except json.JSONDecodeError:
-                return response, []
+                return response, [], None
         else:
             parsed = response
         if not isinstance(parsed, dict):
-            return str(parsed), []
+            return str(parsed), [], None
         content = parsed.get("content")
         raw_calls = parsed.get("tool_calls", [])
+        usage_payload = parsed.get("usage") if isinstance(parsed.get("usage"), dict) else None
         tool_calls: List[ToolCall] = []
         for index, item in enumerate(raw_calls):
             name = item.get("name")
@@ -174,16 +175,17 @@ class BYOABridgeLLM(BaseChatModel):
             else:
                 content = json.dumps(parsed, ensure_ascii=False)
 
-        return str(content or ""), tool_calls
-    def _to_chat_result(self, content: str, tool_calls: List[ToolCall]) -> ChatResult:
-        message = AIMessage(content=content, tool_calls=tool_calls)
+        return str(content or ""), tool_calls, usage_payload
+    def _to_chat_result(self, content: str, tool_calls: List[ToolCall], usage: Optional[Dict[str, Any]]) -> ChatResult:
+        additional_kwargs = {"usage": usage} if usage else {}
+        message = AIMessage(content=content, tool_calls=tool_calls, additional_kwargs=additional_kwargs)
         generation = ChatGeneration(message=message)
         return ChatResult(generations=[generation])
     async def _agenerate(self, messages: Sequence[BaseMessage], stop: Sequence[str] | None = None, **kwargs: Any) -> ChatResult:
         prompt = self._render_prompt(messages)
         response = await self._adapter.ainvoke(prompt)
-        content, tool_calls = self._parse_response(response)
-        return self._to_chat_result(content, tool_calls)
+        content, tool_calls, usage = self._parse_response(response)
+        return self._to_chat_result(content, tool_calls, usage)
     def _generate(self, messages: Sequence[BaseMessage], stop: Sequence[str] | None = None, **kwargs: Any) -> ChatResult:
         try:
             asyncio.get_running_loop()

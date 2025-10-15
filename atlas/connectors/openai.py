@@ -152,18 +152,25 @@ class OpenAIAdapter(AgentAdapter):
                 kwargs["extra_body"] = extra_body
         return kwargs
 
-    def _parse_response(self, response: Any) -> str:
+    def _parse_response(self, response: Any) -> Dict[str, Any]:
         try:
             choice = response["choices"][0]
             message = choice["message"]
             content = message.get("content")
-            if content is None and "tool_calls" in message:
-                return json.dumps(message["tool_calls"])
-            return str(content or "")
+            tool_calls = message.get("tool_calls")
+            payload: Dict[str, Any] = {
+                "content": self._stringify_content(content) if content is not None else "",
+            }
+            if tool_calls is not None:
+                payload["tool_calls"] = tool_calls
+            usage = response.get("usage")
+            if isinstance(usage, dict):
+                payload["usage"] = usage
+            return payload
         except (KeyError, IndexError, TypeError) as exc:
             raise AdapterError("unexpected response format from OpenAI adapter") from exc
 
-    async def ainvoke(self, prompt: str, metadata: Dict[str, Any] | None = None) -> str:
+    async def ainvoke(self, prompt: str, metadata: Dict[str, Any] | None = None) -> Dict[str, Any]:
         if acompletion is None:
             raise AdapterError("litellm is required for OpenAIAdapter") from _LITELLM_ERROR
         messages = self._build_messages(prompt, metadata)

@@ -746,6 +746,26 @@ class Student:
                                 },
                             }
                         )
+                usage_payload = None
+                if isinstance(serialized_output, dict):
+                    extra = serialized_output.get("additional_kwargs")
+                    if isinstance(extra, dict):
+                        candidate_usage = extra.get("usage")
+                        if isinstance(candidate_usage, dict):
+                            usage_payload = candidate_usage
+                if usage_payload:
+                    metadata = dict(metadata)
+                    metadata["usage"] = usage_payload
+                    context = ExecutionContext.get()
+                    totals = context.metadata.setdefault(
+                        "token_usage",
+                        {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+                    )
+                    for field in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                        value = usage_payload.get(field)
+                        if isinstance(value, (int, float)):
+                            totals[field] = int(totals.get(field, 0)) + int(value)
+                    totals["calls"] = int(totals.get("calls", 0)) + 1
                 manager.push_intermediate_step(
                     IntermediateStepPayload(
                         UUID=run_id,
