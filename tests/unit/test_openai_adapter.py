@@ -58,7 +58,34 @@ def test_openai_adapter_parses_usage_model_response():
     )
     response = ModelResponse(id="resp-1", choices=[choice], usage=usage)
     parsed = adapter._parse_response(response)
-    assert parsed["content"] == "Answer"
-    assert parsed["usage"]["prompt_tokens"] == 12
-    assert parsed["usage"]["completion_tokens"] == 8
-    assert parsed["usage"]["total_tokens"] == 20
+    assert isinstance(parsed, str)
+    assert parsed == "Answer"
+    assert getattr(parsed, "tool_calls") in (None, [])
+    assert getattr(parsed, "usage")["prompt_tokens"] == 12
+    assert getattr(parsed, "usage")["completion_tokens"] == 8
+    assert getattr(parsed, "usage")["total_tokens"] == 20
+
+
+def test_openai_adapter_normalises_tool_calls():
+    adapter = build_adapter()
+    response = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {"name": "search", "arguments": json.dumps({"query": "atlas"}), "id": "call-1"},
+                    ],
+                }
+            }
+        ],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+    }
+    parsed = adapter._parse_response(response)
+    assert isinstance(parsed, str)
+    assert parsed == ""
+    tool_calls = getattr(parsed, "tool_calls")
+    assert tool_calls and tool_calls[0]["arguments"]["query"] == "atlas"
+    usage = getattr(parsed, "usage")
+    assert usage["total_tokens"] == 3

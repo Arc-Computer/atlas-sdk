@@ -144,10 +144,19 @@ class BYOABridgeLLM(BaseChatModel):
     def _parse_response(self, response: Any) -> Tuple[str, List[ToolCall], Optional[Dict[str, Any]]]:
         original_response = response
         if isinstance(response, str):
-            try:
-                parsed = json.loads(response)
-            except json.JSONDecodeError:
-                return response, [], None
+            if hasattr(response, "tool_calls") or hasattr(response, "usage"):
+                parsed = {"content": str(response)}
+                tool_calls_attr = getattr(response, "tool_calls", None)
+                if tool_calls_attr:
+                    parsed["tool_calls"] = tool_calls_attr
+                usage_attr = getattr(response, "usage", None)
+                if usage_attr is not None:
+                    parsed["usage"] = usage_attr
+            else:
+                try:
+                    parsed = json.loads(response)
+                except json.JSONDecodeError:
+                    return response, [], None
         else:
             parsed = response
         if not isinstance(parsed, dict) and hasattr(parsed, "model_dump"):

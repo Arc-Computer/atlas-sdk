@@ -3,7 +3,29 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
+
+
+class AdapterResponse(str):
+    """String-compatible adapter payload that exposes optional metadata."""
+
+    def __new__(
+        cls,
+        content: str,
+        *,
+        tool_calls: Sequence[Dict[str, Any]] | None = None,
+        usage: Optional[Dict[str, Any]] = None,
+    ) -> "AdapterResponse":
+        obj = super().__new__(cls, content or "")
+        obj.tool_calls = tool_calls
+        obj.usage = usage
+        return obj
+
+    tool_calls: Sequence[Dict[str, Any]] | None
+    usage: Optional[Dict[str, Any]]
+
+    def has_tool_calls(self) -> bool:
+        return bool(self.tool_calls)
 
 
 def normalise_usage_payload(usage: Any) -> Optional[Dict[str, Any]]:
@@ -36,4 +58,4 @@ def normalise_usage_payload(usage: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
-__all__ = ["normalise_usage_payload"]
+__all__ = ["AdapterResponse", "normalise_usage_payload"]

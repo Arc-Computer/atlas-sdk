@@ -887,6 +887,18 @@ class Student:
 
     def _unwrap_adapter_payload(self, payload: Any) -> Any:
         """Extract textual content from adapter responses carrying auxiliary metadata."""
+        if isinstance(payload, str) and hasattr(payload, "tool_calls"):
+            tool_calls = getattr(payload, "tool_calls", None)
+            if tool_calls:
+                first_call = tool_calls[0] if isinstance(tool_calls, list) and tool_calls else None
+                if isinstance(first_call, dict):
+                    arguments = first_call.get("arguments")
+                    if isinstance(arguments, str) and arguments.strip():
+                        return arguments
+                    if isinstance(arguments, (dict, list)):
+                        return arguments
+                return json.dumps(tool_calls)
+            return str(payload)
         if not isinstance(payload, dict):
             return payload
         content = payload.get("content")

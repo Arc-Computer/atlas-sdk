@@ -7,6 +7,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from atlas.connectors.registry import build_adapter
+from atlas.connectors.utils import AdapterResponse
 from atlas.config.models import (
     AdapterType,
     LLMParameters,
@@ -349,3 +350,36 @@ def test_student_unwraps_tool_call_string_arguments():
     assert isinstance(result, str)
     parsed = json.loads(result)
     assert parsed["steps"][0]["id"] == 2
+
+
+def test_student_unwraps_adapter_response_dict_arguments():
+    student = object.__new__(Student)
+    response = AdapterResponse(
+        "",
+        tool_calls=[
+            {
+                "name": "return_plan",
+                "arguments": {"steps": [{"id": 3, "description": "via adapter response", "depends_on": []}]},
+            }
+        ],
+    )
+    result = student._unwrap_adapter_payload(response)
+    assert isinstance(result, dict)
+    assert result["steps"][0]["id"] == 3
+
+
+def test_student_unwraps_adapter_response_string_arguments():
+    student = object.__new__(Student)
+    response = AdapterResponse(
+        "",
+        tool_calls=[
+            {
+                "name": "return_plan",
+                "arguments": json.dumps({"steps": [{"id": 4, "description": "adapter json", "depends_on": []}]}),
+            }
+        ],
+    )
+    result = student._unwrap_adapter_payload(response)
+    assert isinstance(result, str)
+    parsed = json.loads(result)
+    assert parsed["steps"][0]["id"] == 4
