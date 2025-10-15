@@ -4,7 +4,7 @@
 Atlas enables continual learning for agents to adapt, learn, and transfer knowledge in live environments.
 
 [![PyPI version](https://img.shields.io/pypi/v/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
-[![PyPI downloads](https://img.shields.io/pypi/dm/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
+[![Downloads](https://static.pepy.tech/badge/arc-atlas)](https://pepy.tech/project/arc-atlas)
 
 Atlas SDK is the continual-learning runtime that turns every task into a structured learning episode. It wraps any agent (OpenAI, Claude, Gemini, local models, or your own stack) with an adaptive dual-agent reasoning loop guided by reward signals, so agents stay fast on familiar work while escalating supervision on new or risky tasks. The SDK records rich telemetry, surfaces adaptive signals in real time, and exports production data for downstream training.
 
