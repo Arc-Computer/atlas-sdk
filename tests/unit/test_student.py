@@ -318,16 +318,34 @@ def test_student_stream_event_usage_fallback_without_payload():
         subscription.unsubscribe()
 
 
-def test_student_unwraps_tool_calls_to_json():
+def test_student_unwraps_tool_call_json_arguments():
     student = object.__new__(Student)
     payload = {
         "content": "",
         "tool_calls": [
-            {"name": "return_plan", "arguments": {"steps": [{"id": 1, "description": "demo", "depends_on": []}]}}
+            {
+                "name": "return_plan",
+                "arguments": {"steps": [{"id": 1, "description": "demo", "depends_on": []}]},
+            }
+        ],
+    }
+    result = student._unwrap_adapter_payload(payload)
+    assert isinstance(result, dict)
+    assert result["steps"][0]["description"] == "demo"
+
+
+def test_student_unwraps_tool_call_string_arguments():
+    student = object.__new__(Student)
+    payload = {
+        "content": "",
+        "tool_calls": [
+            {
+                "name": "return_plan",
+                "arguments": json.dumps({"steps": [{"id": 2, "description": "another", "depends_on": []}]}),
+            }
         ],
     }
     result = student._unwrap_adapter_payload(payload)
     assert isinstance(result, str)
     parsed = json.loads(result)
-    assert parsed[0]["name"] == "return_plan"
-    assert parsed[0]["arguments"]["steps"][0]["id"] == 1
+    assert parsed["steps"][0]["id"] == 2

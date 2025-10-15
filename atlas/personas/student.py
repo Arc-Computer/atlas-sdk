@@ -894,6 +894,13 @@ class Student:
         if tool_calls:
             if isinstance(content, str) and content.strip():
                 return content
+            first_call = tool_calls[0] if isinstance(tool_calls, list) and tool_calls else None
+            if isinstance(first_call, dict):
+                arguments = first_call.get("arguments")
+                if isinstance(arguments, str) and arguments.strip():
+                    return arguments
+                if isinstance(arguments, (dict, list)):
+                    return arguments
             return json.dumps(tool_calls)
         allowed_keys = {"content", "usage"}
         if (
