@@ -32,6 +32,7 @@ from pydantic import ConfigDict
 from pydantic import create_model
 
 from atlas.connectors.registry import AgentAdapter
+from atlas.connectors.utils import normalise_usage_payload
 from atlas.config.models import ToolDefinition
 
 logger = logging.getLogger(__name__)
@@ -149,11 +150,19 @@ class BYOABridgeLLM(BaseChatModel):
                 return response, [], None
         else:
             parsed = response
+        if not isinstance(parsed, dict) and hasattr(parsed, "model_dump"):
+            try:
+                candidate = parsed.model_dump()
+                if isinstance(candidate, dict):
+                    parsed = candidate
+            except Exception:
+                pass
         if not isinstance(parsed, dict):
-            return str(parsed), [], None
+            raw_usage = getattr(parsed, "usage", None)
+            return str(parsed), [], normalise_usage_payload(raw_usage)
         content = parsed.get("content")
         raw_calls = parsed.get("tool_calls", [])
-        usage_payload = parsed.get("usage") if isinstance(parsed.get("usage"), dict) else None
+        usage_payload = normalise_usage_payload(parsed.get("usage"))
         tool_calls: List[ToolCall] = []
         for index, item in enumerate(raw_calls):
             name = item.get("name")

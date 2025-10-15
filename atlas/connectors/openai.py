@@ -20,6 +20,7 @@ except ModuleNotFoundError as exc:
 from atlas.connectors.registry import AdapterError
 from atlas.connectors.registry import AgentAdapter
 from atlas.connectors.registry import register_adapter
+from atlas.connectors.utils import normalise_usage_payload
 from atlas.config.models import AdapterType
 from atlas.config.models import OpenAIAdapterConfig
 
@@ -163,8 +164,9 @@ class OpenAIAdapter(AgentAdapter):
             }
             if tool_calls is not None:
                 payload["tool_calls"] = tool_calls
-            usage = response.get("usage")
-            if isinstance(usage, dict):
+            raw_usage = response.get("usage") if isinstance(response, dict) else getattr(response, "usage", None)
+            usage = normalise_usage_payload(raw_usage)
+            if usage:
                 payload["usage"] = usage
             return payload
         except (KeyError, IndexError, TypeError) as exc:

@@ -861,8 +861,9 @@ class Student:
         payload: Dict[str, Any] = {
             "type": message.type,
             "content": message.content,
-            "additional_kwargs": getattr(message, "additional_kwargs", None),
         }
+        additional = getattr(message, "additional_kwargs", None)
+        payload["additional_kwargs"] = self._jsonify(additional)
         tool_calls = getattr(message, "tool_calls", None)
         if tool_calls:
             payload["tool_calls"] = [

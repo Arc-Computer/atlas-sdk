@@ -3,6 +3,8 @@ import pytest
 
 pytest.importorskip("litellm")
 
+from litellm.types.utils import Choices, ModelResponse, Usage
+
 from atlas.connectors.openai import OpenAIAdapter
 from atlas.config.models import LLMParameters, OpenAIAdapterConfig
 
@@ -44,3 +46,19 @@ def test_openai_adapter_builds_messages_from_metadata():
     assert tool_message["tool_call_id"] == "call-1"
     assert "result" in tool_message["content"]
     assert messages[5] == {"role": "user", "content": "Prompt"}
+
+
+def test_openai_adapter_parses_usage_model_response():
+    adapter = build_adapter()
+    usage = Usage(prompt_tokens=12, completion_tokens=8, total_tokens=20)
+    choice = Choices(
+        finish_reason="stop",
+        index=0,
+        message={"content": "Answer", "role": "assistant"},
+    )
+    response = ModelResponse(id="resp-1", choices=[choice], usage=usage)
+    parsed = adapter._parse_response(response)
+    assert parsed["content"] == "Answer"
+    assert parsed["usage"]["prompt_tokens"] == 12
+    assert parsed["usage"]["completion_tokens"] == 8
+    assert parsed["usage"]["total_tokens"] == 20
