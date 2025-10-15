@@ -134,6 +134,8 @@ def extract_candidates(context: ExecutionContext, result: Result) -> List[Candid
             should_generate = True
         if guidance_list:
             should_generate = True
+        if not guidance_list and session_student_learning and guidance_text:
+            should_generate = True
         if not should_generate:
             continue
         extra_context = None
