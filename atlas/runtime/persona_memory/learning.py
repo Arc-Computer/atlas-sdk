@@ -114,12 +114,15 @@ def extract_candidates(context: ExecutionContext, result: Result) -> List[Candid
         attempts_meta = step_meta.get("attempts") or []
         guidance_list: Sequence[str] = step_meta.get("guidance") or []
 
-        # Use step-level guidance if available, otherwise use session-level RIM learning
-        guidance_text = _sanitize_text(
-            guidance_list[-1] if guidance_list
-            else step.metadata.get("guidance") if step.metadata
-            else session_student_learning
-        )
+        raw_guidance: str | None = None
+        if guidance_list:
+            raw_guidance = guidance_list[-1]
+        elif step.metadata:
+            raw_guidance = step.metadata.get("guidance")
+        if raw_guidance is None and session_student_learning:
+            raw_guidance = session_student_learning
+
+        guidance_text = _sanitize_text(raw_guidance)
 
         if not guidance_text:
             continue

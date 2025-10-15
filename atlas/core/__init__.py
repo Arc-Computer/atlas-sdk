@@ -133,6 +133,9 @@ async def arun(
     persona_fingerprint: str | None = build_fingerprint(fingerprint_inputs)
     execution_context.metadata["persona_fingerprint_inputs"] = fingerprint_inputs
     execution_context.metadata["persona_fingerprint"] = persona_fingerprint
+    session_meta = execution_context.metadata.setdefault("session_metadata", {})
+    if persona_fingerprint:
+        session_meta["persona_fingerprint"] = persona_fingerprint
     database = Database(config.storage) if config.storage else None
     session_id: int | None = None
     try:
@@ -164,6 +167,9 @@ async def arun(
                             )
                         )
             execution_context.metadata["persona_fingerprint"] = persona_fingerprint
+            session_meta = execution_context.metadata.setdefault("session_metadata", {})
+            if persona_fingerprint:
+                session_meta["persona_fingerprint"] = persona_fingerprint
             persona_memories = execution_context.metadata.setdefault("persona_memories", {})
             persona_memories.clear()
             applied_memories = execution_context.metadata.setdefault("applied_persona_memories", {})
@@ -271,14 +277,33 @@ async def arun(
         if database and session_id is not None:
             await _persist_results(database, session_id, execution_context, result, events)
             candidate_ids: List[str] = []
+            just_activated_fingerprint: str | None = None
             try:
                 candidate_specs = extract_candidates(execution_context, result)
                 if candidate_specs:
+                    candidate_personas = {canonical_persona_name(spec.persona) for spec in candidate_specs}
                     created = await write_candidates(database, session_id, candidate_specs)
                     candidate_ids = [str(identifier) for identifier in created]
 
                     adaptive_meta = execution_context.metadata.get("adaptive", {})
                     was_certification_run = adaptive_meta.get("certification_run") if isinstance(adaptive_meta, dict) else False
+
+                    if was_certification_run and created and persona_fingerprint:
+                        try:
+                            await database.update_persona_status(created, "active")
+                            just_activated_fingerprint = persona_fingerprint
+                            for persona_id in candidate_personas:
+                                for alias in persona_aliases(persona_id):
+                                    persona_cache.invalidate(
+                                        PersonaMemoryKey(
+                                            agent_name=fingerprint_inputs.agent_name,
+                                            tenant_id=fingerprint_inputs.tenant_id,
+                                            fingerprint=persona_fingerprint,
+                                            persona=alias,
+                                        )
+                                    )
+                        except Exception as activate_exc:  # pragma: no cover - defensive logging
+                            logger.exception("Failed to activate persona memories: %s", activate_exc)
 
                     if was_certification_run and created and persona_fingerprint:
                         active_mode = adaptive_meta.get("active_mode") if isinstance(adaptive_meta, dict) else "paired"
@@ -303,23 +328,26 @@ async def arun(
             try:
                 promotion_settings = get_promotion_settings(config)
                 if fingerprint_inputs and persona_fingerprint:
-                    promotion_result = await promote_and_compact(
-                        database,
-                        fingerprint_inputs,
-                        persona_fingerprint,
-                        promotion_settings,
-                    )
-                    if promotion_result.invalidate_personas:
-                        for persona_id in promotion_result.invalidate_personas:
-                            for alias in persona_aliases(persona_id):
-                                key = PersonaMemoryKey(
-                                    agent_name=fingerprint_inputs.agent_name,
-                                    tenant_id=fingerprint_inputs.tenant_id,
-                                    fingerprint=persona_fingerprint,
-                                    persona=alias,
-                                )
-                                persona_cache.invalidate(key)
-                    promotion_payload = promotion_result.to_dict()
+                    if just_activated_fingerprint == persona_fingerprint:
+                        promotion_payload = {"skipped": "recent_activation"}
+                    else:
+                        promotion_result = await promote_and_compact(
+                            database,
+                            fingerprint_inputs,
+                            persona_fingerprint,
+                            promotion_settings,
+                        )
+                        if promotion_result.invalidate_personas:
+                            for persona_id in promotion_result.invalidate_personas:
+                                for alias in persona_aliases(persona_id):
+                                    key = PersonaMemoryKey(
+                                        agent_name=fingerprint_inputs.agent_name,
+                                        tenant_id=fingerprint_inputs.tenant_id,
+                                        fingerprint=persona_fingerprint,
+                                        persona=alias,
+                                    )
+                                    persona_cache.invalidate(key)
+                        promotion_payload = promotion_result.to_dict()
                 else:
                     promotion_payload = None
             except Exception as promotion_exc:  # pragma: no cover - diagnostic path
@@ -699,6 +727,9 @@ async def _update_session_metadata(
 
 def _collect_session_insights(context: ExecutionContext, result: Result) -> dict[str, Any]:
     payload: dict[str, Any] = {}
+    persona_fingerprint = context.metadata.get("persona_fingerprint") if isinstance(context.metadata, dict) else None
+    if isinstance(persona_fingerprint, str) and persona_fingerprint:
+        payload["persona_fingerprint"] = persona_fingerprint
     triage = context.metadata.get("triage", {}).get("dossier") if isinstance(context.metadata, dict) else None
     if triage:
         payload["triage_dossier"] = triage

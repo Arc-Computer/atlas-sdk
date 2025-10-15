@@ -3,6 +3,8 @@ import pytest
 
 pytest.importorskip("litellm")
 
+from litellm.types.utils import Choices, ModelResponse, Usage
+
 from atlas.connectors.openai import OpenAIAdapter
 from atlas.config.models import LLMParameters, OpenAIAdapterConfig
 
@@ -44,3 +46,46 @@ def test_openai_adapter_builds_messages_from_metadata():
     assert tool_message["tool_call_id"] == "call-1"
     assert "result" in tool_message["content"]
     assert messages[5] == {"role": "user", "content": "Prompt"}
+
+
+def test_openai_adapter_parses_usage_model_response():
+    adapter = build_adapter()
+    usage = Usage(prompt_tokens=12, completion_tokens=8, total_tokens=20)
+    choice = Choices(
+        finish_reason="stop",
+        index=0,
+        message={"content": "Answer", "role": "assistant"},
+    )
+    response = ModelResponse(id="resp-1", choices=[choice], usage=usage)
+    parsed = adapter._parse_response(response)
+    assert isinstance(parsed, str)
+    assert parsed == "Answer"
+    assert getattr(parsed, "tool_calls") in (None, [])
+    assert getattr(parsed, "usage")["prompt_tokens"] == 12
+    assert getattr(parsed, "usage")["completion_tokens"] == 8
+    assert getattr(parsed, "usage")["total_tokens"] == 20
+
+
+def test_openai_adapter_normalises_tool_calls():
+    adapter = build_adapter()
+    response = {
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {"name": "search", "arguments": json.dumps({"query": "atlas"}), "id": "call-1"},
+                    ],
+                }
+            }
+        ],
+        "usage": {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3},
+    }
+    parsed = adapter._parse_response(response)
+    assert isinstance(parsed, str)
+    assert parsed == ""
+    tool_calls = getattr(parsed, "tool_calls")
+    assert tool_calls and tool_calls[0]["arguments"]["query"] == "atlas"
+    usage = getattr(parsed, "usage")
+    assert usage["total_tokens"] == 3

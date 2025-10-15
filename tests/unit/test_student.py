@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 
 import pytest
@@ -6,6 +7,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from atlas.connectors.registry import build_adapter
+from atlas.connectors.utils import AdapterResponse
 from atlas.config.models import (
     AdapterType,
     LLMParameters,
@@ -204,3 +206,180 @@ def test_student_handles_langgraph_stream_events():
         assert final_event.metadata["token_counts"]["approx_total"] >= 1
     finally:
         subscription.unsubscribe()
+
+
+def test_student_stream_event_records_usage_payload():
+    ExecutionContext.get().reset()
+    ExecutionContext.get().metadata["active_actor"] = "student"
+    student = object.__new__(Student)
+    student._llm_stream_state = {}
+    step = Step(id=1, description="demo", tool=None, tool_params=None)
+    manager = ExecutionContext.get().intermediate_step_manager
+    captured = []
+    subscription = manager.subscribe(lambda event: captured.append(event))
+    run_id = "llm-run-usage"
+    usage_payload = {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12}
+    try:
+        student._handle_stream_event(
+            step,
+            {
+                "event": "on_chat_model_start",
+                "name": "ChatOpenAI",
+                "metadata": {"langgraph_node": "agent"},
+                "run_id": run_id,
+                "data": {"input": {"messages": []}},
+            },
+            manager,
+        )
+        student._handle_stream_event(
+            step,
+            {
+                "event": "on_chat_model_stream",
+                "name": "ChatOpenAI",
+                "metadata": {"langgraph_node": "agent"},
+                "run_id": run_id,
+                "data": {"chunk": {"content": "Hello world"}},
+            },
+            manager,
+        )
+        student._handle_stream_event(
+            step,
+            {
+                "event": "on_chat_model_end",
+                "name": "ChatOpenAI",
+                "metadata": {"langgraph_node": "agent"},
+                "run_id": run_id,
+                "data": {"output": AIMessage(content="Done", additional_kwargs={"usage": usage_payload})},
+            },
+            manager,
+        )
+        final_event = captured[-1].payload
+        assert final_event.event_type == IntermediateStepType.LLM_END
+        assert final_event.metadata["usage"] == usage_payload
+        assert final_event.metadata["token_counts"]["approx_total"] >= 2
+        totals = ExecutionContext.get().metadata["token_usage"]
+        assert totals["prompt_tokens"] == 5
+        assert totals["completion_tokens"] == 7
+        assert totals["total_tokens"] == 12
+        assert totals["calls"] == 1
+    finally:
+        subscription.unsubscribe()
+
+
+def test_student_stream_event_usage_fallback_without_payload():
+    ExecutionContext.get().reset()
+    ExecutionContext.get().metadata["active_actor"] = "student"
+    student = object.__new__(Student)
+    student._llm_stream_state = {}
+    step = Step(id=1, description="demo", tool=None, tool_params=None)
+    manager = ExecutionContext.get().intermediate_step_manager
+    captured = []
+    subscription = manager.subscribe(lambda event: captured.append(event))
+    run_id = "llm-run-no-usage"
+    try:
+        student._handle_stream_event(
+            step,
+            {
+                "event": "on_chat_model_start",
+                "name": "ChatOpenAI",
+                "metadata": {"langgraph_node": "agent"},
+                "run_id": run_id,
+                "data": {"input": {"messages": []}},
+            },
+            manager,
+        )
+        student._handle_stream_event(
+            step,
+            {
+                "event": "on_chat_model_stream",
+                "name": "ChatOpenAI",
+                "metadata": {"langgraph_node": "agent"},
+                "run_id": run_id,
+                "data": {"chunk": {"content": "Fallback tokens"}},
+            },
+            manager,
+        )
+        student._handle_stream_event(
+            step,
+            {
+                "event": "on_chat_model_end",
+                "name": "ChatOpenAI",
+                "metadata": {"langgraph_node": "agent"},
+                "run_id": run_id,
+                "data": {"output": AIMessage(content="Done")},
+            },
+            manager,
+        )
+        final_event = captured[-1].payload
+        assert final_event.event_type == IntermediateStepType.LLM_END
+        assert "usage" not in final_event.metadata
+        assert final_event.metadata["token_counts"]["approx_total"] >= 2
+        assert ExecutionContext.get().metadata.get("token_usage") is None
+    finally:
+        subscription.unsubscribe()
+
+
+def test_student_unwraps_tool_call_json_arguments():
+    student = object.__new__(Student)
+    payload = {
+        "content": "",
+        "tool_calls": [
+            {
+                "name": "return_plan",
+                "arguments": {"steps": [{"id": 1, "description": "demo", "depends_on": []}]},
+            }
+        ],
+    }
+    result = student._unwrap_adapter_payload(payload)
+    assert isinstance(result, dict)
+    assert result["steps"][0]["description"] == "demo"
+
+
+def test_student_unwraps_tool_call_string_arguments():
+    student = object.__new__(Student)
+    payload = {
+        "content": "",
+        "tool_calls": [
+            {
+                "name": "return_plan",
+                "arguments": json.dumps({"steps": [{"id": 2, "description": "another", "depends_on": []}]}),
+            }
+        ],
+    }
+    result = student._unwrap_adapter_payload(payload)
+    assert isinstance(result, str)
+    parsed = json.loads(result)
+    assert parsed["steps"][0]["id"] == 2
+
+
+def test_student_unwraps_adapter_response_dict_arguments():
+    student = object.__new__(Student)
+    response = AdapterResponse(
+        "",
+        tool_calls=[
+            {
+                "name": "return_plan",
+                "arguments": {"steps": [{"id": 3, "description": "via adapter response", "depends_on": []}]},
+            }
+        ],
+    )
+    result = student._unwrap_adapter_payload(response)
+    assert isinstance(result, dict)
+    assert result["steps"][0]["id"] == 3
+
+
+def test_student_unwraps_adapter_response_string_arguments():
+    student = object.__new__(Student)
+    response = AdapterResponse(
+        "",
+        tool_calls=[
+            {
+                "name": "return_plan",
+                "arguments": json.dumps({"steps": [{"id": 4, "description": "adapter json", "depends_on": []}]}),
+            }
+        ],
+    )
+    result = student._unwrap_adapter_payload(response)
+    assert isinstance(result, str)
+    parsed = json.loads(result)
+    assert parsed["steps"][0]["id"] == 4

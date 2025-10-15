@@ -32,6 +32,7 @@ from pydantic import ConfigDict
 from pydantic import create_model
 
 from atlas.connectors.registry import AgentAdapter
+from atlas.connectors.utils import normalise_usage_payload
 from atlas.config.models import ToolDefinition
 
 logger = logging.getLogger(__name__)
@@ -140,19 +141,37 @@ class BYOABridgeLLM(BaseChatModel):
                 content = json.dumps(content)
             parts.append(f"{message.type.upper()}: {content}")
         return "\n\n".join(parts)
-    def _parse_response(self, response: Any) -> Tuple[str, List[ToolCall]]:
+    def _parse_response(self, response: Any) -> Tuple[str, List[ToolCall], Optional[Dict[str, Any]]]:
         original_response = response
         if isinstance(response, str):
-            try:
-                parsed = json.loads(response)
-            except json.JSONDecodeError:
-                return response, []
+            if hasattr(response, "tool_calls") or hasattr(response, "usage"):
+                parsed = {"content": str(response)}
+                tool_calls_attr = getattr(response, "tool_calls", None)
+                if tool_calls_attr:
+                    parsed["tool_calls"] = tool_calls_attr
+                usage_attr = getattr(response, "usage", None)
+                if usage_attr is not None:
+                    parsed["usage"] = usage_attr
+            else:
+                try:
+                    parsed = json.loads(response)
+                except json.JSONDecodeError:
+                    return response, [], None
         else:
             parsed = response
+        if not isinstance(parsed, dict) and hasattr(parsed, "model_dump"):
+            try:
+                candidate = parsed.model_dump()
+                if isinstance(candidate, dict):
+                    parsed = candidate
+            except Exception:
+                pass
         if not isinstance(parsed, dict):
-            return str(parsed), []
+            raw_usage = getattr(parsed, "usage", None)
+            return str(parsed), [], normalise_usage_payload(raw_usage)
         content = parsed.get("content")
         raw_calls = parsed.get("tool_calls", [])
+        usage_payload = normalise_usage_payload(parsed.get("usage"))
         tool_calls: List[ToolCall] = []
         for index, item in enumerate(raw_calls):
             name = item.get("name")
@@ -174,16 +193,17 @@ class BYOABridgeLLM(BaseChatModel):
             else:
                 content = json.dumps(parsed, ensure_ascii=False)
 
-        return str(content or ""), tool_calls
-    def _to_chat_result(self, content: str, tool_calls: List[ToolCall]) -> ChatResult:
-        message = AIMessage(content=content, tool_calls=tool_calls)
+        return str(content or ""), tool_calls, usage_payload
+    def _to_chat_result(self, content: str, tool_calls: List[ToolCall], usage: Optional[Dict[str, Any]]) -> ChatResult:
+        additional_kwargs = {"usage": usage} if usage else {}
+        message = AIMessage(content=content, tool_calls=tool_calls, additional_kwargs=additional_kwargs)
         generation = ChatGeneration(message=message)
         return ChatResult(generations=[generation])
     async def _agenerate(self, messages: Sequence[BaseMessage], stop: Sequence[str] | None = None, **kwargs: Any) -> ChatResult:
         prompt = self._render_prompt(messages)
         response = await self._adapter.ainvoke(prompt)
-        content, tool_calls = self._parse_response(response)
-        return self._to_chat_result(content, tool_calls)
+        content, tool_calls, usage = self._parse_response(response)
+        return self._to_chat_result(content, tool_calls, usage)
     def _generate(self, messages: Sequence[BaseMessage], stop: Sequence[str] | None = None, **kwargs: Any) -> ChatResult:
         try:
             asyncio.get_running_loop()

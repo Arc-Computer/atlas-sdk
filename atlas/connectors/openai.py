@@ -20,6 +20,7 @@ except ModuleNotFoundError as exc:
 from atlas.connectors.registry import AdapterError
 from atlas.connectors.registry import AgentAdapter
 from atlas.connectors.registry import register_adapter
+from atlas.connectors.utils import AdapterResponse, normalise_usage_payload
 from atlas.config.models import AdapterType
 from atlas.config.models import OpenAIAdapterConfig
 
@@ -152,18 +153,21 @@ class OpenAIAdapter(AgentAdapter):
                 kwargs["extra_body"] = extra_body
         return kwargs
 
-    def _parse_response(self, response: Any) -> str:
+    def _parse_response(self, response: Any) -> AdapterResponse:
         try:
             choice = response["choices"][0]
             message = choice["message"]
             content = message.get("content")
-            if content is None and "tool_calls" in message:
-                return json.dumps(message["tool_calls"])
-            return str(content or "")
+            tool_calls_raw = message.get("tool_calls")
+            tool_calls = self._normalise_tool_calls(tool_calls_raw) if tool_calls_raw is not None else None
+            normalised_content = self._stringify_content(content) if content is not None else ""
+            raw_usage = response.get("usage") if isinstance(response, dict) else getattr(response, "usage", None)
+            usage = normalise_usage_payload(raw_usage)
+            return AdapterResponse(normalised_content, tool_calls=tool_calls, usage=usage)
         except (KeyError, IndexError, TypeError) as exc:
             raise AdapterError("unexpected response format from OpenAI adapter") from exc
 
-    async def ainvoke(self, prompt: str, metadata: Dict[str, Any] | None = None) -> str:
+    async def ainvoke(self, prompt: str, metadata: Dict[str, Any] | None = None) -> AdapterResponse:
         if acompletion is None:
             raise AdapterError("litellm is required for OpenAIAdapter") from _LITELLM_ERROR
         messages = self._build_messages(prompt, metadata)

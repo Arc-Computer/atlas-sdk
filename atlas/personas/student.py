@@ -27,6 +27,7 @@ from atlas.config.models import StudentConfig
 from atlas.config.models import ToolDefinition
 from atlas.connectors.langchain_bridge import BYOABridgeLLM
 from atlas.connectors.langchain_bridge import build_bridge
+from atlas.connectors.utils import normalise_usage_payload
 from atlas.runtime.agent_loop.tool_loop import ToolCallAgentGraph
 from atlas.runtime.agent_loop.tool_loop import ToolCallAgentGraphState
 from atlas.prompts import RewrittenStudentPrompts
@@ -79,6 +80,39 @@ class Student:
         )
         self._llm_stream_state: Dict[str, Dict[str, Any]] = {}
 
+    def _apply_usage_payload(self, usage: Any) -> Dict[str, int] | None:
+        normalised = normalise_usage_payload(usage)
+        if not isinstance(normalised, dict):
+            return None
+        def _coerce(value: Any) -> int | None:
+            if isinstance(value, (int, float)):
+                return int(value)
+            return None
+        prompt_tokens = _coerce(normalised.get("prompt_tokens"))
+        completion_tokens = _coerce(normalised.get("completion_tokens"))
+        total_tokens = _coerce(normalised.get("total_tokens"))
+        if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
+            total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
+        if prompt_tokens is None and completion_tokens is None and total_tokens is None:
+            return None
+        context = ExecutionContext.get()
+        totals = context.metadata.setdefault(
+            "token_usage",
+            {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+        )
+        if prompt_tokens is not None:
+            totals["prompt_tokens"] = int(totals.get("prompt_tokens", 0)) + prompt_tokens
+        if completion_tokens is not None:
+            totals["completion_tokens"] = int(totals.get("completion_tokens", 0)) + completion_tokens
+        if total_tokens is not None:
+            totals["total_tokens"] = int(totals.get("total_tokens", 0)) + total_tokens
+        totals["calls"] = int(totals.get("calls", 0)) + 1
+        return {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+        }
+
     def update_prompts(self, student_prompts: RewrittenStudentPrompts) -> None:
         """Refresh student prompts and rebuild execution graph to honour new instructions."""
         if (
@@ -117,6 +151,8 @@ class Student:
         prompt = self._compose_planner_prompt(task)
         try:
             response = await self._adapter.ainvoke(prompt, metadata={"mode": "planning"})
+            self._apply_usage_payload(getattr(response, "usage", None))
+            response = self._unwrap_adapter_payload(response)
             if isinstance(response, (dict, list)):
                 payload = response
             else:
@@ -223,6 +259,12 @@ class Student:
                         },
                     }
                 )
+        additional_kwargs = getattr(output_message, "additional_kwargs", None)
+        usage_metadata = normalise_usage_payload(additional_kwargs.get("usage")) if isinstance(additional_kwargs, dict) else None
+        if usage_metadata:
+            if "usage" not in metadata:
+                self._apply_usage_payload(usage_metadata)
+            metadata["usage"] = usage_metadata
         structured_output = self._normalise_executor_message(output_message)
         artifacts = structured_output.get("artifacts") or {}
         if not isinstance(artifacts, dict):
@@ -267,6 +309,8 @@ class Student:
         prompt = self._compose_synthesis_prompt(task, step_results)
         try:
             response = await self._adapter.ainvoke(prompt, metadata={"mode": "synthesis"})
+            self._apply_usage_payload(getattr(response, "usage", None))
+            response = self._unwrap_adapter_payload(response)
             if isinstance(response, str):
                 final_answer = response
             else:
@@ -746,6 +790,15 @@ class Student:
                                 },
                             }
                         )
+                usage_payload = None
+                if isinstance(serialized_output, dict):
+                    extra = serialized_output.get("additional_kwargs")
+                    if isinstance(extra, dict):
+                        usage_payload = extra.get("usage")
+                usage_snapshot = self._apply_usage_payload(usage_payload) if usage_payload is not None else None
+                if usage_snapshot:
+                    metadata = dict(metadata)
+                    metadata["usage"] = usage_snapshot
                 manager.push_intermediate_step(
                     IntermediateStepPayload(
                         UUID=run_id,
@@ -841,8 +894,9 @@ class Student:
         payload: Dict[str, Any] = {
             "type": message.type,
             "content": message.content,
-            "additional_kwargs": getattr(message, "additional_kwargs", None),
         }
+        additional = getattr(message, "additional_kwargs", None)
+        payload["additional_kwargs"] = self._jsonify(additional)
         tool_calls = getattr(message, "tool_calls", None)
         if tool_calls:
             payload["tool_calls"] = [
@@ -860,6 +914,44 @@ class Student:
         status = getattr(message, "status", None)
         if status:
             payload["status"] = status
+        return payload
+
+    def _unwrap_adapter_payload(self, payload: Any) -> Any:
+        """Extract textual content from adapter responses carrying auxiliary metadata."""
+        if isinstance(payload, str) and hasattr(payload, "tool_calls"):
+            tool_calls = getattr(payload, "tool_calls", None)
+            if tool_calls:
+                first_call = tool_calls[0] if isinstance(tool_calls, list) and tool_calls else None
+                if isinstance(first_call, dict):
+                    arguments = first_call.get("arguments")
+                    if isinstance(arguments, str) and arguments.strip():
+                        return arguments
+                    if isinstance(arguments, (dict, list)):
+                        return arguments
+                return json.dumps(tool_calls)
+            return str(payload)
+        if not isinstance(payload, dict):
+            return payload
+        content = payload.get("content")
+        tool_calls = payload.get("tool_calls")
+        if tool_calls:
+            if isinstance(content, str) and content.strip():
+                return content
+            first_call = tool_calls[0] if isinstance(tool_calls, list) and tool_calls else None
+            if isinstance(first_call, dict):
+                arguments = first_call.get("arguments")
+                if isinstance(arguments, str) and arguments.strip():
+                    return arguments
+                if isinstance(arguments, (dict, list)):
+                    return arguments
+            return json.dumps(tool_calls)
+        allowed_keys = {"content", "usage"}
+        if (
+            "content" in payload
+            and isinstance(content, (str, list, dict))
+            and set(payload.keys()).issubset(allowed_keys)
+        ):
+            return content
         return payload
 
     def _extract_reasoning_metadata(self, messages: Sequence[BaseMessage]) -> Dict[str, Any]:
