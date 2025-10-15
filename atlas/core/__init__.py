@@ -277,6 +277,7 @@ async def arun(
         if database and session_id is not None:
             await _persist_results(database, session_id, execution_context, result, events)
             candidate_ids: List[str] = []
+            just_activated_fingerprint: str | None = None
             try:
                 candidate_specs = extract_candidates(execution_context, result)
                 if candidate_specs:
@@ -290,6 +291,7 @@ async def arun(
                     if was_certification_run and created and persona_fingerprint:
                         try:
                             await database.update_persona_status(created, "active")
+                            just_activated_fingerprint = persona_fingerprint
                             for persona_id in candidate_personas:
                                 for alias in persona_aliases(persona_id):
                                     persona_cache.invalidate(
@@ -326,23 +328,26 @@ async def arun(
             try:
                 promotion_settings = get_promotion_settings(config)
                 if fingerprint_inputs and persona_fingerprint:
-                    promotion_result = await promote_and_compact(
-                        database,
-                        fingerprint_inputs,
-                        persona_fingerprint,
-                        promotion_settings,
-                    )
-                    if promotion_result.invalidate_personas:
-                        for persona_id in promotion_result.invalidate_personas:
-                            for alias in persona_aliases(persona_id):
-                                key = PersonaMemoryKey(
-                                    agent_name=fingerprint_inputs.agent_name,
-                                    tenant_id=fingerprint_inputs.tenant_id,
-                                    fingerprint=persona_fingerprint,
-                                    persona=alias,
-                                )
-                                persona_cache.invalidate(key)
-                    promotion_payload = promotion_result.to_dict()
+                    if just_activated_fingerprint == persona_fingerprint:
+                        promotion_payload = {"skipped": "recent_activation"}
+                    else:
+                        promotion_result = await promote_and_compact(
+                            database,
+                            fingerprint_inputs,
+                            persona_fingerprint,
+                            promotion_settings,
+                        )
+                        if promotion_result.invalidate_personas:
+                            for persona_id in promotion_result.invalidate_personas:
+                                for alias in persona_aliases(persona_id):
+                                    key = PersonaMemoryKey(
+                                        agent_name=fingerprint_inputs.agent_name,
+                                        tenant_id=fingerprint_inputs.tenant_id,
+                                        fingerprint=persona_fingerprint,
+                                        persona=alias,
+                                    )
+                                    persona_cache.invalidate(key)
+                        promotion_payload = promotion_result.to_dict()
                 else:
                     promotion_payload = None
             except Exception as promotion_exc:  # pragma: no cover - diagnostic path
