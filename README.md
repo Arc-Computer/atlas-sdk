@@ -39,12 +39,13 @@ export GOOGLE_API_KEY=...
 **3. Run an Example**
 
 Create a python file `run_quickstart.py`:
+
 ```python
 from atlas import core
 
 result = core.run(
     task="Summarise the latest Atlas SDK updates",
-    config_path="configs/examples/openai_agent.yaml", # Assumes you cloned the repo
+    config_path="configs/examples/openai_agent.yaml",
 )
 
 print(result.final_answer)
