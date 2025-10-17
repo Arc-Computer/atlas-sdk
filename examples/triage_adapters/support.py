@@ -39,17 +39,6 @@ def build_dossier(task: str, metadata: Dict[str, Any] | None = None) -> TriageDo
         severity="moderate",
     )
 
-    for persona in metadata.get("knowledge_base_hits", []):
-        if isinstance(persona, dict):
-            builder.add_persona_reference(
-                persona_id=persona.get("id", ""),
-                rationale=persona.get("excerpt"),
-                weight=float(persona.get("score", 1.0)),
-                tags=persona.get("tags"),
-            )
-        elif isinstance(persona, str):
-            builder.add_persona_reference(persona, rationale="Relevant knowledge base entry.", weight=0.9)
-
     return builder.build()
 
 

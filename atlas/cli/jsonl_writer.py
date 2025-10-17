@@ -313,15 +313,12 @@ async def _assemble_session(
     triage_dossier = session_metadata.get("triage_dossier")
     if isinstance(triage_dossier, dict):
         session_payload["triage_dossier"] = triage_dossier
-    personas_used = session_metadata.get("personas_used")
-    if isinstance(personas_used, list):
-        session_payload["personas_used"] = personas_used
-    persona_updates = session_metadata.get("persona_updates")
-    if persona_updates:
-        session_payload["persona_updates"] = persona_updates
-    persona_usage = session_metadata.get("persona_usage")
-    if isinstance(persona_usage, dict) and persona_usage:
-        session_payload["persona_usage"] = persona_usage
+    learning_key = session_metadata.get("learning_key")
+    if isinstance(learning_key, str) and learning_key:
+        session_payload["learning_key"] = learning_key
+    learning_history = session_metadata.get("learning_history")
+    if isinstance(learning_history, dict) and learning_history:
+        session_payload["learning_history"] = learning_history
     teacher_notes = session_metadata.get("teacher_notes")
     if isinstance(teacher_notes, list):
         session_payload["teacher_notes"] = teacher_notes

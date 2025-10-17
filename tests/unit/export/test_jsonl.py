@@ -36,8 +36,9 @@ class FakeDatabase:
             "status": "succeeded",
             "metadata": {
                 "dataset": "demo",
-                "adaptive_summary": {"adaptive_mode": "coach", "confidence": 0.72, "certification_run": False},
-                "persona_usage": {"student": {"applied": 2}},
+                "adaptive_summary": {"adaptive_mode": "coach", "confidence": 0.72},
+                "learning_history": {"count": 2, "average_score": 0.85},
+                "learning_key": "demo-learning-key",
                 "reward_summary": {"average": 0.88, "count": 1},
                 "student_learning": "Refine executive tone.",
                 "teacher_learning": "Flag missing citations.",
@@ -155,10 +156,11 @@ def test_exporter_writes_expected_jsonl(monkeypatch, tmp_path: Path):
     assert isinstance(record["plan"], dict) and record["plan"]["steps"][0]["description"] == "collect data"
     assert record["session_metadata"]["status"] == "succeeded"
     assert record["adaptive_summary"]["adaptive_mode"] == "coach"
+    assert record.get("learning_history", {}).get("count") == 2
+    assert record.get("learning_key") == "demo-learning-key"
     assert record["session_reward"]["score"] == pytest.approx(0.91)
     assert record["student_learning"] == "Refine executive tone."
     assert record["teacher_learning"] == "Flag missing citations."
-    assert record["persona_usage"]["student"]["applied"] == 2
     assert record["trajectory_events"][0]["type"] == "TASK_START"
     step = record["steps"][0]
     assert step["description"] == "collect data"

@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 from textwrap import dedent, indent
+
+from atlas.cli.storage_runtime import InitOptions, QuitOptions, init_storage, quit_storage
 
 
 def _format_snippet(snippet: str) -> str:
@@ -54,8 +54,8 @@ def {function_name}(task: str, metadata: Dict[str, Any] | None = None) -> Triage
     metadata = metadata or {{}}
     builder = TriageDossierBuilder(task=task)
 {domain_snippet}
-    # Example persona reference:
-    # builder.add_persona_reference("persona-id", rationale="Why it's relevant.", weight=1.0)
+    # Example metadata enrichment:
+    # builder.update_metadata(notes="Why this request matters.")
     return builder.build()
 """
 
@@ -88,94 +88,39 @@ def _cmd_triage_init(args: argparse.Namespace) -> int:
     return 0
 
 
-_COMPOSE_TEMPLATE = """version: "3.9"
-
-services:
-  postgres:
-    image: postgres:15
-    container_name: atlas-postgres
-    environment:
-      POSTGRES_USER: atlas
-      POSTGRES_PASSWORD: atlas
-      POSTGRES_DB: atlas
-    ports:
-      - "5433:5432"
-    volumes:
-      - atlas_pg_data:/var/lib/postgresql/data
-
-volumes:
-  atlas_pg_data:
-"""
+def _cmd_init_storage(args: argparse.Namespace) -> int:
+    options = InitOptions(
+        compose_file=Path(args.compose_file),
+        force=args.force,
+        no_start=args.no_start,
+        auto_install=not args.skip_docker_install,
+    )
+    return init_storage(options)
 
 
-def _compose_command() -> list[str] | None:
-    docker = shutil.which("docker")
-    if docker is not None:
-        return [docker, "compose"]
-    docker_compose = shutil.which("docker-compose")
-    if docker_compose is not None:
-        return [docker_compose]
-    return None
+def _cmd_quit_storage(args: argparse.Namespace) -> int:
+    options = QuitOptions(
+        compose_file=Path(args.compose_file),
+        purge=args.purge,
+    )
+    return quit_storage(options)
 
 
 def _cmd_storage_up(args: argparse.Namespace) -> int:
-    compose_path = Path(args.compose_file).expanduser().resolve()
-    compose_path.parent.mkdir(parents=True, exist_ok=True)
-    if compose_path.exists() and not args.force:
-        print(f"{compose_path} already exists; use --force to overwrite.", file=sys.stderr)
-        return 1
-    compose_path.write_text(_COMPOSE_TEMPLATE, encoding="utf-8")
-    print(f"Wrote Docker Compose file to {compose_path}")
-    print("Storage is optional—skip this step when you only need in-memory runs.")
-
-    if args.no_start:
-        _print_storage_instructions(compose_path)
-        return 0
-
-    command = _compose_command()
-    if command is None:
-        print(
-            "Docker is not available on PATH. Install Docker and run the following command manually:\n"
-            f"  docker compose -f {compose_path} up -d postgres",
-            file=sys.stderr,
-        )
-        _print_storage_instructions(compose_path)
-        return 1
-
-    cmd = command + ["-f", str(compose_path), "up", "-d", "postgres"]
-    try:
-        subprocess.run(cmd, check=True)
-    except subprocess.CalledProcessError as exc:
-        print(f"Failed to start Postgres via Docker: {exc}", file=sys.stderr)
-        _print_storage_instructions(compose_path)
-        return 1
-
-    print("Postgres is running in Docker.")
-    _print_storage_instructions(compose_path)
-    return 0
-
-
-def _print_storage_instructions(compose_path: Path) -> None:
-    connection_url = "postgresql://atlas:atlas@localhost:5433/atlas"
-    print()
-    print("To connect Atlas to this instance (optional), set either of the following:")
-    print(f"  export STORAGE__DATABASE_URL={connection_url}")
-    print("or add the same value to your Atlas YAML config under storage.database_url.")
-    print()
-    print("To stop the container, run:")
-    print(f"  docker compose -f {compose_path} down")
-    print()
-    print("Once connected, CLI exports will include adaptive summaries, reward highlights, and persona usage telemetry.")
+    print("`atlas storage up` is deprecated. Use `atlas init` instead.\n")
+    return _cmd_init_storage(args)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="atlas",
-        description="Atlas SDK command-line tools for triage scaffolding and optional storage utilities.",
+        description="Atlas SDK command-line tools for triage scaffolding and storage provisioning.",
     )
+    parser.set_defaults(handler=lambda args: parser.print_help() or 0)
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
 
     triage_parser = subparsers.add_parser("triage", help="Triage helper commands.")
+    triage_parser.set_defaults(handler=lambda args: triage_parser.print_help() or 0)
     triage_subparsers = triage_parser.add_subparsers(dest="triage_command", metavar="<subcommand>")
 
     init_parser = triage_subparsers.add_parser("init", help="Generate a triage adapter scaffold.")
@@ -194,12 +139,55 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument("--force", action="store_true", help="Overwrite the output file if it already exists.")
     init_parser.set_defaults(handler=_cmd_triage_init)
 
-    storage_parser = subparsers.add_parser("storage", help="Optional storage helpers for PostgreSQL persistence.")
+    init_storage_parser = subparsers.add_parser(
+        "init",
+        help="Provision local storage (Docker, Postgres, and schema).",
+    )
+    init_storage_parser.add_argument(
+        "--compose-file",
+        default="atlas-postgres.yaml",
+        help="Path where the compose file will be written (default: %(default)s).",
+    )
+    init_storage_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite the compose file if it already exists.",
+    )
+    init_storage_parser.add_argument(
+        "--skip-docker-install",
+        action="store_true",
+        help="Assume Docker is already installed and skip automatic installation.",
+    )
+    init_storage_parser.add_argument(
+        "--no-start",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
+    init_storage_parser.set_defaults(handler=_cmd_init_storage)
+
+    quit_parser = subparsers.add_parser(
+        "quit",
+        help="Stop Atlas storage services and optionally remove volumes.",
+    )
+    quit_parser.add_argument(
+        "--compose-file",
+        default="atlas-postgres.yaml",
+        help="Compose file created by `atlas init` (default: %(default)s).",
+    )
+    quit_parser.add_argument(
+        "--purge",
+        action="store_true",
+        help="Remove Docker volumes in addition to stopping containers.",
+    )
+    quit_parser.set_defaults(handler=_cmd_quit_storage)
+
+    storage_parser = subparsers.add_parser("storage", help=argparse.SUPPRESS)
+    storage_parser.set_defaults(handler=lambda args: storage_parser.print_help() or 0)
     storage_subparsers = storage_parser.add_subparsers(dest="storage_command", metavar="<subcommand>")
 
     up_parser = storage_subparsers.add_parser(
         "up",
-        help="Write a Docker Compose file for Postgres and optionally start it.",
+        help=argparse.SUPPRESS,
     )
     up_parser.add_argument(
         "--compose-file",
@@ -216,6 +204,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Only write the compose file without starting Docker.",
     )
+    up_parser.add_argument(
+        "--skip-docker-install",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
     up_parser.set_defaults(handler=_cmd_storage_up)
 
     return parser
@@ -224,29 +217,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if not getattr(args, "command", None):
+    handler = getattr(args, "handler", None)
+    if handler is None:
         parser.print_help()
         return 0
-    if args.command == "triage":
-        if not getattr(args, "triage_command", None):
-            parser.parse_args(["triage", "--help"])
-            return 0
-        handler = getattr(args, "handler", None)
-        if handler is None:
-            parser.parse_args(["triage", args.triage_command, "--help"])
-            return 0
-        return handler(args)
-    if args.command == "storage":
-        if not getattr(args, "storage_command", None):
-            parser.parse_args(["storage", "--help"])
-            return 0
-        handler = getattr(args, "handler", None)
-        if handler is None:
-            parser.parse_args(["storage", args.storage_command, "--help"])
-            return 0
-        return handler(args)
-    parser.print_help()
-    return 0
+    return handler(args)
 
 
 if __name__ == "__main__":

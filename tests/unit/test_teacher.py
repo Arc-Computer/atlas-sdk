@@ -174,22 +174,19 @@ def test_capability_probe_prefers_auto_mode_with_helpful_stats():
             {
                 "mode": "auto",
                 "confidence": 0.92,
-                "evidence": ["persona_helpful_ratio=0.75"],
-                "recommended_personas": ["senior"],
+                "evidence": ["learning_history_average=0.88"],
             }
         )
-        metadata = {"persona_usage": {"teacher_validation": {"helpful": 3, "harmful": 0}}}
+        metadata = {"learning_history": {"entries": [], "count": 3, "average_score": 0.88}}
         dossier = {"summary": "known workflow", "risks": [{"severity": "medium"}]}
         decision = await probe.arun(
             task="refine report",
             dossier=dossier,
-            fingerprint="fp-1",
             execution_metadata=metadata,
         )
         assert decision.mode == "auto"
         assert decision.confidence == pytest.approx(0.92, rel=1e-2)
-        assert decision.raw["evidence"] == ["persona_helpful_ratio=0.75"]
-        assert decision.raw["recommended_personas"] == ["senior"]
+        assert decision.raw["evidence"] == ["learning_history_average=0.88"]
 
     asyncio.run(runner())
 
@@ -201,21 +198,20 @@ def test_capability_probe_escalates_on_high_risk_signals():
             {
                 "mode": "escalate",
                 "confidence": 0.34,
-                "evidence": ["risk_high_severity", "persona_helpful_ratio=0.33"],
+                "evidence": ["learning_history_sparse", "recent_scores_below_threshold"],
             }
         )
-        metadata = {"persona_usage": {"teacher_guidance": {"helpful": 1, "harmful": 2}}}
+        metadata = {"learning_history": {"entries": [], "count": 0}}
         dossier = {"summary": "critical outage", "risks": [{"severity": "critical"}]}
         decision = await probe.arun(
             task="restore service",
             dossier=dossier,
-            fingerprint="fp-2",
             execution_metadata=metadata,
         )
         assert decision.mode == "escalate"
         assert decision.confidence == pytest.approx(0.34, rel=1e-2)
-        assert "risk_high_severity" in decision.raw["evidence"]
-        assert "persona_helpful_ratio=0.33" in decision.raw["evidence"]
+        assert "learning_history_sparse" in decision.raw["evidence"]
+        assert "recent_scores_below_threshold" in decision.raw["evidence"]
 
     asyncio.run(runner())
 
@@ -253,69 +249,8 @@ def test_areview_plan_refreshes_cache_on_escalation():
     asyncio.run(runner())
 
 
-def test_areview_plan_respects_certification_mode():
-    async def runner() -> None:
-        ExecutionContext.get().reset()
-        ExecutionContext.get().metadata["adaptive"] = {"active_mode": "paired", "certification_run": True}
-        config = TeacherConfig(
-            llm=_gpt5_params(),
-            max_review_tokens=1024,
-            plan_cache_seconds=0,
-            guidance_max_tokens=512,
-            validation_max_tokens=512,
-        )
-        prompts = RewrittenTeacherPrompts(
-            plan_review="Respond with JSON containing a 'steps' array.",
-            validation="Return JSON {\"valid\": bool, \"guidance\": str | null}.",
-            guidance="Return short guidance.",
-        )
-        teacher = Teacher(config, prompts)
-        plan = Plan(steps=[Step(id=1, description="draft summary", depends_on=[])])
-        reviewed = await teacher.areview_plan("Summarize Atlas", plan)
-        assert reviewed.execution_mode == "single_shot"
-        assert reviewed.steps == plan.steps
-
     asyncio.run(runner())
 
-
-def test_avalidate_step_injects_certification_reward_in_paired_mode():
-    async def runner() -> None:
-        ExecutionContext.get().reset()
-        ExecutionContext.get().metadata["adaptive"] = {"active_mode": "paired", "certification_run": True}
-        config = TeacherConfig(
-            llm=_gpt5_params(),
-            max_review_tokens=1024,
-            plan_cache_seconds=0,
-            guidance_max_tokens=512,
-            validation_max_tokens=512,
-        )
-        prompts = RewrittenTeacherPrompts(
-            plan_review="Respond with JSON containing a 'steps' array.",
-            validation="Return JSON {\"valid\": bool, \"guidance\": str | null}.",
-            guidance="Return JSON guidance.",
-        )
-        teacher = Teacher(config, prompts)
-        teacher._client = _StaticResponseClient({"valid": True, "guidance": "All clear."})
-        step = Step(id=1, description="compile", depends_on=[])
-        structured_output = {
-            "status": "ok",
-            "deliverable": {"report": "complete"},
-            "reason": "Meets certification bar.",
-        }
-        result = await teacher.avalidate_step(
-            step,
-            trace="trace",
-            structured_output=structured_output,
-            prior_results={},
-            prior_guidance=[],
-            attempt_guidance=[],
-        )
-        assert result["valid"] is True
-        assert result["guidance"] == "All clear."
-        reward = result.get("certification_reward")
-        assert isinstance(reward, dict), "Certification reward should be attached in paired certification runs"
-        assert reward["score"] == pytest.approx(0.95, rel=1e-3)
-        assert reward["raw"]["structured_output"]["reason"] == "Meets certification bar."
 
     import pytest
 

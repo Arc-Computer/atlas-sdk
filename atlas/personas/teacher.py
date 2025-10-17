@@ -157,9 +157,6 @@ class Teacher:
             result["reason"] = reason
         if mode == "coach" and isinstance(result.get("guidance"), str):
             result["guidance"] = self._shorten_guidance(result["guidance"])
-        if mode == "paired" and self._is_certification_run():
-            if result.get("valid"):
-                result["certification_reward"] = self._build_certification_reward(structured_output)
         return result
 
     async def agenerate_guidance(self, step: Step, evaluation: Dict[str, Any]) -> str:
@@ -281,26 +278,6 @@ class Teacher:
         if isinstance(mode, str) and mode:
             return mode
         return "escalate"
-
-    def _is_certification_run(self) -> bool:
-        context = ExecutionContext.get()
-        adaptive = context.metadata.get("adaptive", {}) if isinstance(context.metadata, dict) else {}
-        return bool(adaptive.get("certification_run"))
-
-    def _build_certification_reward(self, structured_output: Dict[str, Any]) -> Dict[str, Any]:
-        evidence_note = structured_output.get("reason")
-        raw_payload = {
-            "source": "teacher_certification",
-            "structured_output": structured_output,
-        }
-        if evidence_note:
-            raw_payload["reason"] = evidence_note
-        return {
-            "score": 0.95,
-            "rationale": "Teacher certification pass",
-            "judges": [],
-            "raw": raw_payload,
-        }
 
     def _shorten_guidance(self, guidance: str) -> str:
         sentences = [segment.strip() for segment in guidance.split(".") if segment.strip()]

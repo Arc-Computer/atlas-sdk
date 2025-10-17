@@ -109,7 +109,7 @@ When you install the SDK from PyPI you still need a PostgreSQL URL if you want p
 ```bash
 pip install arc-atlas
 # Option A – use Docker (recommended)
-atlas storage up  # writes atlas-postgres.yaml and starts the container
+atlas init  # installs Docker if missing, writes atlas-postgres.yaml, and starts Postgres
 
 # Option B – run docker compose yourself if you prefer
 docker compose -f docker/docker-compose.yaml up -d postgres
@@ -134,11 +134,12 @@ export GOOGLE_API_KEY=...
 # Then execute:
 # python run_atlas.py
 ```
-- `atlas storage up` requires Docker on PATH; it writes `atlas-postgres.yaml` and runs `docker compose -f atlas-postgres.yaml up -d postgres` behind the scenes. If Docker is unavailable, the command prints the exact compose invocation to run manually.
+- `atlas init` installs Docker when possible, writes `atlas-postgres.yaml`, starts the PostgreSQL container, and applies the Atlas schema automatically.
 - The compose configuration exposes Postgres on host port `5433`; keep the URL in sync if you change the mapping.
 - You can point `storage.database_url` inside your YAML config or rely on the `STORAGE__DATABASE_URL` environment variable shown above.
+- Shut everything down with `atlas quit` (use `--purge` to remove the Docker volume) when you no longer need local storage.
 - If storage is optional for your workflow, set `storage: null` in the config—runs will skip persistence but still execute end-to-end.
-- No Docker? Install Postgres by hand (local package manager, managed instance, etc.) and point `STORAGE__DATABASE_URL` at that server instead.
+- No Docker? Install Postgres by hand (local package manager, managed instance, etc.) and point `STORAGE__DATABASE_URL` at that server instead—or run `atlas init --skip-docker-install` to reuse an existing Docker Engine.
 
 ---
 

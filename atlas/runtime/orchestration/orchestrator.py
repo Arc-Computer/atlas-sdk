@@ -8,12 +8,10 @@ import logging
 import time
 from dataclasses import dataclass
 from typing import Any
-from typing import Awaitable
 from typing import Callable
 from typing import Dict
 from typing import List
 from typing import Optional
-from typing import Set
 from uuid import uuid4
 
 from atlas.config.models import AdaptiveTeachingConfig
@@ -56,7 +54,6 @@ class _StepExecutionOutcome:
 class AdaptiveModeDecision:
     mode: str
     confidence: Optional[float] = None
-    certification: bool = False
     probe: CapabilityProbeDecision | None = None
     source: str | None = None
 
@@ -71,7 +68,6 @@ class Orchestrator:
         rim_config: RIMConfig,
         adaptive_config: AdaptiveTeachingConfig | None = None,
         triage_adapter: Callable[[str, Dict[str, Any] | None], TriageDossier] | None = None,
-        persona_refresh: Callable[[], Awaitable[None]] | None = None,
         capability_probe: CapabilityProbeClient | None = None,
     ) -> None:
         self._teacher = teacher
@@ -80,14 +76,12 @@ class Orchestrator:
         self._orchestration = orchestration_config
         self._rim_config = rim_config
         self._rim_retry_threshold = getattr(rim_config, "retry_threshold", 0.6)
-        self._persona_refresh = persona_refresh
         self._adaptive = adaptive_config or AdaptiveTeachingConfig()
         self._triage_adapter = triage_adapter or default_build_dossier
         self._capability_probe = capability_probe
 
     async def arun(self, task: str) -> Result:
         context = ExecutionContext.get()
-        context.mark_certification_run(False)
         manager = context.intermediate_step_manager
         orchestration_id = str(uuid4())
         manager.push_intermediate_step(
@@ -132,10 +126,6 @@ class Orchestrator:
             )
         )
         context.metadata["task"] = task
-
-        if self._persona_refresh is not None:
-            await self._persona_refresh()
-        self._hydrate_certified_fingerprints(context)
 
         decision = await self._determine_adaptive_mode(task, context, dossier)
         mode = decision.mode or "escalate"
@@ -260,7 +250,6 @@ class Orchestrator:
             prior_guidance = list(step_meta.get("guidance", []))
 
             structured_output = self._obtain_structured_output(student_result)
-            student_status = structured_output.get("status")
             artifacts = student_result.artifacts
             deliverable = student_result.deliverable
 
@@ -285,17 +274,13 @@ class Orchestrator:
                     validation.get("guidance") if isinstance(validation, dict) else None,
                 )
                 validation_valid = bool(validation.get("valid"))
-                reward_override_payload = validation.pop("certification_reward", None) if isinstance(validation, dict) else None
             else:
                 validation = {"valid": True, "guidance": None}
-                reward_override_payload = None
                 attempt_timings["validation_ms"] = 0.0
                 validation_valid = True
 
             reward_skipped = True
-            if reward_override_payload is not None:
-                reward = self._build_placeholder_reward("teacher_certified")
-            elif require_validation and not validation_valid:
+            if require_validation and not validation_valid:
                 reward = self._build_placeholder_reward("validation_failed")
             else:
                 reward = self._build_placeholder_reward("deferred")
@@ -325,11 +310,7 @@ class Orchestrator:
             status_label = "completed"
             if require_validation:
                 status_label = "passed" if validation_valid else "failed"
-            combined_status = (
-                student_status.strip()
-                if isinstance(student_status, str) and student_status.strip()
-                else status_label
-            )
+            combined_status = status_label
 
             execution_context.register_step_attempt(
                 step.id,
@@ -341,9 +322,7 @@ class Orchestrator:
             )
 
             context_entry = self._build_context_entry(structured_output, student_result.output)
-            context_entry["status"] = combined_status
             step_meta["context_entry"] = context_entry
-            step_meta["status"] = combined_status
 
             event_output = {
                 "trace": student_result.trace,
@@ -399,22 +378,21 @@ class Orchestrator:
                 source="mode_override",
             )
 
-        fingerprint = context.metadata.get("persona_fingerprint")
-        certification_needed = (
-            adaptive_cfg.certify_first_run
-            and isinstance(fingerprint, str)
-            and not self._has_certified_fingerprint(fingerprint)
-        )
-        if certification_needed:
-            decision = AdaptiveModeDecision(
+        learning_history = context.metadata.get("learning_history") if isinstance(context.metadata, dict) else None
+        history_count: int | None = None
+        if isinstance(learning_history, dict):
+            raw_count = learning_history.get("count")
+            if isinstance(raw_count, (int, float)):
+                history_count = int(raw_count)
+        if history_count is None or history_count == 0:
+            logger.info("Orchestrator: no learning history detected; defaulting to paired mode without probe")
+            return AdaptiveModeDecision(
                 mode="paired",
                 confidence=None,
-                certification=True,
-                source="certification_required",
+                source="no_learning_history",
             )
-            return decision
 
-        probe_result = await self._run_capability_probe(task, context, dossier, fingerprint)
+        probe_result = await self._run_capability_probe(task, context, dossier)
         if probe_result is not None:
             mode = probe_result.mode
             confidence = probe_result.confidence
@@ -423,32 +401,23 @@ class Orchestrator:
             if not mode:
                 fallback_mode = adaptive_cfg.probe.fallback_mode
                 mode = fallback_mode if fallback_mode in {"paired", "coach", "escalate"} else "paired"
-            decision = AdaptiveModeDecision(
+            return AdaptiveModeDecision(
                 mode=mode,
                 confidence=confidence,
-                certification=False,
                 probe=probe_result,
                 source="capability_probe",
             )
-            if isinstance(fingerprint, str):
-                self._record_certification_state(fingerprint, False)
-            return decision
 
-        fallback_mode = self._capability_probe.fallback_mode if self._capability_probe else adaptive_cfg.probe.fallback_mode
-        if isinstance(fingerprint, str):
-            self._record_certification_state(fingerprint, False)
+        fallback_mode = adaptive_cfg.probe.fallback_mode
         fallback_source = "probe_disabled" if self._capability_probe is None else "probe_fallback"
-        return AdaptiveModeDecision(
-            mode=fallback_mode if fallback_mode in {"paired", "coach", "escalate"} else "paired",
-            source=fallback_source,
-        )
+        mode = fallback_mode if fallback_mode in {"paired", "coach", "escalate"} else "paired"
+        return AdaptiveModeDecision(mode=mode, source=fallback_source)
 
     async def _run_capability_probe(
         self,
         task: str,
         context: ExecutionContext,
         dossier: TriageDossier,
-        fingerprint: Any,
     ) -> CapabilityProbeDecision | None:
         manager = context.intermediate_step_manager
         if self._capability_probe is None:
@@ -486,7 +455,6 @@ class Orchestrator:
             decision = await self._capability_probe.arun(
                 task=task,
                 dossier=dossier.model_dump(),
-                fingerprint=str(fingerprint) if isinstance(fingerprint, str) else None,
                 execution_metadata=context.metadata,
             )
         except Exception as exc:
@@ -542,13 +510,7 @@ class Orchestrator:
         context.record_mode_decision(
             decision.mode,
             confidence=decision.confidence,
-            certification=decision.certification,
         )
-        if decision.certification:
-            context.mark_certification_run(True)
-            fingerprint = context.metadata.get("persona_fingerprint")
-            if isinstance(fingerprint, str):
-                self._record_certification_state(fingerprint, True)
 
     def _emit_adaptive_route_event(
         self,
@@ -570,7 +532,6 @@ class Orchestrator:
         payload: Dict[str, Any] = {
             "mode": decision.mode,
             "confidence": decision.confidence,
-            "certification": decision.certification,
         }
         if reason:
             payload["reason"] = reason
@@ -612,47 +573,6 @@ class Orchestrator:
             except Exception:
                 pass
         return plan
-
-    def _hydrate_certified_fingerprints(self, context: ExecutionContext) -> None:
-        existing = context.metadata.get("adaptive_certified_fingerprints")
-        if isinstance(existing, set):
-            return
-        certified: Set[str] = set()
-        persona_memories = context.metadata.get("persona_memories") if isinstance(context.metadata, dict) else None
-        if isinstance(persona_memories, dict):
-            for records in persona_memories.values():
-                if not isinstance(records, list):
-                    continue
-                for record in records:
-                    fingerprint = record.get("trigger_fingerprint")
-                    metadata = record.get("metadata")
-                    if isinstance(fingerprint, str) and isinstance(metadata, dict) and metadata.get("certified"):
-                        certified.add(fingerprint)
-        context.metadata["adaptive_certified_fingerprints"] = certified
-
-    def _has_certified_fingerprint(self, fingerprint: str) -> bool:
-        context = ExecutionContext.get()
-        certs = context.metadata.get("adaptive_certified_fingerprints")
-        if isinstance(certs, set):
-            return fingerprint in certs
-        if isinstance(certs, list):
-            return fingerprint in certs
-        return False
-
-    def _record_certification_state(self, fingerprint: str, certified: bool) -> None:
-        context = ExecutionContext.get()
-        certs = context.metadata.setdefault("adaptive_certified_fingerprints", set())
-        if isinstance(certs, set):
-            if certified:
-                certs.add(fingerprint)
-            return
-        if isinstance(certs, list):
-            if certified and fingerprint not in certs:
-                certs.append(fingerprint)
-            return
-        # migrate legacy/non-iterable cases
-        if certified:
-            context.metadata["adaptive_certified_fingerprints"] = {fingerprint}
 
     async def _run_single_shot(
         self,
@@ -1000,7 +920,6 @@ class Orchestrator:
     ) -> Dict[str, Any]:
         entry: Dict[str, Any] = {
             "output_text": output_text,
-            "status": structured_output.get("status"),
             "artifacts": self._ensure_jsonable((structured_output.get("result") or {}).get("artifacts") or {}),
             "deliverable": self._ensure_jsonable((structured_output.get("result") or {}).get("deliverable")),
         }

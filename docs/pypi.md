@@ -4,7 +4,7 @@ Atlas wraps your Bring-Your-Own-Agent (BYOA) in a guided Teacher → Student →
 
 > Atlas defaults to an in-memory workflow—leave `storage: null` in your config for quick experiments. You can add PostgreSQL later if you want durable telemetry.
 
-## What's New in v0.1.3
+## What's New in v0.1.7
 
 - **Adaptive Runtime** – Capability probe selects execution mode (`auto`, `paired`, `coach`, `escalate`) per request based on task complexity and historical performance.
 - **Persistent Learning Memory** – Guidance from each episode is tagged by reward and automatically reused on similar tasks.
@@ -184,8 +184,8 @@ Atlas retries requests based on the adapter’s `retry` policy and normalises JS
 ## Optional: Persist Runs with PostgreSQL
 
 ```bash
-# Start a local Postgres via Docker (requires Docker Desktop/Engine)
-atlas storage up  # writes atlas-postgres.yaml and starts the container
+# Start a local Postgres via Docker (installs Docker if missing)
+atlas init  # writes atlas-postgres.yaml, starts Postgres, and applies the schema
 
 # Or run docker compose yourself if you prefer:
 # docker compose -f docker/docker-compose.yaml up -d postgres
@@ -199,7 +199,7 @@ Add a `storage` section to your config when you want Atlas to log plans, attempt
 ## Observe and Export
 
 - Set `stream_progress=True` in `core.run` to stream planner/executor/judge events alongside the adaptive summary.
-- Export stored sessions with `arc-atlas --database-url postgresql://... --output traces.jsonl`—the JSONL includes `adaptive_summary`, `session_reward`, learning notes, and persona usage.
+- Export stored sessions with `arc-atlas --database-url postgresql://... --output traces.jsonl`—the JSONL includes `adaptive_summary`, `session_reward`, learning notes, and the aggregated learning history.
 - Explore `docs/examples/` for telemetry and export walkthroughs.
 
 ## Next Steps
