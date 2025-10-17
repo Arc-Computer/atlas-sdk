@@ -1,12 +1,12 @@
 # Atlas SDK
 [![Atlas SDK hero](public/atlas-sdk.jpeg)](public/atlas-sdk.jpeg)
 
-Atlas enables continual learning for agents to adapt, learn, and transfer knowledge in live environments.
-
 [![PyPI version](https://img.shields.io/pypi/v/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
 [![Downloads](https://static.pepy.tech/badge/arc-atlas)](https://pepy.tech/project/arc-atlas)
 
-Atlas SDK is the continual-learning runtime that turns every task into a structured learning episode. It wraps any agent (OpenAI, Claude, Gemini, local models, or your own stack) with an adaptive dual-agent reasoning loop guided by reward signals, so agents stay fast on familiar work while escalating supervision on new or risky tasks. The SDK records rich telemetry, surfaces adaptive signals in real time, and exports production data for downstream training.
+The Atlas SDK is a drop-in learning harness that enables your agent to learn from experience, adapt to new challenges, and become more efficient over time - all at inference time. 
+
+It wraps any agent (OpenAI, Claude, Gemini, local models, or your own stack) with an adaptive dual-agent reasoning loop guided by reward signals, so agents stay fast on familiar work while escalating supervision on new or risky tasks. The SDK records rich telemetry, surfaces adaptive signals in real time, and exports production data for downstream training.
 
 > **How it relates to [ATLAS](https://github.com/Arc-Computer/ATLAS)**  
 > This repository delivers the runtime harness that powers continual learning in production. The `ATLAS` repo focuses on training models that ingest the structured traces produced here. Run the SDK to capture adaptive episodes; feed those traces into ATLAS to retrain and evaluate new policies.
@@ -46,7 +46,7 @@ from atlas import core
 
 result = core.run(
     task="Summarise the latest Atlas SDK updates",
-    config_path="configs/examples/openai_agent.yaml", # Assumes you cloned the repo
+    config_path="configs/examples/openai_agent.yaml",
 )
 
 print(result.final_answer)
@@ -110,7 +110,7 @@ When you install the SDK from PyPI you still need a PostgreSQL URL if you want p
 ```bash
 pip install arc-atlas
 # Option A – use Docker (recommended)
-atlas storage up  # writes atlas-postgres.yaml and starts the container
+atlas init  # installs Docker if missing, writes atlas-postgres.yaml, and starts Postgres
 
 # Option B – run docker compose yourself if you prefer
 docker compose -f docker/docker-compose.yaml up -d postgres
@@ -135,11 +135,12 @@ export GOOGLE_API_KEY=...
 # Then execute:
 # python run_atlas.py
 ```
-- `atlas storage up` requires Docker on PATH; it writes `atlas-postgres.yaml` and runs `docker compose -f atlas-postgres.yaml up -d postgres` behind the scenes. If Docker is unavailable, the command prints the exact compose invocation to run manually.
+- `atlas init` installs Docker when possible, writes `atlas-postgres.yaml`, starts the PostgreSQL container, and applies the Atlas schema automatically.
 - The compose configuration exposes Postgres on host port `5433`; keep the URL in sync if you change the mapping.
 - You can point `storage.database_url` inside your YAML config or rely on the `STORAGE__DATABASE_URL` environment variable shown above.
+- Shut everything down with `atlas quit` (use `--purge` to remove the Docker volume) when you no longer need local storage.
 - If storage is optional for your workflow, set `storage: null` in the config—runs will skip persistence but still execute end-to-end.
-- No Docker? Install Postgres by hand (local package manager, managed instance, etc.) and point `STORAGE__DATABASE_URL` at that server instead.
+- No Docker? Install Postgres by hand (local package manager, managed instance, etc.) and point `STORAGE__DATABASE_URL` at that server instead—or run `atlas init --skip-docker-install` to reuse an existing Docker Engine.
 
 ---
 

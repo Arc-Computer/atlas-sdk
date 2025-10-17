@@ -38,7 +38,6 @@ class StubEvaluator:
 
 class StubOrchestrator:
     def __init__(self, *args, **kwargs):
-        self._persona_refresh = kwargs.get("persona_refresh")
         reward = AtlasRewardBreakdown(score=1.0)
         evaluation = StepEvaluation(validation={}, reward=reward)
         self.result = Result(
@@ -48,8 +47,6 @@ class StubOrchestrator:
         )
 
     async def arun(self, task: str) -> Result:
-        if self._persona_refresh is not None:
-            await self._persona_refresh()
         return self.result
 
 

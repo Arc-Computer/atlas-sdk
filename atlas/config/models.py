@@ -305,6 +305,7 @@ class StorageConfig(BaseModel):
     min_connections: int = Field(default=1, ge=1)
     max_connections: int = Field(default=5, ge=1)
     statement_timeout_seconds: float = Field(default=30.0, ge=0.0)
+    apply_schema_on_connect: bool = True
 
 class AtlasConfig(BaseModel):
     """Root configuration consumed by the Atlas SDK."""

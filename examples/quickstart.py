@@ -33,8 +33,7 @@ class PassMetrics:
     token_breakdown: Dict[str, int] = field(default_factory=dict)
     session_id: Optional[int] = None
     adaptive_mode: Optional[str] = None
-    certification_run: bool = False
-    persona_fingerprint: Optional[str] = None
+    learning_key: Optional[str] = None
 
 
 USAGE_SUMMARY: Dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0}
@@ -103,19 +102,6 @@ def collect_usage_summary() -> Dict[str, int]:
     """Return a copy of the latest usage summary."""
     return dict(USAGE_SUMMARY)
 
-
-def wait_for_persona_learning(fingerprint: Optional[str], timeout: float = 8.0, interval: float = 0.5) -> str:
-    """Poll Postgres until a persona memory row exists for the fingerprint."""
-    if not fingerprint:
-        return ""
-    deadline = time.time() + timeout
-    snapshot = ""
-    while time.time() < deadline:
-        snapshot = fetch_persona_learning(limit=3, fingerprint=fingerprint)
-        if snapshot and "(0 rows)" not in snapshot:
-            return snapshot
-        time.sleep(interval)
-    return snapshot
 
 
 def extract_token_usage(result: Any, metadata: Dict[str, Any]) -> Optional[int]:
@@ -195,13 +181,10 @@ def print_metadata(metadata: Dict[str, Any]) -> None:
     adaptive = metadata.get("adaptive_summary")
     if isinstance(adaptive, dict):
         mode = adaptive.get("adaptive_mode") or metadata.get("execution_mode")
-        certification = adaptive.get("certification_run")
         confidence = adaptive.get("confidence") or adaptive.get("probe", {}).get("confidence")
         parts = [f"mode={mode}" if mode else None]
         if confidence is not None:
             parts.append(f"confidence={confidence:.2f}")
-        if certification:
-            parts.append("certification=True")
         summary_line = ", ".join(part for part in parts if part)
         print("\nAdaptive summary:", summary_line or adaptive)
     reward = metadata.get("reward_summary")
@@ -211,6 +194,22 @@ def print_metadata(metadata: Dict[str, Any]) -> None:
         session_reward = metadata.get("session_reward")
         if isinstance(session_reward, dict):
             print("Reward summary:", session_reward)
+    learning_key = metadata.get("learning_key")
+    if learning_key is None:
+        session_meta = metadata.get("session_metadata") if isinstance(metadata, dict) else {}
+        if isinstance(session_meta, dict):
+            learning_key = session_meta.get("learning_key")
+    if learning_key:
+        print("Learning key:", learning_key)
+    history_snapshot = metadata.get("learning_history")
+    if isinstance(history_snapshot, dict):
+        count = history_snapshot.get("count")
+        average = history_snapshot.get("average_score")
+        if count:
+            summary = f"entries={count}"
+            if isinstance(average, (int, float)):
+                summary += f", avg_score={average:.2f}"
+            print("Learning history summary:", summary)
 
 
 def execute_pass(header: str) -> PassMetrics:
@@ -254,15 +253,17 @@ def execute_pass(header: str) -> PassMetrics:
     success = bool(result.final_answer.strip())
     session_id = fetch_latest_session_id()
     adaptive_meta = metadata_snapshot.get("adaptive_summary")
-    persona_fingerprint = metadata_snapshot.get("persona_fingerprint")
     adaptive_mode = None
-    certification_run = False
     if isinstance(adaptive_meta, dict):
         adaptive_mode = adaptive_meta.get("adaptive_mode") or metadata_snapshot.get("execution_mode")
-        certification_run = bool(adaptive_meta.get("certification_run"))
     elif isinstance(metadata_snapshot.get("adaptive"), dict):
         adaptive_mode = metadata_snapshot["adaptive"].get("active_mode")
-        certification_run = bool(metadata_snapshot["adaptive"].get("certification_run"))
+
+    learning_key = metadata_snapshot.get("learning_key")
+    if learning_key is None:
+        session_meta_snapshot = metadata_snapshot.get("session_metadata")
+        if isinstance(session_meta_snapshot, dict):
+            learning_key = session_meta_snapshot.get("learning_key")
 
     print("\n=== Final Answer ===")
     print(result.final_answer)
@@ -272,10 +273,7 @@ def execute_pass(header: str) -> PassMetrics:
     print(f"Tokens generated: {format_tokens(tokens)}{breakdown_suffix}")
     print(f"Status: {'success' if success else 'failure'}")
     if adaptive_mode:
-        status_details = f"Adaptive mode: {adaptive_mode}"
-        if certification_run:
-            status_details += " (certification)"
-        print(status_details)
+        print(f"Adaptive mode: {adaptive_mode}")
 
     return PassMetrics(
         label=header,
@@ -286,8 +284,7 @@ def execute_pass(header: str) -> PassMetrics:
         token_breakdown=token_breakdown,
         session_id=session_id,
         adaptive_mode=adaptive_mode,
-        certification_run=certification_run,
-        persona_fingerprint=persona_fingerprint,
+        learning_key=learning_key,
     )
 
 
@@ -310,36 +307,15 @@ def print_efficiency(pass_one: PassMetrics, pass_two: PassMetrics) -> None:
     else:
         print("Tokens saved: n/a")
 
-    fingerprint = pass_two.persona_fingerprint or pass_one.persona_fingerprint
-    usage_report = fetch_persona_memory_usage(fingerprint)
-    if usage_report:
-        if "(0 rows)" in usage_report:
-            print("Learning applied: no persona_memory_usage records found for this fingerprint.")
+    learning_key = pass_two.learning_key or pass_one.learning_key
+    if learning_key:
+        history = fetch_learning_history(learning_key)
+        if history:
+            print(f"\nLearning history (key={learning_key[:12]}...):\n{history}")
         else:
-            if fingerprint:
-                prefix = f"Learning applied (fingerprint={fingerprint[:8]}...):"
-            else:
-                prefix = "Learning applied:"
-            print(f"{prefix}\n{usage_report}")
+            print("\nLearning history: no prior sessions recorded for this key yet.")
     else:
-        print("Learning applied: query returned no output.")
-
-    session_ids = [sid for sid in (pass_one.session_id, pass_two.session_id) if sid]
-    student_learning_report = fetch_student_learning(session_ids)
-    if student_learning_report:
-        print(f"\nSession learning signals:\n{student_learning_report}")
-
-    stored_learning = fetch_persona_learning(
-        fingerprint=fingerprint
-    )
-    if stored_learning:
-        if "(0 rows)" in stored_learning:
-            print("\nStored learning: no persona_memory rows yet for this fingerprint.")
-        else:
-            if fingerprint:
-                print(f"\nStored learning (fingerprint={fingerprint[:8]}...):\n{stored_learning}")
-            else:
-                print(f"\nStored learning:\n{stored_learning}")
+        print("\nLearning history: learning key unavailable.")
 
 
 def run_psql(query: str, *, tuples_only: bool = False) -> str:
@@ -376,31 +352,15 @@ def run_psql(query: str, *, tuples_only: bool = False) -> str:
     return completed.stdout.strip()
 
 
-def fetch_persona_memory_usage(fingerprint: Optional[str]) -> str:
-    if fingerprint:
-        fingerprint = fingerprint.replace("'", "''")
-        return run_psql(
-            "SELECT u.memory_id, u.session_id, u.applied_at "
-            "FROM persona_memory_usage u "
-            "JOIN persona_memory m ON m.memory_id = u.memory_id "
-            f"WHERE m.trigger_fingerprint = '{fingerprint}' "
-            "ORDER BY u.applied_at DESC LIMIT 5;"
-        )
+def fetch_learning_history(learning_key: Optional[str], limit: int = 5) -> str:
+    if not learning_key:
+        return ""
+    key = learning_key.replace("'", "''")
     return run_psql(
-        "SELECT memory_id, session_id, applied_at "
-        "FROM persona_memory_usage "
-        "ORDER BY applied_at DESC LIMIT 5;"
-    )
-
-
-def fetch_persona_learning(limit: int = 3, fingerprint: Optional[str] = None) -> str:
-    where_clause = ""
-    if fingerprint:
-        fingerprint = fingerprint.replace("'", "''")
-        where_clause = f"WHERE trigger_fingerprint = '{fingerprint}' "
-    return run_psql(
-        "SELECT memory_id, instruction::text AS instruction, created_at "
-        f"FROM persona_memory {where_clause}ORDER BY created_at DESC LIMIT {limit};"
+        "SELECT created_at, reward->>'score' AS reward_score, student_learning, teacher_learning "
+        "FROM sessions "
+        f"WHERE metadata->>'learning_key' = '{key}' "
+        f"ORDER BY created_at DESC LIMIT {limit};"
     )
 
 
@@ -419,18 +379,6 @@ def fetch_latest_session_id() -> Optional[int]:
         return None
 
 
-def fetch_student_learning(session_ids: list[int]) -> str:
-    if not session_ids:
-        return ""
-    id_list = ", ".join(str(sid) for sid in session_ids)
-    return run_psql(
-        "SELECT id, student_learning "
-        "FROM sessions "
-        f"WHERE id IN ({id_list}) "
-        "ORDER BY id;"
-    )
-
-
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     register_usage_callback()
@@ -440,19 +388,11 @@ def main() -> None:
     ]
 
     metrics: list[PassMetrics] = []
-    preview_learning = ""
     for index, header in enumerate(pass_headers):
         if index:
             print()
         pass_metrics = execute_pass(header)
         metrics.append(pass_metrics)
-        if index == 0:
-            preview_learning = wait_for_persona_learning(pass_metrics.persona_fingerprint)
-            if preview_learning and "(0 rows)" not in preview_learning:
-                print("\nPersona memory captured after Pass 1 (preview):")
-                print(preview_learning)
-            else:
-                print("\n[warning] No persona memory persisted yet; continuing to Pass 2...")
 
     if len(metrics) == 2:
         print_efficiency(metrics[0], metrics[1])

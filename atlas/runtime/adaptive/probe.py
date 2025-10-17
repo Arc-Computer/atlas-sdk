@@ -19,17 +19,21 @@ _DEFAULT_PROBE_LLM = LLMParameters(
 
 _SYSTEM_PROMPT = """Role: Adaptive execution router.
 
-Decide which runtime mode should execute the next request based on the fingerprint and triage summary.
+Decide which runtime mode should execute the next request based on the task description and accumulated learning history and reward scores.
 
 Candidate modes:
+- Use `auto` when the learning history shows high scores on similar tasks and no recent regressions.
 - auto: student runs unattended (fast lane).
+- Use `paired` when the student has helpful learning but low reward score, so still needs a teacher review to confirm the final answer.
 - paired: student runs once with teacher inspecting final answer.
+- Use `coach` when the task is partially familiar but low reward score, so needs plan validation and targeted guidance.
 - coach: teacher reviews the plan and check the final answer.
+- Use `escalate` when learning history is sparse or low-scoring in similar task attended few time but never get's a good reward score and full supervision is required.
 - escalate: teacher supervises step-by-step with remediation.
 
 Requirements:
-1. Analyse fingerprint history and triage dossier risks to determine how confident the system should be.
-2. Consider recent adaptive history (previous modes, confidence, outcomes) when available.
+1. Review the learning history (reward scores, student/teacher learnings) to judge how confident we should be.
+2. Consider how similar tasks were handled previously when choosing a mode.
 3. Return a single JSON object with this exact schema:
    {{
      "mode": "auto" | "paired" | "coach" | "escalate",
@@ -61,10 +65,9 @@ class CapabilityProbeClient:
         *,
         task: str,
         dossier: Dict[str, Any],
-        fingerprint: str | None,
         execution_metadata: Dict[str, Any],
     ) -> CapabilityProbeDecision:
-        payload = self._build_payload(task, dossier, fingerprint, execution_metadata)
+        payload = self._build_payload(task, dossier, execution_metadata)
         messages = [
             {"role": "system", "content": _SYSTEM_PROMPT},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
@@ -83,17 +86,13 @@ class CapabilityProbeClient:
         self,
         task: str,
         dossier: Dict[str, Any],
-        fingerprint: str | None,
         execution_metadata: Dict[str, Any],
     ) -> Dict[str, Any]:
-        adaptive_history = execution_metadata.get("adaptive", {})
-        recent_reward = execution_metadata.get("session_reward")
+        _ = dossier  # intentionally unused; learning history drives routing
+        learning_history = execution_metadata.get("learning_history")
         payload: Dict[str, Any] = {
             "task": task,
-            "fingerprint": fingerprint,
-            "triage_dossier": dossier,
-            "adaptive_history": adaptive_history,
-            "recent_reward": recent_reward,
+            "learning_history": learning_history,
         }
         return payload
 

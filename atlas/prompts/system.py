@@ -59,16 +59,10 @@ def build_student_prompts(base_prompt: str, student_cfg: StudentConfig) -> Rewri
     )
     planner_schema = dedent(
         """
-        JSON schema reference for planner responses:
+Return JSON only. Format:
         {
           "steps": [
-            {
-              "id": integer,
-              "description": string,
-              "tool": string | null,
-              "tool_params": object | null,
-              "depends_on": [integer]
-            }
+            {"id": integer, "description": string}
           ]
         }
         """
@@ -83,17 +77,12 @@ def build_student_prompts(base_prompt: str, student_cfg: StudentConfig) -> Rewri
     )
     executor_schema = dedent(
         """
-        JSON schema reference for executor responses:
+Return JSON only. Format:
         {
-          "status": string,
           "result": {
             "deliverable": any,
             "artifacts": object | null
-          },
-          "deliverable": any | null,
-          "artifacts": object | null,
-          "reason": string | null,
-          "text": string | null
+          }
         }
         """
     )
@@ -151,16 +140,10 @@ def build_teacher_prompts(base_prompt: str, teacher_cfg: TeacherConfig) -> Rewri
     )
     plan_review_schema = dedent(
         """
-        JSON schema reference for plan review responses:
+Return JSON only. Format:
         {
           "steps": [
-            {
-              "id": integer,
-              "description": string,
-              "tool": string | null,
-              "tool_params": object | null,
-              "depends_on": [integer]
-            }
+            {"id": integer, "description": string}
           ],
           "concerns": [string] | null
         }
@@ -193,7 +176,7 @@ def build_teacher_prompts(base_prompt: str, teacher_cfg: TeacherConfig) -> Rewri
     )
     validation_schema = dedent(
         """
-        JSON schema reference for validation responses:
+Return JSON only. Format:
         {
           "valid": bool,
           "guidance": string | null

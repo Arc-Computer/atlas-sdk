@@ -11,6 +11,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     completed_at TIMESTAMPTZ
 );
 
+CREATE INDEX IF NOT EXISTS sessions_learning_key_idx
+    ON sessions ((metadata ->> 'learning_key'));
+
 CREATE TABLE IF NOT EXISTS plans (
     session_id INTEGER PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
     plan JSONB NOT NULL
@@ -49,37 +52,3 @@ CREATE TABLE IF NOT EXISTS trajectory_events (
     event JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE TABLE IF NOT EXISTS persona_memory (
-    memory_id UUID PRIMARY KEY,
-    agent_name TEXT NOT NULL,
-    tenant_id TEXT NOT NULL,
-    persona TEXT NOT NULL,
-    trigger_fingerprint TEXT NOT NULL,
-    instruction JSONB NOT NULL,
-    source_session_id INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
-    reward_snapshot JSONB,
-    retry_count INTEGER,
-    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-    status TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS persona_memory_composite_idx
-    ON persona_memory (agent_name, tenant_id, persona, trigger_fingerprint, status);
-
-CREATE INDEX IF NOT EXISTS persona_memory_status_idx ON persona_memory (status);
-
-CREATE TABLE IF NOT EXISTS persona_memory_usage (
-    id SERIAL PRIMARY KEY,
-    memory_id UUID REFERENCES persona_memory(memory_id) ON DELETE CASCADE,
-    session_id INTEGER REFERENCES sessions(id) ON DELETE CASCADE,
-    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    reward JSONB,
-    retry_count INTEGER,
-    mode TEXT
-);
-
-CREATE INDEX IF NOT EXISTS persona_memory_usage_memory_session_idx
-    ON persona_memory_usage (memory_id, session_id);

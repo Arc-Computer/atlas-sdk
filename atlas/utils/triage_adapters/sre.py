@@ -42,20 +42,6 @@ def build_dossier(task: str, metadata: Dict[str, Any] | None = None) -> TriageDo
         severity="moderate",
     )
 
-    for persona in metadata.get("persona_candidates", []):
-        persona_id = persona.get("id") if isinstance(persona, dict) else persona
-        if not persona_id:
-            continue
-        rationale = None
-        if isinstance(persona, dict):
-            rationale = persona.get("rationale")
-        builder.add_persona_reference(
-            persona_id,
-            rationale=rationale or f"Historic remediation for {service}.",
-            weight=1.2,
-            tags=["teacher_guidance"],
-        )
-
     embeddings = metadata.get("embeddings", {})
     for key, value in embeddings.items():
         vector = value.get("vector") if isinstance(value, dict) else value

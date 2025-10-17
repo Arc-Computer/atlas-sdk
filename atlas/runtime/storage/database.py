@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-from typing import Any
-from typing import Dict
-from typing import Iterable
-from typing import List
-from typing import Optional
-from typing import Sequence
-from uuid import UUID
+from typing import Any, Dict, Iterable, List, Optional
+
+try:
+    from importlib import resources as importlib_resources
+except ImportError:  # pragma: no cover
+    import importlib_resources  # type: ignore
 
 try:
     import asyncpg
@@ -19,7 +18,6 @@ except ModuleNotFoundError as exc:
     _ASYNCPG_ERROR = exc
 
 from atlas.config.models import StorageConfig
-from atlas.runtime.persona_memory.constants import canonical_persona_name, persona_aliases
 from atlas.runtime.models import IntermediateStep
 from atlas.types import Plan
 from atlas.types import StepResult
@@ -30,6 +28,8 @@ class Database:
     def __init__(self, config: StorageConfig) -> None:
         self._config = config
         self._pool: asyncpg.Pool | None = None
+        self._schema_sql: str | None = None
+        self._schema_initialized: bool = False
 
     async def connect(self) -> None:
         if asyncpg is None:
@@ -43,6 +43,7 @@ class Database:
             )
             async with self._pool.acquire() as connection:
                 await connection.execute(f"SET statement_timeout = {int(self._config.statement_timeout_seconds * 1000)}")
+                await self._initialize_schema(connection)
 
     async def disconnect(self) -> None:
         if self._pool is not None:
@@ -199,6 +200,17 @@ class Database:
         session["plan"] = plan_row["plan"] if plan_row else None
         return session
 
+    async def _initialize_schema(self, connection: "asyncpg.connection.Connection") -> None:
+        if self._schema_initialized:
+            return
+        if not getattr(self._config, "apply_schema_on_connect", True):
+            return
+        if self._schema_sql is None:
+            resource = importlib_resources.files("atlas.runtime.storage").joinpath("schema.sql")
+            self._schema_sql = resource.read_text(encoding="utf-8")
+        await connection.execute(self._schema_sql)
+        self._schema_initialized = True
+
     async def fetch_session_steps(self, session_id: int) -> List[dict[str, Any]]:
         pool = self._require_pool()
         async with pool.acquire() as connection:
@@ -242,56 +254,30 @@ class Database:
                 )
         return results
 
-    async def fetch_persona_usage(self, memory_ids: Sequence[UUID], limit: int | None = None) -> dict[UUID, list[dict[str, Any]]]:
-        if not memory_ids:
-            return {}
+    async def fetch_learning_history(self, learning_key: str) -> List[dict[str, Any]]:
+        if not learning_key:
+            return []
         pool = self._require_pool()
-        query = (
-            "SELECT memory_id, reward, retry_count, applied_at, mode"
-            " FROM persona_memory_usage"
-            " WHERE memory_id = ANY($1::uuid[])"
-        )
-        if limit is not None and limit > 0:
-            query += " ORDER BY applied_at DESC LIMIT $2"
-            params = (list(memory_ids), limit)
-        else:
-            query += " ORDER BY applied_at DESC"
-            params = (list(memory_ids),)
         async with pool.acquire() as connection:
-            rows = await connection.fetch(query, *params)
-        usage: dict[UUID, list[dict[str, Any]]] = {}
+            rows = await connection.fetch(
+                "SELECT reward, student_learning, teacher_learning, created_at, completed_at"
+                " FROM sessions"
+                " WHERE metadata->>'learning_key' = $1 AND reward IS NOT NULL"
+                " ORDER BY created_at ASC",
+                learning_key,
+            )
+        history: List[dict[str, Any]] = []
         for row in rows:
-            reward = self._deserialize_json(row["reward"])
-            usage.setdefault(row["memory_id"], []).append(
+            history.append(
                 {
-                    "reward": reward,
-                    "retry_count": row.get("retry_count"),
-                    "applied_at": row.get("applied_at"),
-                    "mode": row.get("mode"),
+                    "reward": self._deserialize_json(row["reward"]),
+                    "student_learning": row.get("student_learning"),
+                    "teacher_learning": row.get("teacher_learning"),
+                    "created_at": row.get("created_at"),
+                    "completed_at": row.get("completed_at"),
                 }
             )
-        return usage
-
-    async def update_persona_status(self, memory_ids: Sequence[UUID], status: str) -> None:
-        if not memory_ids:
-            return
-        pool = self._require_pool()
-        async with pool.acquire() as connection:
-            await connection.execute(
-                "UPDATE persona_memory SET status = $2, updated_at = NOW() WHERE memory_id = ANY($1::uuid[])",
-                list(memory_ids),
-                status,
-            )
-
-    async def update_persona_instruction(self, memory_id: UUID, instruction: Dict[str, Any]) -> None:
-        payload = self._serialize_json(instruction)
-        pool = self._require_pool()
-        async with pool.acquire() as connection:
-            await connection.execute(
-                "UPDATE persona_memory SET instruction = $2, updated_at = NOW() WHERE memory_id = $1",
-                memory_id,
-                payload,
-            )
+        return history
 
     async def fetch_trajectory_events(self, session_id: int, limit: int = 200) -> List[dict[str, Any]]:
         pool = self._require_pool()
@@ -304,144 +290,6 @@ class Database:
             )
         return [dict(row) for row in rows]
 
-    async def create_persona_memory(self, record: Dict[str, Any]) -> None:
-        """Create or update a persona memory row."""
-        pool = self._require_pool()
-        record = dict(record)
-        record["persona"] = canonical_persona_name(record.get("persona"))
-        instruction_payload = self._serialize_json(record["instruction"])
-        reward_payload = self._serialize_json(record.get("reward_snapshot"))
-        metadata_payload = self._serialize_json(record.get("metadata", {}))
-        async with pool.acquire() as connection:
-            await connection.execute(
-                """
-                INSERT INTO persona_memory (
-                    memory_id,
-                    agent_name,
-                    tenant_id,
-                    persona,
-                    trigger_fingerprint,
-                    instruction,
-                    source_session_id,
-                    reward_snapshot,
-                    retry_count,
-                    metadata,
-                    status
-                )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-                ON CONFLICT (memory_id) DO UPDATE SET
-                    agent_name = EXCLUDED.agent_name,
-                    tenant_id = EXCLUDED.tenant_id,
-                    persona = EXCLUDED.persona,
-                    trigger_fingerprint = EXCLUDED.trigger_fingerprint,
-                    instruction = EXCLUDED.instruction,
-                    source_session_id = EXCLUDED.source_session_id,
-                    reward_snapshot = EXCLUDED.reward_snapshot,
-                    retry_count = EXCLUDED.retry_count,
-                    metadata = EXCLUDED.metadata,
-                    status = EXCLUDED.status,
-                    updated_at = NOW()
-                """,
-                record["memory_id"],
-                record["agent_name"],
-                record["tenant_id"],
-                record["persona"],
-                record["trigger_fingerprint"],
-                instruction_payload,
-                record.get("source_session_id"),
-                reward_payload,
-                record.get("retry_count"),
-                metadata_payload,
-                record["status"],
-            )
-
-    async def fetch_persona_memories(
-        self,
-        agent_name: str,
-        tenant_id: str,
-        persona: str,
-        fingerprint: str,
-        statuses: Sequence[str] | None = None,
-    ) -> List[Dict[str, Any]]:
-        """Fetch persona memories for a persona/fingerprint tuple ordered by creation time."""
-        pool = self._require_pool()
-        if statuses is not None and len(statuses) == 0:
-            return []
-        persona_alias_list = list(persona_aliases(canonical_persona_name(persona)))
-        query = (
-            "SELECT memory_id, agent_name, tenant_id, persona, trigger_fingerprint, instruction,"
-            " source_session_id, reward_snapshot, retry_count, metadata, status, created_at, updated_at"
-            " FROM persona_memory"
-            " WHERE agent_name = $1 AND tenant_id = $2 AND persona = $3 AND trigger_fingerprint = $4"
-        )
-        results: list[Any] = []
-        async with pool.acquire() as connection:
-            for alias in persona_alias_list:
-                params: list[Any] = [agent_name, tenant_id, alias, fingerprint]
-                if statuses is not None:
-                    params.append(statuses)
-                    alias_query = query + f" AND status = ANY(${len(params)})"
-                else:
-                    alias_query = query
-                alias_query += " ORDER BY created_at ASC"
-                rows = await connection.fetch(alias_query, *params)
-                results.extend(rows)
-        rows = sorted(results, key=lambda row: row["created_at"]) if results else []
-        canonical_records: list[Dict[str, Any]] = []
-        for row in rows:
-            record = dict(row)
-            record["persona"] = canonical_persona_name(record.get("persona"))
-            record["instruction"] = self._deserialize_json(record.get("instruction"))
-            record["reward_snapshot"] = self._deserialize_json(record.get("reward_snapshot"))
-            record["metadata"] = self._deserialize_json(record.get("metadata")) or {}
-            canonical_records.append(record)
-        return canonical_records
-
-    async def update_persona_memory_status(
-        self,
-        memory_id: UUID,
-        status: str,
-        *,
-        reward_snapshot: Dict[str, Any] | None = None,
-        retry_count: int | None = None,
-    ) -> None:
-        """Update persona memory status and optional reward metadata."""
-        pool = self._require_pool()
-        params: list[Any] = [memory_id, status]
-        set_clauses = ["status = $2", "updated_at = NOW()"]
-        if reward_snapshot is not None:
-            params.append(self._serialize_json(reward_snapshot))
-            set_clauses.append(f"reward_snapshot = ${len(params)}")
-        if retry_count is not None:
-            params.append(retry_count)
-            set_clauses.append(f"retry_count = ${len(params)}")
-        query = f"UPDATE persona_memory SET {', '.join(set_clauses)} WHERE memory_id = $1"
-        async with pool.acquire() as connection:
-            await connection.execute(query, *params)
-
-    async def log_persona_memory_usage(
-        self,
-        memory_id: UUID,
-        session_id: int,
-        reward: Dict[str, Any] | None,
-        retries: int | None,
-        mode: str | None = None,
-    ) -> None:
-        """Record usage of a persona memory within a session."""
-        pool = self._require_pool()
-        reward_payload = self._serialize_json(reward)
-        async with pool.acquire() as connection:
-            await connection.execute(
-                """
-                INSERT INTO persona_memory_usage (memory_id, session_id, reward, retry_count, mode)
-                VALUES ($1, $2, $3, $4, $5)
-                """,
-                memory_id,
-                session_id,
-                reward_payload,
-                retries,
-                mode,
-            )
 
     async def update_session_metadata(self, session_id: int, metadata: Dict[str, Any]) -> None:
         """Replace metadata payload for a session."""
@@ -452,17 +300,6 @@ class Database:
                 "UPDATE sessions SET metadata = $2 WHERE id = $1",
                 session_id,
                 payload,
-            )
-
-    async def update_persona_metadata(self, memory_id: UUID, metadata: Dict[str, Any]) -> None:
-        """Replace persona metadata payload."""
-        pool = self._require_pool()
-        metadata_payload = self._serialize_json(metadata)
-        async with pool.acquire() as connection:
-            await connection.execute(
-                "UPDATE persona_memory SET metadata = $2, updated_at = NOW() WHERE memory_id = $1",
-                memory_id,
-                metadata_payload,
             )
 
     def _require_pool(self) -> asyncpg.Pool:
