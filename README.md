@@ -1,12 +1,10 @@
 # Atlas SDK
 [![Atlas SDK hero](public/atlas-sdk.jpeg)](public/atlas-sdk.jpeg)
 
-Atlas enables continual learning for agents to adapt, learn, and transfer knowledge in live environments.
-
 [![PyPI version](https://img.shields.io/pypi/v/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
 [![Downloads](https://static.pepy.tech/badge/arc-atlas)](https://pepy.tech/project/arc-atlas)
 
-Atlas SDK is the continual-learning runtime that turns every task into a structured learning episode. It wraps any agent (OpenAI, Claude, Gemini, local models, or your own stack) with an adaptive dual-agent reasoning loop guided by reward signals, so agents stay fast on familiar work while escalating supervision on new or risky tasks. The SDK records rich telemetry, surfaces adaptive signals in real time, and exports production data for downstream training.
+The Atlas SDK is a drop-in learning harness that enables your agent to learn from experience, adapt to new challenges, and become more efficient over time - all without modifying your existing agent code or weights. It wraps any agent (OpenAI, Claude, Gemini, local models, or your own stack) with an adaptive dual-agent reasoning loop guided by reward signals, so agents stay fast on familiar work while escalating supervision on new or risky tasks. The SDK records rich telemetry, surfaces adaptive signals in real time, and exports production data for downstream training.
 
 > **How it relates to [ATLAS](https://github.com/Arc-Computer/ATLAS)**  
 > This repository delivers the runtime harness that powers continual learning in production. The `ATLAS` repo focuses on training models that ingest the structured traces produced here. Run the SDK to capture adaptive episodes; feed those traces into ATLAS to retrain and evaluate new policies.
@@ -15,7 +13,7 @@ Atlas SDK is the continual-learning runtime that turns every task into a structu
 
 With the split between SDK (runtime) and ATLAS (training) in mind, here's what our runtime gives you out of the box.
 
-## Key Highlights (v0.1.3)
+## Key Highlights (v0.1.6)
 
 - **Adaptive Runtime** – Every request is triaged up front. We run a quick “can the agent handle this?” probe and pick the right lane: stay fully automated when confidence is high, ask the teacher to double-check the final answer, or run step-by-step with retries when risk is higher.
 - **Persistent Learning Memory** – After each task, we store what guidance helped and what didn’t. Helpful tips are ready for the next run, and you can plug in Postgres when you want a durable trail of persona memories.
