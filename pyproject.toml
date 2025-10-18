@@ -11,6 +11,7 @@ dependencies = [
     "langchain-core>=0.3.76",
     "langgraph>=0.6.8",
     "litellm>=1.77.7",
+    "python-dotenv>=1.0.1",
     "pydantic>=2.11.9",
 ]
 classifiers = [
@@ -50,3 +51,9 @@ pythonpath = ["."]
 
 [tool.setuptools.packages.find]
 include = ["atlas*"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"atlas.data" = ["sample_traces.jsonl"]

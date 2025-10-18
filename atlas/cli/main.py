@@ -7,7 +7,9 @@ import sys
 from pathlib import Path
 from textwrap import dedent, indent
 
+from atlas.cli import train as train_cli
 from atlas.cli.storage_runtime import InitOptions, QuitOptions, init_storage, quit_storage
+from atlas.utils.env import load_dotenv_if_available
 
 
 def _format_snippet(snippet: str) -> str:
@@ -211,10 +213,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     up_parser.set_defaults(handler=_cmd_storage_up)
 
+    train_cli.register_parser(subparsers)
+
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    load_dotenv_if_available()
     parser = build_parser()
     args = parser.parse_args(argv)
     handler = getattr(args, "handler", None)

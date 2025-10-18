@@ -31,6 +31,8 @@ export OPENAI_API_KEY=sk-... # your api key
 export GEMINI_API_KEY=... # for reward system
 ```
 
+Prefer storing secrets in a `.env` file? The SDK automatically loads it on startup (via `python-dotenv`), so CLI commands and examples pick up those values without manual exports.
+
 Atlas reads additional provider keys from adapter-specific `llm.api_key_env` fields.
 
 ## Create a Minimal Config
@@ -201,6 +203,21 @@ Add a `storage` section to your config when you want Atlas to log plans, attempt
 - Set `stream_progress=True` in `core.run` to stream planner/executor/judge events alongside the adaptive summary.
 - Export stored sessions with `arc-atlas --database-url postgresql://... --output traces.jsonl`—the JSONL includes `adaptive_summary`, `session_reward`, learning notes, and the aggregated learning history.
 - Explore `docs/examples/` for telemetry and export walkthroughs.
+
+## Train with Atlas Core
+
+Use the SDK CLI to bridge runtime traces into the Atlas Core training pipeline:
+
+```bash
+git clone https://github.com/Arc-Computer/ATLAS ~/src/ATLAS
+export ATLAS_CORE_PATH=~/src/ATLAS
+export STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas
+
+atlas train --config-name offline/base --dry-run
+# inspect the command, then rerun without --dry-run to execute training
+```
+
+`atlas train` writes a JSONL export to `<atlas-core-path>/exports/<timestamp>.jsonl` and then executes `scripts/run_offline_pipeline.py` from that directory. You can point `--output` at a custom path, forward Hydra overrides with repeated `--override` flags, or use `--output-dir` / `--wandb-project` to steer checkpoints and logging. Pass `--use-sample-dataset` to copy the bundled sample dataset when you just want to validate the workflow without hitting Postgres.
 
 ## Next Steps
 

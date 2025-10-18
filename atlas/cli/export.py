@@ -8,15 +8,33 @@ from pathlib import Path
 from typing import Sequence
 
 from atlas.cli.jsonl_writer import DEFAULT_BATCH_SIZE, ExportRequest, export_sessions_sync
+from atlas.utils.env import load_dotenv_if_available
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="atlas.export",
-        description="Export persisted Atlas runtime sessions to JSONL.",
+def add_export_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    require_database_url: bool = True,
+    database_url_default: str | None = None,
+    database_help: str | None = None,
+    require_output: bool = True,
+    output_default: str | None = None,
+    output_help: str | None = None,
+) -> argparse.ArgumentParser:
+    """Attach standard export arguments to the provided parser."""
+
+    parser.add_argument(
+        "--database-url",
+        required=require_database_url,
+        default=database_url_default,
+        help=database_help or "PostgreSQL connection URL.",
     )
-    parser.add_argument("--database-url", required=True, help="PostgreSQL connection URL.")
-    parser.add_argument("--output", required=True, help="Destination JSONL file.")
+    parser.add_argument(
+        "--output",
+        required=require_output,
+        default=output_default,
+        help=output_help or "Destination JSONL file.",
+    )
     parser.add_argument(
         "--session-id",
         action="append",
@@ -62,12 +80,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="atlas.export",
+        description="Export persisted Atlas runtime sessions to JSONL.",
+    )
+    return add_export_arguments(parser)
+
+
 def configure_logging(quiet: bool) -> None:
     level = logging.WARNING if quiet else logging.INFO
     logging.basicConfig(level=level, format="%(levelname)s %(message)s")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    load_dotenv_if_available()
     parser = build_parser()
     args = parser.parse_args(argv)
     configure_logging(args.quiet)
