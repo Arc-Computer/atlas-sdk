@@ -119,7 +119,8 @@ docker compose -f docker/docker-compose.yaml up --build
 ```
 
 - `postgres` starts a local PostgreSQL instance with a persisted volume (`atlas_pg_data`).
-- `atlas` builds the SDK image, installs the package, and runs the ARC demo entrypoint by default (see `docker/entrypoint.sh`).
+- `atlas` builds the SDK image, installs the package, and runs the ARC demo entrypoint by default (see `docker/entrypoint.sh`). The entrypoint uses `ATLAS_QUICKSTART_CONFIG=docker/configs/atlas.docker.yaml`, which expects the Compose-provided Postgres service.
+- Compose reads `.env` automatically, so the container sees the same `OPENAI_API_KEY` / `GEMINI_API_KEY` values you use locally.
 - Pass a custom command to run other configs:  
   `docker compose -f docker/docker-compose.yaml run --rm atlas python -m atlas.cli.main --help`
 

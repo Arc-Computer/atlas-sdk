@@ -14,9 +14,9 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+    env_file:
+      - ../.env
     environment:
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
-      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
       STORAGE__DATABASE_URL: postgresql://atlas:atlas@postgres:5432/atlas
     depends_on:
       - postgres
