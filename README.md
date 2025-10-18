@@ -43,6 +43,7 @@ pip install arc-atlas
 export OPENAI_API_KEY=sk-...
 export GEMINI_API_KEY=...
 ```
+Keys can also live in a local `.env` file; the Atlas CLI and quickstart scripts automatically load it via [python-dotenv](https://pypi.org/project/python-dotenv/).
 
 **3. Run an Example**
 

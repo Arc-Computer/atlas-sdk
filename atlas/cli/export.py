@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from atlas.cli.jsonl_writer import DEFAULT_BATCH_SIZE, ExportRequest, export_sessions_sync
+from atlas.utils.env import load_dotenv_if_available
 
 
 def add_export_arguments(
@@ -93,6 +94,7 @@ def configure_logging(quiet: bool) -> None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    load_dotenv_if_available()
     parser = build_parser()
     args = parser.parse_args(argv)
     configure_logging(args.quiet)

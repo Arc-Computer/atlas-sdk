@@ -10,6 +10,9 @@ from typing import Any, Dict, Tuple
 
 from atlas import core
 from atlas.runtime.orchestration.execution_context import ExecutionContext
+from atlas.utils.env import load_dotenv_if_available
+
+load_dotenv_if_available()
 
 TASK = "Summarize the latest Atlas SDK updates in three bullet points."
 DEFAULT_CONFIG_PATH = "configs/examples/openai_agent.yaml"

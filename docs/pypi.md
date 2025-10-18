@@ -31,6 +31,8 @@ export OPENAI_API_KEY=sk-... # your api key
 export GEMINI_API_KEY=... # for reward system
 ```
 
+Prefer storing secrets in a `.env` file? The SDK automatically loads it on startup (via `python-dotenv`), so CLI commands and examples pick up those values without manual exports.
+
 Atlas reads additional provider keys from adapter-specific `llm.api_key_env` fields.
 
 ## Create a Minimal Config
