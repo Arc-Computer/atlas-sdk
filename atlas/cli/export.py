@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import Sequence
 
-from atlas.cli.jsonl_writer import ExportRequest, export_sessions_sync
+from atlas.cli.jsonl_writer import DEFAULT_BATCH_SIZE, ExportRequest, export_sessions_sync
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -49,6 +49,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum number of trajectory events to include per session.",
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=DEFAULT_BATCH_SIZE,
+        help="Number of sessions fetched per database query when paging results.",
+    )
+    parser.add_argument(
         "--quiet",
         action="store_true",
         help="Suppress informational logs and only emit warnings/errors.",
@@ -74,6 +80,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         offset=args.offset,
         status_filters=args.statuses,
         trajectory_event_limit=args.trajectory_event_limit,
+        batch_size=args.batch_size,
     )
 
     summary = export_sessions_sync(request)

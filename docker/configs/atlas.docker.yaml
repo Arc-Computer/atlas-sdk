@@ -1,12 +1,12 @@
 agent:
   type: python
-  name: arc-agi-docker-agent
-  import_path: examples.arc_agi_demo.agent.demo_agent
-  attribute: invoke
+  name: atlas-docker-agent
+  import_path: examples.python_example
+  attribute: run_agent
   working_directory: ../../..
   allow_generator: false
   system_prompt: |
-    You are an analytical ARC puzzle solver. Always explain intermediate reasoning before giving the final grid.
+    You are an Atlas demo agent. Provide concise answers and call out the prompt you received.
 
 student:
   max_plan_tokens: 8192
@@ -34,14 +34,14 @@ orchestration:
 
 rim:
   small_model:
-    provider: openai
+    provider: gemini
     model: gemini/gemini-2.5-flash
-    api_key_env: GOOGLE_API_KEY
+    api_key_env: GEMINI_API_KEY
     max_output_tokens: 8192
   large_model:
-    provider: openai
+    provider: gemini
     model: gemini/gemini-2.5-pro
-    api_key_env: GOOGLE_API_KEY
+    api_key_env: GEMINI_API_KEY
     max_output_tokens: 8192
   active_judges:
     process: true

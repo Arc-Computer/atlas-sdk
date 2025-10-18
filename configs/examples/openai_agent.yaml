@@ -22,12 +22,12 @@ teacher:
 
 rim:
   small_model:
-    provider: google
+    provider: gemini
     model: gemini/gemini-2.5-flash
     api_key_env: GEMINI_API_KEY
     max_output_tokens: 8096
   large_model:
-    provider: google
+    provider: gemini
     model: gemini/gemini-2.5-flash
     api_key_env: GEMINI_API_KEY
     max_output_tokens: 8096
