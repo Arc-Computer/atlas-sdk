@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 from datetime import datetime
+from importlib import resources
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -20,7 +21,9 @@ _EXPORT_DEFAULT_HELP = "Destination JSONL file (default: <atlas-core-path>/expor
 _DATABASE_DEFAULT_HELP = (
     "PostgreSQL connection URL. Defaults to STORAGE__DATABASE_URL or DATABASE_URL when exporting."
 )
-_SAMPLE_DATASET_PATH = Path(__file__).resolve().parents[2] / "tests" / "data" / "sample_traces.jsonl"
+_SAMPLE_DATASET_PACKAGE = "atlas.data"
+_SAMPLE_DATASET_NAME = "sample_traces.jsonl"
+_SENSITIVE_MARKERS = ("key", "token", "secret", "password")
 
 
 def register_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> argparse.ArgumentParser:
@@ -137,13 +140,35 @@ def _build_training_command(args: argparse.Namespace, export_path: Path) -> list
     return command
 
 
+def _redact_token(token: str) -> str:
+    lowered = token.lower()
+    if any(marker in lowered for marker in _SENSITIVE_MARKERS):
+        return "<redacted>"
+    return token
+
+
+def _redact_command(tokens: Sequence[str]) -> list[str]:
+    return [_redact_token(token) for token in tokens]
+
+
 def _copy_sample_dataset(destination: Path) -> None:
-    if not _SAMPLE_DATASET_PATH.exists():
+    """Copy the bundled sample dataset to the requested location."""
+
+    try:
+        dataset = resources.files(_SAMPLE_DATASET_PACKAGE).joinpath(_SAMPLE_DATASET_NAME)
+    except (ModuleNotFoundError, FileNotFoundError):
         raise FileNotFoundError(
-            f"Sample dataset not found at {_SAMPLE_DATASET_PATH}. Clone the SDK repository to use this flag."
+            "Sample dataset is unavailable. Ensure the Atlas SDK package includes bundled data resources."
+        ) from None
+
+    if not dataset.is_file():
+        raise FileNotFoundError(
+            f"Sample dataset {_SAMPLE_DATASET_NAME} is missing from package {_SAMPLE_DATASET_PACKAGE}."
         )
+
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(_SAMPLE_DATASET_PATH, destination)
+    with dataset.open("rb") as source, destination.open("wb") as target:
+        shutil.copyfileobj(source, target)
 
 
 def _run_training(atlas_core_path: Path, command: Sequence[str]) -> int:
@@ -203,13 +228,15 @@ def _cmd_train(args: argparse.Namespace) -> int:
             )
 
     command = _build_training_command(args, export_path)
-    command_str = shlex.join(command)
-    print(f"Atlas Core command: {command_str}")
-
     if args.dry_run:
+        command_str = shlex.join(command)
+        print(f"Atlas Core command (dry-run): {command_str}")
         print("Dry run enabled; skipping Atlas Core execution.")
         print(f"Dataset available at: {export_path}")
         return 0
+    else:
+        redacted_command = shlex.join(_redact_command(command))
+        print(f"Atlas Core command: {redacted_command}")
 
     exit_code = _run_training(atlas_core_path, command)
     if exit_code != 0:

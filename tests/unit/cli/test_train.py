@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import types
 from datetime import datetime
+from importlib import resources
 from pathlib import Path
 
 import pytest
@@ -71,7 +72,7 @@ def test_train_dry_run_invokes_export(monkeypatch: pytest.MonkeyPatch, tmp_path:
 
     assert exit_code == 0
     assert export_calls, "export_sessions_sync should be invoked during dry-run"
-    assert "Atlas Core command: python scripts/run_offline_pipeline.py" in captured.out
+    assert "Atlas Core command (dry-run): python scripts/run_offline_pipeline.py" in captured.out
     assert "--config-name baseline" in captured.out
     assert "--override trainer.lr=1e-4" in captured.out
     assert "Dry run enabled; skipping Atlas Core execution." in captured.out
@@ -135,3 +136,41 @@ def test_train_happy_path_default_output(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert run_call.cwd == str(atlas_core)
 
     assert str(atlas_core / "outputs") in captured.out
+
+
+def test_train_sample_dataset(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    atlas_core = _make_atlas_core_tree(tmp_path)
+    parser = cli_main.build_parser()
+
+    dataset_destination = tmp_path / "dataset" / "sample.jsonl"
+
+    def fail_export(*args, **kwargs):
+        raise AssertionError("export_sessions_sync should not run when using sample dataset")
+
+    def dry_run_guard(*args, **kwargs):
+        raise AssertionError("subprocess.run should not be called during dry-run")
+
+    monkeypatch.setattr(train_cli, "export_sessions_sync", fail_export)
+    monkeypatch.setattr(train_cli.subprocess, "run", dry_run_guard)
+    monkeypatch.setattr(train_cli.sys, "executable", "python")
+
+    args = parser.parse_args(
+        [
+            "train",
+            "--atlas-core-path",
+            str(atlas_core),
+            "--output",
+            str(dataset_destination),
+            "--use-sample-dataset",
+            "--dry-run",
+        ]
+    )
+
+    exit_code = args.handler(args)
+    captured = capsys.readouterr()
+
+    assert exit_code == 0
+    assert dataset_destination.exists()
+    expected = resources.files("atlas.data").joinpath("sample_traces.jsonl").read_text(encoding="utf-8")
+    assert dataset_destination.read_text(encoding="utf-8") == expected
+    assert "Atlas Core command (dry-run):" in captured.out

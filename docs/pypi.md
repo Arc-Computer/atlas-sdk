@@ -217,7 +217,7 @@ atlas train --config-name offline/base --dry-run
 # inspect the command, then rerun without --dry-run to execute training
 ```
 
-`atlas train` writes a JSONL export to `<atlas-core-path>/exports/<timestamp>.jsonl` and then executes `scripts/run_offline_pipeline.py` from that directory. You can point `--output` at a custom path, forward Hydra overrides with repeated `--override` flags, or use `--output-dir` / `--wandb-project` to steer checkpoints and logging. Pass `--use-sample-dataset` to copy the bundled `tests/data/sample_traces.jsonl` when you just want to validate the workflow without hitting Postgres.
+`atlas train` writes a JSONL export to `<atlas-core-path>/exports/<timestamp>.jsonl` and then executes `scripts/run_offline_pipeline.py` from that directory. You can point `--output` at a custom path, forward Hydra overrides with repeated `--override` flags, or use `--output-dir` / `--wandb-project` to steer checkpoints and logging. Pass `--use-sample-dataset` to copy the bundled sample dataset when you just want to validate the workflow without hitting Postgres.
 
 ## Next Steps
 

@@ -51,3 +51,9 @@ pythonpath = ["."]
 
 [tool.setuptools.packages.find]
 include = ["atlas*"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"atlas.data" = ["sample_traces.jsonl"]
