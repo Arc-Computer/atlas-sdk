@@ -58,6 +58,23 @@ python run_quickstart.py
 
 ---
 
+## 📹 Video Walkthrough
+
+<details>
+<summary><b>Watch: Complete Installation & Configuration Guide</b> (click to expand)</summary>
+
+<br>
+
+This video provides a complete walkthrough of installing the Atlas SDK and configuring your first agent.
+
+<video src="public/Atlas.sdk-high.mp4" controls width="100%">
+  Your browser does not support the video tag. <a href="public/Atlas.sdk-high.mp4">Download the video</a>.
+</video>
+
+</details>
+
+---
+
 ## 📚 Full Documentation
 
 The README hits the highlights. For the complete guide—including configuration tables, orchestration deep dives, and training recipes—visit [docs.arc.computer](https://docs.arc.computer).
