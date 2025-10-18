@@ -1,0 +1,2 @@
+{"session_id": 1, "task": "Sample task one", "steps": [{"description": "Do something", "reward": {"process": 1.0}}]}
+{"session_id": 2, "task": "Sample task two", "steps": [{"description": "Do another thing", "reward": {"process": 0.8}}]}

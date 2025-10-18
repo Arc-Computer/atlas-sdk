@@ -345,6 +345,34 @@ Each exported step embeds the original executor text along with `metadata.struct
 
 ---
 
+## Runtime → Training
+
+Once you have traces in Postgres you can hand them to the Atlas Core training stack without writing glue scripts. The SDK now ships `atlas train`, which exports sessions to JSONL and calls `scripts/run_offline_pipeline.py` inside your Atlas Core clone.
+
+**Prerequisites**
+- Clone [Arc-Computer/ATLAS](https://github.com/Arc-Computer/ATLAS) and set `ATLAS_CORE_PATH` (or pass `--atlas-core-path`).
+- Provide a Postgres URL via `STORAGE__DATABASE_URL` or `DATABASE_URL` when exporting live data.
+- Ensure your Python environment has the dependencies required by Atlas Core (see its README).
+
+With those in place you can launch a training run end-to-end:
+
+```bash
+export STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas
+export ATLAS_CORE_PATH=~/src/ATLAS
+
+atlas train \
+  --config-name offline/base \
+  --trainer-config trainer/openai \
+  --wandb-project atlas-runtime \
+  --override trainer.max_steps=250
+```
+
+The command writes a timestamped export to `<ATLAS_CORE_PATH>/exports/`, then executes Atlas Core from within that directory. Pass `--output` to control the JSONL location, `--output-dir` to steer Hydra’s checkpoint directory, or repeatable `--override` flags for custom Hydra overrides. Use `--dry-run` to preview the exact invocation without running training, or `--use-sample-dataset` to copy `tests/data/sample_traces.jsonl` when you just want to validate wiring.
+
+On success you will see the export path echoed back along with a reminder that Atlas Core checkpoints land under `<atlas-core-path>/outputs` unless overridden.
+
+---
+
 ## Testing
 
 ```bash

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from textwrap import dedent, indent
 
+from atlas.cli import train as train_cli
 from atlas.cli.storage_runtime import InitOptions, QuitOptions, init_storage, quit_storage
 
 
@@ -210,6 +211,8 @@ def build_parser() -> argparse.ArgumentParser:
         help=argparse.SUPPRESS,
     )
     up_parser.set_defaults(handler=_cmd_storage_up)
+
+    train_cli.register_parser(subparsers)
 
     return parser
 

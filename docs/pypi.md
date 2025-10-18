@@ -202,6 +202,21 @@ Add a `storage` section to your config when you want Atlas to log plans, attempt
 - Export stored sessions with `arc-atlas --database-url postgresql://... --output traces.jsonl`—the JSONL includes `adaptive_summary`, `session_reward`, learning notes, and the aggregated learning history.
 - Explore `docs/examples/` for telemetry and export walkthroughs.
 
+## Train with Atlas Core
+
+Use the SDK CLI to bridge runtime traces into the Atlas Core training pipeline:
+
+```bash
+git clone https://github.com/Arc-Computer/ATLAS ~/src/ATLAS
+export ATLAS_CORE_PATH=~/src/ATLAS
+export STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas
+
+atlas train --config-name offline/base --dry-run
+# inspect the command, then rerun without --dry-run to execute training
+```
+
+`atlas train` writes a JSONL export to `<atlas-core-path>/exports/<timestamp>.jsonl` and then executes `scripts/run_offline_pipeline.py` from that directory. You can point `--output` at a custom path, forward Hydra overrides with repeated `--override` flags, or use `--output-dir` / `--wandb-project` to steer checkpoints and logging. Pass `--use-sample-dataset` to copy the bundled `tests/data/sample_traces.jsonl` when you just want to validate the workflow without hitting Postgres.
+
 ## Next Steps
 
 - Browse `configs/examples/` for richer orchestration templates.
