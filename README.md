@@ -3,6 +3,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
 [![Downloads](https://static.pepy.tech/badge/arc-atlas)](https://pepy.tech/project/arc-atlas)
+[![Python Versions](https://img.shields.io/pypi/pyversions/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
 
 The Atlas SDK is a drop-in learning harness that enables your agent to learn from experience, adapt to new challenges, and become more efficient over time - all without modifying your existing agent code or weights. It wraps any agent (OpenAI, Claude, Gemini, local models, or your own stack) with an adaptive dual-agent reasoning loop guided by reward signals, so agents stay fast on familiar work while escalating supervision on new or risky tasks. The SDK records rich telemetry, surfaces adaptive signals in real time, and exports production data for downstream training.
 
@@ -13,7 +14,7 @@ The Atlas SDK is a drop-in learning harness that enables your agent to learn fro
 
 With the split between SDK (runtime) and ATLAS (training) in mind, here's what our runtime gives you out of the box.
 
-## Key Highlights (v0.1.6)
+## Key Highlights (v0.1.7)
 
 - **Adaptive Runtime** – Every request is triaged up front. We run a quick “can the agent handle this?” probe and pick the right lane: stay fully automated when confidence is high, ask the teacher to double-check the final answer, or run step-by-step with retries when risk is higher.
 - **Persistent Learning Memory** – After each task, we store what guidance helped and what didn’t. Helpful tips are ready for the next run, and you can plug in Postgres when you want a durable trail of persona memories.
@@ -25,8 +26,15 @@ With the split between SDK (runtime) and ATLAS (training) in mind, here's what o
 
 ## Quick Start
 
-**1. Install the SDK**
+<Note>
+Use Python 3.10 or newer before installing. Pip on older interpreters (e.g., 3.9) resolves `arc-atlas` 0.1.0 and the runtime crashes at import time.
+</Note>
+
+**1. Create a virtual environment & install the SDK**
 ```bash
+python3.11 -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -U pip
 pip install arc-atlas
 ```
 
@@ -105,13 +113,14 @@ The repo ships with a ready-to-go Compose stack under `docker/`:
 ```bash
 # 1. Ensure your project .env includes the required keys (Compose reads it automatically):
 #    OPENAI_API_KEY=sk-...
-#    GOOGLE_API_KEY=...
+#    GEMINI_API_KEY=...
 # 2. Build the SDK image and start Postgres + the demo agent
 docker compose -f docker/docker-compose.yaml up --build
 ```
 
 - `postgres` starts a local PostgreSQL instance with a persisted volume (`atlas_pg_data`).
-- `atlas` builds the SDK image, installs the package, and runs the ARC demo entrypoint by default (see `docker/entrypoint.sh`).
+- `atlas` builds the SDK image, installs the package, and runs the ARC demo entrypoint by default (see `docker/entrypoint.sh`). The entrypoint uses `ATLAS_QUICKSTART_CONFIG=docker/configs/atlas.docker.yaml`, which expects the Compose-provided Postgres service.
+- Compose reads `.env` automatically, so the container sees the same `OPENAI_API_KEY` / `GEMINI_API_KEY` values you use locally.
 - Pass a custom command to run other configs:  
   `docker compose -f docker/docker-compose.yaml run --rm atlas python -m atlas.cli.main --help`
 
@@ -135,7 +144,7 @@ docker compose -f docker/docker-compose.yaml up -d postgres
 export STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas
 export OPENAI_API_KEY=sk-...
 # Optional Process/Helpfulness judges
-export GOOGLE_API_KEY=...
+export GEMINI_API_KEY=...
 
 # Minimal runner script example (save as run_atlas.py)
 # -----------------------------------------------

@@ -28,7 +28,7 @@ Set API keys before running Atlas:
 
 ```bash
 export OPENAI_API_KEY=sk-... # your api key
-export GOOGLE_API_KEY=... # for reward system
+export GEMINI_API_KEY=... # for reward system
 ```
 
 Atlas reads additional provider keys from adapter-specific `llm.api_key_env` fields.
@@ -67,14 +67,14 @@ orchestration:
   emit_intermediate_steps: true
 rim:
   small_model:
-    provider: google
+    provider: gemini
     model: gemini/gemini-2.5-flash
-    api_key_env: GOOGLE_API_KEY
+    api_key_env: GEMINI_API_KEY
     max_output_tokens: 8096
   large_model:
-    provider: google
+    provider: gemini
     model: gemini/gemini-2.5-flash
-    api_key_env: GOOGLE_API_KEY
+    api_key_env: GEMINI_API_KEY
     max_output_tokens: 8096
   judge_prompt: 'reward the agent for attending the issues mentioned in the task'
   variance_threshold: 0.15

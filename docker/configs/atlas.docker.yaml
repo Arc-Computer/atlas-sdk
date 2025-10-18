@@ -1,56 +1,42 @@
 agent:
-  type: python
-  name: arc-agi-docker-agent
-  import_path: examples.arc_agi_demo.agent.demo_agent
-  attribute: invoke
-  working_directory: ../../..
-  allow_generator: false
+  type: openai
+  name: docker-openai-agent
   system_prompt: |
-    You are an analytical ARC puzzle solver. Always explain intermediate reasoning before giving the final grid.
-
-student:
-  max_plan_tokens: 8192
-  max_step_tokens: 8192
-  max_synthesis_tokens: 8192
-  tool_choice: auto
+    You are an OpenAI model acting as the Atlas Student. Follow instructions carefully, respond in JSON when requested, and call out the prompt you received.
+  tools: []
+  llm:
+    provider: openai
+    model: gpt-5-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.2
+    max_output_tokens: 2048
+  response_format: null
 
 teacher:
   llm:
     provider: openai
     model: gpt-5-mini
     api_key_env: OPENAI_API_KEY
-    temperature: 0.2
-    max_output_tokens: 8192
-  max_review_tokens: 8192
-  plan_cache_seconds: 120
-  guidance_max_tokens: 8192
-  validation_max_tokens: 8192
-
-orchestration:
-  max_retries: 1
-  step_timeout_seconds: 900
-  rim_guidance_tag: rim_feedback
-  emit_intermediate_steps: true
+    temperature: 0.1
+    max_output_tokens: 2048
 
 rim:
   small_model:
-    provider: openai
+    provider: gemini
     model: gemini/gemini-2.5-flash
-    api_key_env: GOOGLE_API_KEY
-    max_output_tokens: 8192
+    api_key_env: GEMINI_API_KEY
+    max_output_tokens: 8096
   large_model:
-    provider: openai
-    model: gemini/gemini-2.5-pro
-    api_key_env: GOOGLE_API_KEY
-    max_output_tokens: 8192
-  active_judges:
-    process: true
-    helpfulness: true
+    provider: gemini
+    model: gemini/gemini-2.5-flash
+    api_key_env: GEMINI_API_KEY
+    max_output_tokens: 8096
+  judge_prompt: 'reward the agent for attending the issues mentioned in the task'
   variance_threshold: 0.15
   uncertainty_threshold: 0.3
 
 storage:
-  database_url: postgresql://atlas:atlas@postgres:5432/atlas_arc_demo
+  database_url: postgresql://atlas:atlas@postgres:5432/atlas
   min_connections: 1
   max_connections: 5
   statement_timeout_seconds: 30

@@ -110,6 +110,7 @@ class LLMProvider(str, Enum):
     AZURE_OPENAI = "azure-openai"
     BEDROCK = "bedrock"
     GOOGLE = "google"
+    GEMINI = "gemini"
 
 class LLMParameters(BaseModel):
     """Configuration for an LLM request path."""

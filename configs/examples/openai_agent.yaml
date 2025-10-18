@@ -22,12 +22,12 @@ teacher:
 
 rim:
   small_model:
-    provider: google
+    provider: gemini
     model: gemini/gemini-2.5-flash
     api_key_env: GEMINI_API_KEY
     max_output_tokens: 8096
   large_model:
-    provider: google
+    provider: gemini
     model: gemini/gemini-2.5-flash
     api_key_env: GEMINI_API_KEY
     max_output_tokens: 8096
@@ -35,8 +35,4 @@ rim:
   variance_threshold: 0.15
   uncertainty_threshold: 0.3
 
-storage:
-  database_url: postgresql://atlas:atlas@localhost:5433/atlas
-  min_connections: 1
-  max_connections: 5
-  statement_timeout_seconds: 30
+storage: null

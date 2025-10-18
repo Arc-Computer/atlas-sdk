@@ -4,7 +4,7 @@ agent:
   system_prompt: |
     You are a local Python agent that can execute custom functions and reason about results.
   tools: []
-  import_path: examples.agents.python_example
+  import_path: examples.python_example
   attribute: run_agent
   working_directory: ./
   allow_generator: false
@@ -20,12 +20,12 @@ teacher:
 
 rim:
   small_model:
-    provider: google
+    provider: gemini
     model: gemini/gemini-2.5-flash
     api_key_env: GEMINI_API_KEY
     max_output_tokens: 512
   large_model:
-    provider: google
+    provider: gemini
     model: gemini/gemini-2.5-flash
     api_key_env: GEMINI_API_KEY
     max_output_tokens: 768

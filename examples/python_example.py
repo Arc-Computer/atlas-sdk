@@ -3,9 +3,25 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, Dict, Optional
 
 from atlas import core
 from atlas.runtime.orchestration.execution_context import ExecutionContext
+
+
+def run_agent(prompt: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+    """Simple deterministic Python adapter implementation for demos."""
+    metadata = metadata or {}
+    tags = metadata.get("tags") or []
+    if isinstance(tags, (list, tuple)):
+        tag_summary = ", ".join(str(tag) for tag in tags) or "none"
+    else:
+        tag_summary = str(tags)
+    return (
+        "Atlas Python adapter response:\n"
+        f"- Prompt: {prompt.strip() or '<empty>'}\n"
+        f"- Tags: {tag_summary}"
+    )
 
 
 def main() -> None:
