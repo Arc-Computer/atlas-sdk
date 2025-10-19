@@ -9,7 +9,6 @@ from types import SimpleNamespace
 import pytest
 
 from atlas.config.loader import load_config
-from atlas.runtime.orchestration.execution_context import ExecutionContext
 from scripts import eval_dual_agent_models as eval_mod
 
 
@@ -89,14 +88,14 @@ def test_run_evaluations_with_stub(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     )
 
     def fake_execute_task(task, config_path):
-        metadata = ExecutionContext.get().metadata
-        metadata.clear()
-        metadata["adaptive_summary"] = {
-            "adaptive_mode": "auto",
-            "mode_history": [{"mode": "auto", "confidence": 0.92}],
+        metadata = {
+            "adaptive_summary": {
+                "adaptive_mode": "auto",
+                "mode_history": [{"mode": "auto", "confidence": 0.92}],
+            },
+            "session_reward": {"score": 0.8},
         }
-        metadata["session_reward"] = {"score": 0.8}
-        return SimpleNamespace(final_answer="Share sanitized summary with controls and next steps.")
+        return SimpleNamespace(final_answer="Share sanitized summary with controls and next steps."), metadata
 
     monkeypatch.setattr(eval_mod, "execute_task", fake_execute_task)
 

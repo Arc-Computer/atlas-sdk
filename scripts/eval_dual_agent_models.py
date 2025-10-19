@@ -15,10 +15,11 @@ from typing import Any, Iterable, Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from difflib import SequenceMatcher
 import re
+import asyncio
 
 from atlas.config.loader import load_config
 from atlas.config.models import AdapterType, AtlasConfig, LLMParameters, LLMProvider
-from atlas.core import run as atlas_run
+from atlas.core import arun as atlas_arun
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.types import Result
 from atlas.utils.env import load_dotenv_if_available
@@ -253,8 +254,21 @@ def compute_similarity(answer: str | None, expected: str | None) -> float | None
     return SequenceMatcher(None, answer.lower(), expected.lower()).ratio()
 
 
-def execute_task(task: RuntimeTask, config_path: Path) -> Result:
-    return atlas_run(task=task.task, config_path=str(config_path), stream_progress=False)
+async def _arun_with_metadata(task: RuntimeTask, config_path: Path) -> tuple[Result, dict[str, Any]]:
+    execution_context = ExecutionContext.get()
+    execution_context.reset()
+    result = await atlas_arun(
+        task.task,
+        str(config_path),
+        stream_progress=False,
+    )
+    metadata = dict(execution_context.metadata)
+    execution_context.reset()
+    return result, metadata
+
+
+def execute_task(task: RuntimeTask, config_path: Path) -> tuple[Result, dict[str, Any]]:
+    return asyncio.run(_arun_with_metadata(task, config_path))
 
 
 def build_task_result(
@@ -263,11 +277,12 @@ def build_task_result(
     teacher_model: str,
     task: RuntimeTask,
     result: Result | None,
+    metadata: dict[str, Any] | None,
     runtime_seconds: float,
     error: str | None,
     similarity_threshold: float,
 ) -> TaskResult:
-    metadata = ExecutionContext.get().metadata
+    metadata = metadata or {}
     adaptive_summary = metadata.get("adaptive_summary") if isinstance(metadata, dict) else None
     adaptive_mode = None
     adaptive_history: list[dict[str, Any]] = []
@@ -414,8 +429,9 @@ def _execute_job(
     start = time.perf_counter()
     error: str | None = None
     result: Result | None = None
+    metadata: dict[str, Any] | None = None
     try:
-        result = execute_task(task, Path(config_path))
+        result, metadata = execute_task(task, Path(config_path))
     except Exception as exc:  # pragma: no cover - defensive guard for runtime errors
         error = str(exc)
     runtime_seconds = time.perf_counter() - start
@@ -424,6 +440,7 @@ def _execute_job(
         teacher_model=teacher_model,
         task=task,
         result=result,
+        metadata=metadata,
         runtime_seconds=runtime_seconds,
         error=error,
         similarity_threshold=similarity_threshold,
