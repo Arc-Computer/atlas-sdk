@@ -411,7 +411,7 @@ def _execute_job(
     except Exception as exc:  # pragma: no cover - defensive guard for runtime errors
         error = str(exc)
     runtime_seconds = time.perf_counter() - start
-    return build_task_result(
+    record = build_task_result(
         student_model=student_model,
         teacher_model=teacher_model,
         task=task,
@@ -420,6 +420,13 @@ def _execute_job(
         error=error,
         similarity_threshold=similarity_threshold,
     )
+    status = "ok" if error is None else f"error: {error}"
+    print(
+        f"[eval] Completed student={student_model} teacher={teacher_model} "
+        f"task=\"{task.task[:48]}\" status={status} runtime={runtime_seconds:.2f}s",
+        flush=True,
+    )
+    return record
 
 
 def run_evaluations(args: argparse.Namespace) -> tuple[list[TaskResult], list[dict[str, Any]]]:
