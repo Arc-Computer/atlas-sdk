@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from atlas.config.models import AdaptiveProbeConfig, LLMParameters, LLMProvider
+from atlas.utils.env import load_dotenv_if_available
 from atlas.runtime.adaptive import CapabilityProbeClient
 
 DEFAULT_DATASET = Path("atlas/data/sample_probe_payloads.jsonl")
@@ -233,6 +234,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
 
 
 async def main_async(argv: Sequence[str] | None = None) -> int:
+    load_dotenv_if_available()
     args = parse_args(argv)
     samples = load_dataset(args.dataset)
 
