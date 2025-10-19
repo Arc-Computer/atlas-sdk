@@ -267,10 +267,12 @@ def build_task_result(
 ) -> TaskResult:
     metadata = metadata or {}
     adaptive_summary = metadata.get("adaptive_summary") if isinstance(metadata, dict) else None
+    if not adaptive_summary and isinstance(metadata, dict):
+        adaptive_summary = metadata.get("adaptive")
     adaptive_mode = None
     adaptive_history: list[dict[str, Any]] = []
     if isinstance(adaptive_summary, dict):
-        adaptive_mode = adaptive_summary.get("adaptive_mode")
+        adaptive_mode = adaptive_summary.get("adaptive_mode") or adaptive_summary.get("active_mode")
         history = adaptive_summary.get("mode_history")
         if isinstance(history, list):
             adaptive_history = [entry for entry in history if isinstance(entry, dict)]
