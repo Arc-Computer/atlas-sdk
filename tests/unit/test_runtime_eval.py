@@ -58,6 +58,17 @@ def test_override_config_sets_llms(monkeypatch: pytest.MonkeyPatch) -> None:
     assert overridden.teacher.llm.temperature <= 0.15
 
 
+def test_override_config_openai_adapter_enforces_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    base_config = load_config("configs/examples/openai_agent.yaml")
+    overridden = eval_mod.override_config(
+        base_config,
+        student_model="claude-haiku-4-5",
+        teacher_model="gpt-5",
+    )
+
+    assert overridden.agent.llm.provider == eval_mod.LLMProvider.OPENAI
+
+
 def test_run_evaluations_with_stub(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     dataset_path = tmp_path / "dataset.jsonl"
     dataset_path.write_text(

@@ -17,7 +17,7 @@ from difflib import SequenceMatcher
 import re
 
 from atlas.config.loader import load_config
-from atlas.config.models import AtlasConfig, LLMParameters, LLMProvider
+from atlas.config.models import AdapterType, AtlasConfig, LLMParameters, LLMProvider
 from atlas.core import run as atlas_run
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.types import Result
@@ -195,7 +195,12 @@ def load_dataset(path: Path) -> list[RuntimeTask]:
     return tasks
 
 
-def build_llm_parameters(model_id: str, *, role: str) -> LLMParameters:
+def build_llm_parameters(
+    model_id: str,
+    *,
+    role: str,
+    adapter_type: AdapterType | None = None,
+) -> LLMParameters:
     preset = MODEL_PRESETS.get(model_id)
     if preset is None:
         supported = ", ".join(sorted(MODEL_PRESETS))
@@ -205,8 +210,11 @@ def build_llm_parameters(model_id: str, *, role: str) -> LLMParameters:
         temperature = min(temperature, 0.15)
     env_key_suffix = re.sub(r"[^A-Z0-9]+", "_", model_id.upper()).strip("_")
     override_key = f"ATLAS_MODEL_OVERRIDE_{env_key_suffix}"
+    provider: LLMProvider = preset["provider"]
+    if adapter_type == AdapterType.OPENAI and role == "student":
+        provider = LLMProvider.OPENAI
     return LLMParameters(
-        provider=preset["provider"],
+        provider=provider,
         model=os.environ.get(override_key) or preset["model"],
         api_key_env=preset["api_key_env"],
         temperature=temperature,
@@ -220,7 +228,7 @@ def override_config(
     student_model: str,
     teacher_model: str,
 ) -> AtlasConfig:
-    student_params = build_llm_parameters(student_model, role="student")
+    student_params = build_llm_parameters(student_model, role="student", adapter_type=base_config.agent.type)
     teacher_params = build_llm_parameters(teacher_model, role="teacher")
     return base_config.model_copy(
         update={

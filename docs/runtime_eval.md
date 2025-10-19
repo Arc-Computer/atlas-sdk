@@ -17,7 +17,7 @@ Use the dual-agent evaluation harness to compare student/teacher model pairings 
 
 ### Model Matrix & Credentials
 
-| Role    | Model Identifier              | Provider            | Required API key env var |
+| Role    | Model Identifier              | Provider (LiteLLM)  | Required API key env var |
 |---------|------------------------------|---------------------|--------------------------|
 | Student | `gpt-5-mini`                 | OpenAI (`openai`)   | `OPENAI_API_KEY`         |
 | Student | `claude-haiku-4-5`           | Anthropic           | `ANTHROPIC_API_KEY`      |
@@ -28,7 +28,7 @@ Use the dual-agent evaluation harness to compare student/teacher model pairings 
 | Teacher | `gemini-2.5-pro`             | Gemini              | `GEMINI_API_KEY`         |
 | Teacher | `grok-4-fast`                | xAI                 | `XAI_API_KEY`            |
 
-Populate the relevant keys in your shell or `.env` file; the script calls `load_dotenv_if_available()` before resolving model parameters.
+Populate the relevant keys in your shell or `.env` file; the script calls `load_dotenv_if_available()` before resolving model parameters. When cloning the OpenAI adapter config we coerce the student provider back to `openai` under the hood so LiteLLM can route the request while satisfying the adapter validation.
 
 ### Running the Harness
 ```bash
