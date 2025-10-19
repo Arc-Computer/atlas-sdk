@@ -111,6 +111,7 @@ class LLMProvider(str, Enum):
     BEDROCK = "bedrock"
     GOOGLE = "google"
     GEMINI = "gemini"
+    XAI = "xai"
 
 class LLMParameters(BaseModel):
     """Configuration for an LLM request path."""
