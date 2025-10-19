@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
 
 from scripts import eval_probe_models as probe_eval
+from scripts import export_probe_dataset as probe_export
 from scripts.eval_probe_models import ProbeResult, ProbeSample, summarise_results
 
 
@@ -62,3 +64,67 @@ def test_summarise_results_accuracy() -> None:
     summary = summarise_results(results)
     assert summary["total"] == 2
     assert summary["accuracy"] == pytest.approx(0.5)
+
+
+def test_export_helpers_extract_learning_key() -> None:
+    metadata = {"learning_key": "abc", "session_metadata": {"learning_key": "xyz"}}
+    assert probe_export._extract_learning_key(metadata) == "abc"
+    assert probe_export._extract_learning_key({"session_metadata": {"learning_key": "zzz"}}) == "zzz"
+    assert probe_export._expected_mode({"adaptive_summary": {"adaptive_mode": "auto"}}) == "auto"
+
+
+@pytest.mark.asyncio
+async def test_export_probe_dataset_writes_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeDatabase:
+        async def connect(self):
+            return None
+
+        async def disconnect(self):
+            return None
+
+        async def fetch_sessions(self, limit: int, offset: int):
+            return [
+                {
+                    "id": 1,
+                    "task": "Task",
+                    "metadata": json.dumps(
+                        {
+                            "learning_key": "key-1",
+                            "adaptive_summary": {"adaptive_mode": "auto"},
+                        }
+                    ),
+                    "created_at": "2025-01-01T00:00:00Z",
+                    "status": "succeeded",
+                }
+            ]
+
+        async def fetch_learning_history(self, learning_key: str):
+            assert learning_key == "key-1"
+            return [
+                {
+                    "reward": {"score": 0.9},
+                    "student_learning": "note",
+                    "teacher_learning": "coach",
+                    "created_at": "2025-01-01T00:00:00Z",
+                    "completed_at": "2025-01-01T00:10:00Z",
+                }
+            ]
+
+    monkeypatch.setattr(probe_export, "Database", lambda config: FakeDatabase())
+
+    output = tmp_path / "dataset.jsonl"
+    written = await probe_export.export_probe_dataset(
+        database_url="postgresql://example",  # ignored by fake
+        output_path=output,
+        session_limit=10,
+        session_offset=0,
+        history_limit=None,
+        min_history=1,
+        include_missing_mode=False,
+    )
+
+    assert written == 1
+    content = output.read_text(encoding="utf-8").strip().splitlines()
+    assert len(content) == 1
+    payload = json.loads(content[0])
+    assert payload["expected_mode"] == "auto"
