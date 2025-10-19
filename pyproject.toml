@@ -56,4 +56,4 @@ include = ["atlas*"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-"atlas.data" = ["sample_traces.jsonl", "sample_probe_payloads.jsonl"]
+"atlas.data" = ["sample_traces.jsonl", "sample_probe_payloads.jsonl", "synthetic_runtime_tasks.jsonl"]
