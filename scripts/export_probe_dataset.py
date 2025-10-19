@@ -104,6 +104,7 @@ async def export_probe_dataset(
     history_limit: int | None,
     min_history: int,
     include_missing_mode: bool,
+    per_learning_key_limit: int | None,
 ) -> int:
     config = StorageConfig(database_url=database_url)
     database = Database(config)
@@ -115,12 +116,17 @@ async def export_probe_dataset(
             return 0
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        per_key_counts: dict[str, int] = {}
         written = 0
         with output_path.open("w", encoding="utf-8") as handle:
             for record in sessions:
                 learning_key = _extract_learning_key(record.metadata)
                 if not learning_key:
                     continue
+                if per_learning_key_limit is not None:
+                    count = per_key_counts.get(learning_key, 0)
+                    if count >= per_learning_key_limit:
+                        continue
                 history_records = await database.fetch_learning_history(learning_key)
                 if not history_records:
                     continue
@@ -142,6 +148,8 @@ async def export_probe_dataset(
                 }
                 handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
                 written += 1
+                if per_learning_key_limit is not None:
+                    per_key_counts[learning_key] = per_key_counts.get(learning_key, 0) + 1
     finally:
         await database.disconnect()
     return written
@@ -156,6 +164,7 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser.add_argument("--history-limit", type=int, default=None, help="Override learning history window (default: use config/environment).")
     parser.add_argument("--min-history", type=int, default=1, help="Require at least this many historical entries (default: 1).")
     parser.add_argument("--include-missing-mode", action="store_true", help="Include sessions even when expected mode is missing.")
+    parser.add_argument("--per-learning-key-limit", type=int, default=None, help="Maximum samples to include per learning key (default: unlimited).")
     return parser.parse_args(argv)
 
 
@@ -173,6 +182,7 @@ async def main_async(argv: Sequence[str] | None = None) -> int:
         history_limit=args.history_limit,
         min_history=max(args.min_history, 1),
         include_missing_mode=args.include_missing_mode,
+        per_learning_key_limit=max(args.per_learning_key_limit, 1) if args.per_learning_key_limit else None,
     )
     print(f"Wrote {written} records to {args.output}")
     return 0 if written else 1

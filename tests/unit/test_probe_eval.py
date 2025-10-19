@@ -76,6 +76,8 @@ def test_export_helpers_extract_learning_key() -> None:
 @pytest.mark.asyncio
 async def test_export_probe_dataset_writes_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeDatabase:
+        call_counts = 0
+
         async def connect(self):
             return None
 
@@ -94,6 +96,19 @@ async def test_export_probe_dataset_writes_file(tmp_path: Path, monkeypatch: pyt
                         }
                     ),
                     "created_at": "2025-01-01T00:00:00Z",
+                    "status": "succeeded",
+                }
+            ,
+                {
+                    "id": 2,
+                    "task": "Task",
+                    "metadata": json.dumps(
+                        {
+                            "learning_key": "key-1",
+                            "adaptive_summary": {"adaptive_mode": "auto"},
+                        }
+                    ),
+                    "created_at": "2025-01-02T00:00:00Z",
                     "status": "succeeded",
                 }
             ]
@@ -121,6 +136,7 @@ async def test_export_probe_dataset_writes_file(tmp_path: Path, monkeypatch: pyt
         history_limit=None,
         min_history=1,
         include_missing_mode=False,
+        per_learning_key_limit=1,
     )
 
     assert written == 1
