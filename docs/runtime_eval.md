@@ -90,3 +90,7 @@ We executed the full 4×4 student/teacher matrix against the 25-task synthetic d
 - **Probe behavior:** Since the synthetic tasks had no prior learning history, the capability probe defaulted to `paired`. Seeding history or running a warm-up phase would enable evaluation of `auto`/`coach` behavior if needed.
 
 These measurements were captured on 2025‑10‑19. Re-run the harness periodically to ensure performance remains stable as model endpoints evolve.
+
+#### Capability Probe context
+
+Prior to the dual-agent sweep we reran the capability-probe evaluation (see `docs/probe_eval.md`). When judging probe-only accuracy and latency, `grok-4-fast` achieved the best balance (≈80 % routing accuracy, ~2.3 s latency, with an `auto`-heavy mode mix). That result informed our choice of grok as the teacher LLM in the matrix above—paired with Claude Haiku it delivers leadership in both probe readiness and dual-agent reward. The second-best probe model, Claude Haiku 4.5 (~64 % accuracy, ~1 s latency), remains a viable failover; Gemini 2.5 Flash trails on probe accuracy (~60 %) despite decent latency.
