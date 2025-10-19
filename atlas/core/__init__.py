@@ -117,7 +117,10 @@ async def arun(
         if database:
             await database.connect()
             history_records = await database.fetch_learning_history(learning_key)
-            learning_history = aggregate_learning_history(history_records)
+            learning_history = aggregate_learning_history(
+                history_records,
+                limit=getattr(adaptive_teaching_cfg, "learning_history_limit", 10),
+            )
             metadata = execution_context.metadata.get("session_metadata")
             session_id = await database.create_session(task, metadata=metadata)
             if publisher is not None and session_id is not None:

@@ -217,6 +217,7 @@ Configuration files live in `configs/examples/`. Each YAML document is validated
 | `teacher` | Parameters for the validation and guidance role (LLM settings, cache behaviour, prompt overrides) |
 | `orchestration` | Retry policy, per-step timeout, and trajectory emission flags |
 | `rim` | Judge definitions, weights, aggregation strategy, thresholds |
+| `adaptive_teaching` | Capability probe defaults, persistent-learning history limit, and reward objectives |
 | `storage` | Optional PostgreSQL connection info for persistence |
 
 Atlas ships opinionated prompt templates for three cooperative roles:
