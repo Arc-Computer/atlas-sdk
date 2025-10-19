@@ -18,7 +18,7 @@ For each model:
 - Accuracy vs. `expected_mode` (when provided).
 - Average and percentile latency (wall-clock).
 - Failure rate (exceptions/timeouts).
-- Approximate token usage (if returned by the provider).
+  
 
 ### Procedure
 1. Load the dataset and normalise each record into probe inputs.
@@ -31,18 +31,32 @@ For each model:
 ```
 python -m scripts.eval_probe_models \
   --dataset atlas/data/sample_probe_payloads.jsonl \
-  --models gemini \
-           anthropic \
-           xai
+  --models gemini anthropic xai
 ```
 
-Environment variables can override specific model identifiers or add concurrency:
+Environment variables can override specific model identifiers:
 ```
-export ATLAS_PROBE_EVAL_CONCURRENCY=3
 export ATLAS_PROBE_MODEL_GEMINI=gemini/gemini-2.5-flash
 export ATLAS_PROBE_MODEL_ANTHROPIC=anthropic/claude-haiku-4-5
 export ATLAS_PROBE_MODEL_XAI=xai/grok-4-fast
 ```
+
+The script automatically loads `.env`, so ensure `GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, and `XAI_API_KEY` are populated before running it.
+
+### Capturing a dataset
+
+Use `scripts/export_probe_dataset.py` to dump probe inputs from your Postgres instance. The `--per-learning-key-limit` flag keeps only one sample per learning key so repeated sessions do not skew the evaluation:
+
+```bash
+python -m scripts.export_probe_dataset \
+  --database-url "$STORAGE__DATABASE_URL" \
+  --output data/probe_eval.jsonl \
+  --limit 1000 \
+  --min-history 3 \
+  --per-learning-key-limit 1
+```
+
+Append multiple exports (varying `--offset`) if you need more coverage, then feed the merged JSONL file into the evaluation command above.
 
 ### Deliverables
 - CLI script producing JSON/markdown summaries.
