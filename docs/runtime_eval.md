@@ -58,3 +58,35 @@ Aggregated per model pair:
 - Failure count and adaptive-mode distribution.
 
 CLI output renders a summary table and, when `--output` is provided, persists a JSON report with the full run history and a computed “best pair” record.
+
+### Findings (2025-10-19)
+
+We executed the full 4×4 student/teacher matrix against the 25-task synthetic dataset. Because no historical learning traces exist for these learning keys, the capability probe routed every task to the `paired` lane (student executes once, teacher validates the final answer). The table below shows the aggregated reward and latency metrics per pairing.
+
+| Student            | Teacher                    | Avg Reward | Avg Runtime (s) | Failures | Notes |
+|--------------------|----------------------------|------------|-----------------|----------|-------|
+| claude-haiku-4-5   | grok-4-fast                | **0.996**  | **18.40**       | 0        | Highest reward and fastest runtime across the matrix. |
+| claude-haiku-4-5   | gemini-2.5-pro             | 0.994      | 22.07           | 0        | Slightly slower, still excellent reward. |
+| claude-haiku-4-5   | claude-sonnet-4-5-20250929 | 0.989      | 20.08           | 0        | All runs stayed in paired mode; no retries triggered. |
+| claude-haiku-4-5   | gpt-5                      | 0.958      | 42.43           | 0        | Latency penalty without corresponding reward gains. |
+| gemini-2.5-flash   | gemini-2.5-pro             | 0.990      | 25.48           | 0        | Strong reward, moderate latency. |
+| gemini-2.5-flash   | grok-4-fast                | 0.954      | 22.30           | 0        | Faster but noticeably lower reward. |
+| gemini-2.5-flash   | claude-sonnet-4-5-20250929 | 0.954      | 23.74           | 0        | Balanced but below the Claude student pairings. |
+| gemini-2.5-flash   | gpt-5                      | 0.916      | 48.92           | 0        | Slowest in this block with the weakest reward. |
+| grok-4-fast        | grok-4-fast                | 0.985      | 16.66           | 0        | Fastest absolute runtime; reward slightly behind Claude/grok. |
+| grok-4-fast        | gemini-2.5-pro             | 0.989      | 20.75           | 0        | Consistent performance, modest latency. |
+| grok-4-fast        | gpt-5                      | 0.988      | 42.84           | 0        | Teacher cost outweighs reward delta. |
+| grok-4-fast        | claude-sonnet-4-5-20250929 | 0.991      | 19.57           | 1        | One Anthropics “overloaded” error observed; otherwise strong. |
+| gpt-5-mini         | grok-4-fast                | 0.959      | 58.36           | 0        | Acceptable reward but significantly slower. |
+| gpt-5-mini         | gemini-2.5-pro             | 0.960      | 67.19           | 1        | One LiteLLM request failure (“openai adapter request failed”). |
+| gpt-5-mini         | claude-sonnet-4-5-20250929 | 0.929      | 66.37           | 0        | Lowest reward among Claude/Gemini teachers. |
+| gpt-5-mini         | gpt-5                      | 0.937      | 98.11           | 0        | Slowest overall pairing with the weakest reward signal. |
+
+**Key takeaways**
+- **Best performing default:** `claude-haiku-4-5` as the student paired with `grok-4-fast` as the teacher delivered the highest reward (≈0.996) and low latency (~18 s). This pairing is a strong candidate for the runtime default.
+- **Secondary options:** Gemini’s `2.5-pro` and Anthropic’s `claude-sonnet-4-5-20250929` teachers also performed well with the Claude and Grok students, offering provider redundancy at a small latency cost.
+- **Less effective combinations:** `gpt-5-mini` as the student consistently lagged on reward and was 3–5× slower than Claude/Grok students. Coupling any student with the `gpt-5` teacher increased latency substantially without appreciable reward gains.
+- **Reliability observations:** We saw two isolated failures across the matrix—one Anthropic overload and one LiteLLM “openai adapter request failed” error—both recovered on subsequent tasks. All other runs completed successfully.
+- **Probe behavior:** Since the synthetic tasks had no prior learning history, the capability probe defaulted to `paired`. Seeding history or running a warm-up phase would enable evaluation of `auto`/`coach` behavior if needed.
+
+These measurements were captured on 2025‑10‑19. Re-run the harness periodically to ensure performance remains stable as model endpoints evolve.
