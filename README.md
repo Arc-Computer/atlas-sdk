@@ -220,6 +220,10 @@ Configuration files live in `configs/examples/`. Each YAML document is validated
 | `adaptive_teaching` | Capability probe defaults, persistent-learning history limit, and reward objectives |
 | `storage` | Optional PostgreSQL connection info for persistence |
 
+> `adaptive_teaching.learning_history_limit` controls how many recent sessions are surfaced to the capability probe.
+> It defaults to 10 (max 200). Override it in YAML under the `adaptive_teaching` block, or set the
+> `ATLAS_LEARNING_HISTORY_LIMIT` environment variable for a temporary change (env overrides the config when present).
+
 Atlas ships opinionated prompt templates for three cooperative roles:
 
 1. **Planner** – drafts a dependency-aware plan that sequences tools and actions.

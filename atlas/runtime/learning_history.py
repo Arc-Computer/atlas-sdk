@@ -5,9 +5,10 @@ from __future__ import annotations
 import os
 from copy import deepcopy
 from datetime import datetime
-from typing import Any, Callable, Dict, Iterable, Sequence, Tuple
+from typing import Any, Callable, Dict, Sequence
 
 DEFAULT_HISTORY_LIMIT = 10
+MAX_HISTORY_LIMIT = 200
 MAX_NOTE_CHARS = 1024
 _SENSITIVE_REWARD_KEYS = ("raw", "step_artifacts", "artifacts")
 _HIGH_SCORE_THRESHOLD = 0.8
@@ -30,10 +31,10 @@ def _resolve_limit(limit: int | None) -> int:
         except ValueError:
             parsed = None
         if parsed and parsed > 0:
-            return parsed
+            return min(parsed, MAX_HISTORY_LIMIT)
     if limit is None or limit <= 0:
         return DEFAULT_HISTORY_LIMIT
-    return limit
+    return min(limit, MAX_HISTORY_LIMIT)
 
 
 def _truncate(value: Any, max_chars: int) -> Any:
@@ -62,9 +63,9 @@ def _extract_score(payload: Any) -> float | None:
     return None
 
 
-def _compute_streak(scores: Iterable[float], predicate: Callable[[float], bool]) -> int:
+def _compute_streak(scores: Sequence[float], predicate: Callable[[float], bool]) -> int:
     streak = 0
-    for score in reversed(list(scores)):
+    for score in reversed(scores):
         if predicate(score):
             streak += 1
         else:
@@ -72,7 +73,7 @@ def _compute_streak(scores: Iterable[float], predicate: Callable[[float], bool])
     return streak
 
 
-def _build_entry(record: Dict[str, Any], *, max_chars: int) -> Tuple[dict[str, Any], float | None]:
+def _build_entry(record: Dict[str, Any], *, max_chars: int) -> tuple[dict[str, Any], float | None]:
     reward_payload = _sanitise_reward(record.get("reward"))
     score = _extract_score(reward_payload)
     entry = {
@@ -91,7 +92,25 @@ def aggregate_learning_history(
     limit: int | None = None,
     max_note_chars: int = MAX_NOTE_CHARS,
 ) -> Dict[str, Any]:
-    """Aggregate prior reward and learning entries into a compact payload."""
+    """
+    Aggregate prior reward and learning entries into a compact, probe-friendly payload.
+
+    The returned dictionary includes:
+    - ``entries``: up to ``limit`` most recent records with sanitised reward data and truncated notes.
+    - ``scores`` / ``average_score``: per-entry scores and their average across the limited window.
+    - ``overall_average_score``: average score across the full record set (when available).
+    - ``recent_high_score_streak`` / ``recent_low_score_streak``: consecutive high/low scores within the window.
+    - ``count``: number of entries included after trimming.
+    - ``total_count``: total number of records supplied before trimming.
+    - ``limit``: the effective limit used (respecting config/environment constraints).
+
+    Notes:
+    - ``limit`` defaults to :data:`DEFAULT_HISTORY_LIMIT` and respects the
+      ``ATLAS_LEARNING_HISTORY_LIMIT`` environment override as well as an upper bound of
+      :data:`MAX_HISTORY_LIMIT`.
+    - Reward payloads are copied with heavyweight keys removed (``raw``, ``step_artifacts``, ``artifacts``).
+    - ``student_learning`` / ``teacher_learning`` notes are truncated to ``max_note_chars`` characters.
+    """
 
     total_count = len(records) if records else 0
     if not records:
