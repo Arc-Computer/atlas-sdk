@@ -10,7 +10,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Sequence
 
 from atlas.config.models import AdaptiveProbeConfig, LLMParameters, LLMProvider
 from atlas.utils.env import load_dotenv_if_available
@@ -105,7 +105,7 @@ def build_parameters(model_key: str) -> LLMParameters:
         or os.environ.get(f"{preset['model_env']}_MODEL")
         or preset["default_model"]
     )
-    api_key_env = os.environ.get(f"{preset['model_env']}_API_KEY") or preset["api_key_env"]
+    api_key_env = preset["api_key_env"]
 
     return LLMParameters(
         provider=preset["provider"],
