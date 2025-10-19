@@ -32,7 +32,7 @@ from atlas.personas.teacher import Teacher
 from atlas.runtime.storage.database import Database
 from atlas.runtime.telemetry import ConsoleTelemetryStreamer
 from atlas.runtime.telemetry.langchain_callback import configure_langchain_callbacks
-from atlas.runtime.learning_history import aggregate_learning_history
+from atlas.runtime.learning_history import DEFAULT_HISTORY_LIMIT, aggregate_learning_history
 from atlas.types import Result
 from atlas.utils.triage import default_build_dossier
 
@@ -117,7 +117,10 @@ async def arun(
         if database:
             await database.connect()
             history_records = await database.fetch_learning_history(learning_key)
-            learning_history = aggregate_learning_history(history_records)
+            learning_history = aggregate_learning_history(
+                history_records,
+                limit=getattr(adaptive_teaching_cfg, "learning_history_limit", DEFAULT_HISTORY_LIMIT),
+            )
             metadata = execution_context.metadata.get("session_metadata")
             session_id = await database.create_session(task, metadata=metadata)
             if publisher is not None and session_id is not None:

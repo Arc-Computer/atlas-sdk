@@ -226,6 +226,7 @@ class AdaptiveTeachingConfig(BaseModel):
     default_tags: List[str] = Field(default_factory=list)
     probe: AdaptiveProbeConfig = Field(default_factory=AdaptiveProbeConfig)
     reward: RewardObjectiveConfig = Field(default_factory=RewardObjectiveConfig)
+    learning_history_limit: int = Field(default=10, ge=1, le=200)
 
     @field_validator("default_tags", mode="before")
     @classmethod
