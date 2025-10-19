@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from difflib import SequenceMatcher
 import re
 import asyncio
 
@@ -28,7 +27,6 @@ DEFAULT_DATASET = Path("atlas/data/synthetic_runtime_tasks.jsonl")
 DEFAULT_CONFIG = Path("configs/examples/openai_agent.yaml")
 DEFAULT_STUDENT_MODELS = ("gpt-5-mini", "claude-haiku-4-5", "gemini-2.5-flash", "grok-4-fast")
 DEFAULT_TEACHER_MODELS = ("gpt-5", "claude-sonnet-4-5-20250929", "gemini-2.5-pro", "grok-4-fast")
-SIMILARITY_THRESHOLD = 0.65
 
 
 def _disable_litellm_stream_logging() -> None:
@@ -66,8 +64,6 @@ class TaskResult:
     runtime_seconds: float
     success: bool
     final_answer: str | None
-    similarity: float | None
-    matches: bool
     adaptive_mode: str | None
     adaptive_mode_history: list[dict[str, Any]]
     session_reward: float | None
@@ -161,12 +157,6 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         default=None,
         help="Optional path to write JSON results containing summaries and per-run details.",
     )
-    parser.add_argument(
-        "--similarity-threshold",
-        type=float,
-        default=SIMILARITY_THRESHOLD,
-        help="Similarity threshold for marking a response as matching the expected answer.",
-    )
     return parser.parse_args(argv)
 
 
@@ -248,12 +238,6 @@ def write_config_copy(config: AtlasConfig, directory: Path, student_model: str, 
     return target
 
 
-def compute_similarity(answer: str | None, expected: str | None) -> float | None:
-    if not answer or not expected:
-        return None
-    return SequenceMatcher(None, answer.lower(), expected.lower()).ratio()
-
-
 async def _arun_with_metadata(task: RuntimeTask, config_path: Path) -> tuple[Result, dict[str, Any]]:
     execution_context = ExecutionContext.get()
     execution_context.reset()
@@ -280,7 +264,6 @@ def build_task_result(
     metadata: dict[str, Any] | None,
     runtime_seconds: float,
     error: str | None,
-    similarity_threshold: float,
 ) -> TaskResult:
     metadata = metadata or {}
     adaptive_summary = metadata.get("adaptive_summary") if isinstance(metadata, dict) else None
@@ -298,8 +281,6 @@ def build_task_result(
         if isinstance(score, (int, float)):
             reward_score = float(score)
     final_answer = result.final_answer if result is not None else None
-    similarity = compute_similarity(final_answer, task.expected_answer)
-    matches = similarity is not None and similarity >= similarity_threshold
     success = error is None
     return TaskResult(
         student_model=student_model,
@@ -308,8 +289,6 @@ def build_task_result(
         runtime_seconds=runtime_seconds,
         success=success,
         final_answer=final_answer,
-        similarity=similarity,
-        matches=matches if success else False,
         adaptive_mode=adaptive_mode,
         adaptive_mode_history=adaptive_history,
         session_reward=reward_score,
@@ -327,16 +306,10 @@ def aggregate_results(results: Iterable[TaskResult]) -> list[dict[str, Any]]:
         successes = [rec for rec in records if rec.success]
         runtime_values = [rec.runtime_seconds for rec in successes]
         reward_values = [rec.session_reward for rec in successes if rec.session_reward is not None]
-        accuracy_pool = [rec for rec in successes if rec.similarity is not None]
         adaptive_counter = Counter(rec.adaptive_mode for rec in successes if rec.adaptive_mode)
 
         average_runtime = statistics.mean(runtime_values) if runtime_values else None
         average_reward = statistics.mean(reward_values) if reward_values else None
-        accuracy = (
-            sum(1 for rec in accuracy_pool if rec.matches) / len(accuracy_pool)
-            if accuracy_pool
-            else None
-        )
         summaries.append(
             {
                 "student_model": student_model,
@@ -345,14 +318,13 @@ def aggregate_results(results: Iterable[TaskResult]) -> list[dict[str, Any]]:
                 "failures": len(records) - len(successes),
                 "average_runtime_seconds": average_runtime,
                 "average_reward": average_reward,
-                "accuracy": accuracy,
                 "adaptive_modes": dict(adaptive_counter),
             }
         )
     def _sort_key(item: dict[str, Any]) -> tuple[float, float]:
-        accuracy = item["accuracy"]
+        reward = item["average_reward"]
         avg_runtime = item["average_runtime_seconds"] or float("inf")
-        return (-accuracy if accuracy is not None else float("inf"), avg_runtime)
+        return (-(reward if reward is not None else float("-inf")), avg_runtime)
 
     return sorted(summaries, key=_sort_key)
 
@@ -364,7 +336,6 @@ def print_summary_table(summaries: Sequence[dict[str, Any]]) -> None:
     headers = (
         "Student",
         "Teacher",
-        "Accuracy",
         "Avg Reward",
         "Avg Runtime (s)",
         "Failures",
@@ -372,7 +343,6 @@ def print_summary_table(summaries: Sequence[dict[str, Any]]) -> None:
     )
     rows: list[tuple[str, ...]] = []
     for entry in summaries:
-        accuracy = entry["accuracy"]
         avg_reward = entry["average_reward"]
         avg_runtime = entry["average_runtime_seconds"]
         modes = " ".join(f"{mode}:{count}" for mode, count in sorted(entry["adaptive_modes"].items()))
@@ -380,7 +350,6 @@ def print_summary_table(summaries: Sequence[dict[str, Any]]) -> None:
             (
                 entry["student_model"],
                 entry["teacher_model"],
-                f"{accuracy:.2f}" if accuracy is not None else "n/a",
                 f"{avg_reward:.2f}" if avg_reward is not None else "n/a",
                 f"{avg_runtime:.2f}" if avg_runtime is not None else "n/a",
                 str(entry["failures"]),
@@ -403,7 +372,6 @@ def select_best_pair(summaries: Sequence[dict[str, Any]]) -> dict[str, Any] | No
     return {
         "student_model": top["student_model"],
         "teacher_model": top["teacher_model"],
-        "accuracy": top["accuracy"],
         "average_runtime_seconds": top["average_runtime_seconds"],
         "average_reward": top["average_reward"],
         "failures": top["failures"],
@@ -422,7 +390,6 @@ def _execute_job(
     teacher_model: str,
     task: RuntimeTask,
     config_path: str,
-    similarity_threshold: float,
 ) -> TaskResult:
     _reset_litellm_logging_worker()
     _disable_litellm_stream_logging()
@@ -443,7 +410,6 @@ def _execute_job(
         metadata=metadata,
         runtime_seconds=runtime_seconds,
         error=error,
-        similarity_threshold=similarity_threshold,
     )
     status = "ok" if error is None else f"error: {error}"
     print(
@@ -492,7 +458,6 @@ def run_evaluations(args: argparse.Namespace) -> tuple[list[TaskResult], list[di
                         teacher_model=teacher_model,
                         task=task,
                         config_path=config_path,
-                        similarity_threshold=args.similarity_threshold,
                     )
                 )
         else:
@@ -504,7 +469,6 @@ def run_evaluations(args: argparse.Namespace) -> tuple[list[TaskResult], list[di
                         teacher_model,
                         task,
                         config_path,
-                        args.similarity_threshold,
                     )
                     for student_model, teacher_model, task, config_path in jobs
                 ]
@@ -530,7 +494,6 @@ def write_output(
         "student_models": list(args.student_models),
         "teacher_models": list(args.teacher_models),
         "repeats": args.repeats,
-        "similarity_threshold": args.similarity_threshold,
         "summaries": summaries,
         "best_pair": select_best_pair(summaries),
         "runs": [
@@ -543,8 +506,6 @@ def write_output(
                 "runtime_seconds": record.runtime_seconds,
                 "success": record.success,
                 "final_answer": record.final_answer,
-                "similarity": record.similarity,
-                "matches_expected": record.matches,
                 "adaptive_mode": record.adaptive_mode,
                 "adaptive_mode_history": record.adaptive_mode_history,
                 "session_reward": record.session_reward,

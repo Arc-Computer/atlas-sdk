@@ -4,7 +4,7 @@ Use the dual-agent evaluation harness to compare student/teacher model pairings 
 
 ### Goals
 - Validate default student/teacher pairings across SRE, security, compliance, customer comms, and analytics scenarios.
-- Capture latency, reward, and lightweight answer-quality indicators for each pairing.
+- Capture wall-clock latency and RIM reward scores for each pairing.
 - Produce a machine-readable summary to inform the default model selection.
 
 ### Dataset
@@ -42,22 +42,19 @@ Key options:
 - `--base-config` – alternate runtime config to clone for overrides (defaults to `configs/examples/openai_agent.yaml`).
 - `--repeats` – rerun each task N times (useful for sampling variance).
 - `--concurrency` – maximum in-flight executions (defaults to sequential). Values greater than 1 fan out work across a process pool, keeping each runtime isolated so LiteLLM logging stays stable.
-- `--similarity-threshold` – tweak the difflib ratio required to mark a task as matched.
 - `--output` – write a JSON artifact containing both per-run records and aggregated summaries.
 
 Advanced overrides: set `ATLAS_MODEL_OVERRIDE_<MODEL_ID>` (e.g. `ATLAS_MODEL_OVERRIDE_GPT_5=azure/gpt-5-preview`) to point a specific identifier at a custom endpoint while reusing the same provider defaults. Use `ATLAS_MODEL_TIMEOUT` to raise/lower the per-call timeout across all models.
 
 ### Metrics Captured
 Per task:
-- Final answer returned by `atlas.core.run`.
+- Final answer returned by the runtime.
 - Adaptive mode and mode history derived from `ExecutionContext.metadata["adaptive_summary"]`.
 - Session reward score when present.
 - Wall-clock runtime and exception flag.
-- Similarity score and boolean match flag vs. `expected_answer`.
 
 Aggregated per model pair:
 - Average runtime and reward (successes only).
-- Accuracy (share of runs that exceed the similarity threshold).
 - Failure count and adaptive-mode distribution.
 
 CLI output renders a summary table and, when `--output` is provided, persists a JSON report with the full run history and a computed “best pair” record.

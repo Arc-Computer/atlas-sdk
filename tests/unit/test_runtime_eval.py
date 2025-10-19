@@ -107,7 +107,6 @@ def test_run_evaluations_with_stub(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         repeats=1,
         concurrency=1,
         output=None,
-        similarity_threshold=0.5,
     )
 
     task_results, summaries = eval_mod.run_evaluations(args)
@@ -115,8 +114,6 @@ def test_run_evaluations_with_stub(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     assert len(task_results) == 1
     record = task_results[0]
     assert record.success is True
-    assert record.matches is True
-    assert record.similarity and record.similarity >= 0.5
     assert record.session_reward == pytest.approx(0.8)
     assert record.adaptive_mode == "auto"
     assert record.adaptive_mode_history == [{"mode": "auto", "confidence": 0.92}]
@@ -124,5 +121,5 @@ def test_run_evaluations_with_stub(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     assert len(summaries) == 1
     summary = summaries[0]
     assert summary["failures"] == 0
-    assert summary["accuracy"] == pytest.approx(1.0)
+    assert summary["average_reward"] == pytest.approx(0.8)
     assert summary["adaptive_modes"].get("auto") == 1
