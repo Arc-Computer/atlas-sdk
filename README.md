@@ -383,6 +383,8 @@ On success you will see the export path echoed back along with a reminder that A
 
 ## Testing
 
+- Dual-agent runtime evaluation harness: see `docs/runtime_eval.md` for metrics, dataset schema, and CLI usage.
+
 ```bash
 PYTHONPATH=. pytest tests --disable-warnings
 ```
