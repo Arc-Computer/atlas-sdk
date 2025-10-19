@@ -111,6 +111,7 @@ class LLMProvider(str, Enum):
     BEDROCK = "bedrock"
     GOOGLE = "google"
     GEMINI = "gemini"
+    XAI = "xai"
 
 class LLMParameters(BaseModel):
     """Configuration for an LLM request path."""
@@ -188,7 +189,15 @@ class AdaptiveProbeConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    llm: "LLMParameters | None" = None
+    llm: "LLMParameters | None" = Field(
+        default_factory=lambda: LLMParameters(
+            provider=LLMProvider.XAI,
+            model="xai/grok-4-fast",
+            api_key_env="XAI_API_KEY",
+            temperature=0.2,
+            timeout_seconds=20.0,
+        )
+    )
     thresholds: AdaptiveProbeThresholds = Field(default_factory=AdaptiveProbeThresholds)
     fallback_mode: Literal["paired", "coach", "escalate"] = "paired"
     evidence_limit: int = Field(default=6, ge=1, le=32)
