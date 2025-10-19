@@ -12,8 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from difflib import SequenceMatcher
+import re
 
 from atlas.config.loader import load_config
 from atlas.config.models import AtlasConfig, LLMParameters, LLMProvider
@@ -182,9 +183,11 @@ def build_llm_parameters(model_id: str, *, role: str) -> LLMParameters:
     temperature = preset["temperature"]
     if role == "teacher":
         temperature = min(temperature, 0.15)
+    env_key_suffix = re.sub(r"[^A-Z0-9]+", "_", model_id.upper()).strip("_")
+    override_key = f"ATLAS_MODEL_OVERRIDE_{env_key_suffix}"
     return LLMParameters(
         provider=preset["provider"],
-        model=os.environ.get(f"ATLAS_MODEL_OVERRIDE_{model_id.upper().replace('-', '_')}") or preset["model"],
+        model=os.environ.get(override_key) or preset["model"],
         api_key_env=preset["api_key_env"],
         temperature=temperature,
         timeout_seconds=float(os.environ.get("ATLAS_MODEL_TIMEOUT", preset["timeout_seconds"])),
@@ -375,14 +378,15 @@ def _execute_job(
     student_model: str,
     teacher_model: str,
     task: RuntimeTask,
-    config_path: Path,
+    config_path: str,
     similarity_threshold: float,
 ) -> TaskResult:
+    _disable_litellm_stream_logging()
     start = time.perf_counter()
     error: str | None = None
     result: Result | None = None
     try:
-        result = execute_task(task, config_path)
+        result = execute_task(task, Path(config_path))
     except Exception as exc:  # pragma: no cover - defensive guard for runtime errors
         error = str(exc)
     runtime_seconds = time.perf_counter() - start
@@ -419,13 +423,13 @@ def run_evaluations(args: argparse.Namespace) -> tuple[list[TaskResult], list[di
                 )
                 config_cache[key] = write_config_copy(overridden_config, temp_dir, student_model, teacher_model)
 
-        jobs: list[tuple[str, str, RuntimeTask, Path]] = []
+        jobs: list[tuple[str, str, RuntimeTask, str]] = []
         for student_model in args.student_models:
             for teacher_model in args.teacher_models:
                 config_path = config_cache[(student_model, teacher_model)]
                 for _ in range(args.repeats):
                     for task in dataset:
-                        jobs.append((student_model, teacher_model, task, config_path))
+                        jobs.append((student_model, teacher_model, task, str(config_path)))
 
         if args.concurrency <= 1:
             for student_model, teacher_model, task, config_path in jobs:
@@ -439,7 +443,7 @@ def run_evaluations(args: argparse.Namespace) -> tuple[list[TaskResult], list[di
                     )
                 )
         else:
-            with ThreadPoolExecutor(max_workers=args.concurrency) as executor:
+            with ProcessPoolExecutor(max_workers=args.concurrency) as executor:
                 futures = [
                     executor.submit(
                         _execute_job,
@@ -515,3 +519,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+def _disable_litellm_stream_logging() -> None:
+    try:
+        import litellm
+
+        disable = getattr(litellm, "disable_streaming_logging", None)
+        if callable(disable):
+            disable()
+    except Exception:
+        pass

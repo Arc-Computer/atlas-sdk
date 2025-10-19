@@ -38,10 +38,10 @@ python -m scripts.eval_dual_agent_models \
 ```
 
 Key options:
-- `--student-models` / `--teacher-models` – space-separated lists of LiteLLM identifiers to evaluate.
+- `--student-models` / `--teacher-models` – space-separated list of model identifiers (see `MODEL_PRESETS`) to evaluate.
 - `--base-config` – alternate runtime config to clone for overrides (defaults to `configs/examples/openai_agent.yaml`).
 - `--repeats` – rerun each task N times (useful for sampling variance).
-- `--concurrency` – maximum in-flight executions (defaults to sequential).
+- `--concurrency` – maximum in-flight executions (defaults to sequential). Values greater than 1 fan out work across a process pool, keeping each runtime isolated so LiteLLM logging stays stable.
 - `--similarity-threshold` – tweak the difflib ratio required to mark a task as matched.
 - `--output` – write a JSON artifact containing both per-run records and aggregated summaries.
 
