@@ -30,6 +30,26 @@ DEFAULT_TEACHER_MODELS = ("gpt-5", "claude-sonnet-4-5-20250929", "gemini-2.5-pro
 SIMILARITY_THRESHOLD = 0.65
 
 
+def _disable_litellm_stream_logging() -> None:
+    try:
+        import litellm
+
+        disable = getattr(litellm, "turn_off_message_logging", None)
+        if callable(disable):
+            disable()
+    except Exception:
+        pass
+
+
+def _reset_litellm_logging_worker() -> None:
+    try:
+        from litellm.litellm_core_utils import logging_worker
+
+        logging_worker.GLOBAL_LOGGING_WORKER = logging_worker.LoggingWorker()
+    except Exception:
+        pass
+
+
 @dataclass(slots=True)
 class RuntimeTask:
     task: str
@@ -381,6 +401,7 @@ def _execute_job(
     config_path: str,
     similarity_threshold: float,
 ) -> TaskResult:
+    _reset_litellm_logging_worker()
     _disable_litellm_stream_logging()
     start = time.perf_counter()
     error: str | None = None
