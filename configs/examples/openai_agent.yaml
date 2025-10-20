@@ -9,8 +9,15 @@ agent:
     model: gpt-5-mini
     api_key_env: OPENAI_API_KEY
     temperature: 0.2
-    max_output_tokens: 2048
+    max_output_tokens: 4096
+    timeout_seconds: 180
   response_format: null
+
+student:
+  max_plan_tokens: 4096
+  max_step_tokens: 4096
+  max_synthesis_tokens: 4096
+  tool_choice: auto
 
 teacher:
   llm:
@@ -18,7 +25,8 @@ teacher:
     model: gpt-5-mini
     api_key_env: OPENAI_API_KEY
     temperature: 0.1
-    max_output_tokens: 2048
+    max_output_tokens: 4096
+    timeout_seconds: 180
 
 rim:
   small_model:
