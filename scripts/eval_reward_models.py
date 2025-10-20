@@ -13,6 +13,7 @@ from typing import Any, Callable, Iterable, Sequence
 from atlas.config.loader import load_config
 from atlas.config.models import LLMParameters, LLMProvider, RIMConfig
 from atlas.evaluation import Evaluator, SessionStepRecord, SessionTrajectory
+from atlas.evaluation.evaluator import SessionSample
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.types import Plan, Step
 from atlas.utils.env import load_dotenv_if_available
@@ -127,6 +128,121 @@ JUDGE_COMBOS: dict[str, JudgeCombo] = {
         description="Grok 4 Fast ➜ Grok 4",
     ),
 }
+
+
+class HarnessEvaluator(Evaluator):
+    """Evaluator variant with relaxed payload parsing for offline reward sweeps."""
+
+    async def _sample_session(  # type: ignore[override]
+        self,
+        trajectory: SessionTrajectory,
+        focus_prompt: str | None,
+        temperature: float,
+    ) -> SessionSample | None:
+        messages = self._build_session_messages(trajectory, focus_prompt)
+        exec_context = ExecutionContext.get()
+        exec_context.metadata["active_actor"] = "reward"
+        exec_context.metadata["_reasoning_origin"] = ("reward", "sample")
+        try:
+            response = await self._small_client.acomplete(
+                messages,
+                response_format={"type": "json_object"},
+                overrides={"temperature": temperature},
+            )
+        except Exception:
+            exec_context.metadata.setdefault("_llm_reasoning_queue", [])
+            exec_context.metadata["_llm_reasoning_queue"].clear()
+            return None
+
+        payload = self._try_parse_json(response.content)
+        if payload is None:
+            payload = self._extract_from_tool_calls(response.raw)
+        payload = self._normalise_payload(payload)
+        self._consume_reasoning_metadata("reward", "sample")
+
+        if payload is None:
+            return None
+        parsed = self._parse_session_payload(payload)
+        if parsed is None:
+            return None
+
+        return SessionSample(
+            score=parsed["score"],
+            uncertainty=parsed["uncertainty"],
+            rationale=parsed["rationale"],
+            principles=parsed["principles"],
+            student_learning=parsed["student_learning"],
+            teacher_learning=parsed["teacher_learning"],
+        )
+
+    def _normalise_payload(self, payload: Any) -> dict[str, Any] | None:
+        if not isinstance(payload, dict):
+            return None
+        if payload.keys() == {"evaluation_input"}:
+            return None
+        for key in ("evaluation_output", "output", "result", "reward", "payload"):
+            nested = payload.get(key)
+            if isinstance(nested, dict):
+                return self._normalise_payload(nested)
+        if "score" in payload and "uncertainty" in payload:
+            return payload
+        return None
+
+    def _extract_from_tool_calls(self, raw: Any) -> dict[str, Any] | None:
+        raw_payload: dict[str, Any] | None = None
+        if hasattr(raw, "model_dump"):
+            try:
+                raw_payload = raw.model_dump()  # type: ignore[attr-defined]
+            except Exception:
+                raw_payload = None
+        elif hasattr(raw, "dict"):
+            try:
+                raw_payload = raw.dict()  # type: ignore[attr-defined]
+            except Exception:
+                raw_payload = None
+        elif isinstance(raw, dict):
+            raw_payload = raw
+        if not raw_payload:
+            return None
+        choices = raw_payload.get("choices") or []
+        for choice in choices:
+            message = (
+                choice.get("message")
+                if isinstance(choice, dict)
+                else getattr(choice, "message", None)
+            )
+            if message is None:
+                continue
+            tool_calls = (
+                message.get("tool_calls")
+                if isinstance(message, dict)
+                else getattr(message, "tool_calls", None)
+            )
+            if not tool_calls:
+                continue
+            for call in tool_calls:
+                function = (
+                    call.get("function")
+                    if isinstance(call, dict)
+                    else getattr(call, "function", None)
+                )
+                if not function:
+                    continue
+                arguments = (
+                    function.get("arguments")
+                    if isinstance(function, dict)
+                    else getattr(function, "arguments", None)
+                )
+                if not arguments:
+                    continue
+                try:
+                    candidate = json.loads(arguments)
+                except (TypeError, json.JSONDecodeError):
+                    continue
+                normalised = self._normalise_payload(candidate)
+                if normalised is not None:
+                    return normalised
+        return None
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
@@ -557,7 +673,7 @@ async def main_async(args: argparse.Namespace) -> dict[str, Any]:
     rim_base: RIMConfig = config.rim
 
     def evaluator_factory(rim_cfg: RIMConfig) -> Evaluator:
-        return Evaluator(rim_cfg)
+        return HarnessEvaluator(rim_cfg)
 
     per_run_records: list[dict[str, Any]] = []
     for combo in requested_combos:
