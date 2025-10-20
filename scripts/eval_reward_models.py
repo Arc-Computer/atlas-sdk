@@ -77,6 +77,27 @@ JUDGE_PRESETS: dict[str, dict[str, Any]] = {
         "temperature": 0.2,
         "timeout_seconds": 45.0,
     },
+    "grok-4": {
+        "provider": LLMProvider.XAI,
+        "model": "xai/grok-4",
+        "api_key_env": "XAI_API_KEY",
+        "temperature": 0.2,
+        "timeout_seconds": 60.0,
+    },
+    "gpt-5-mini": {
+        "provider": LLMProvider.OPENAI,
+        "model": "gpt-5-mini",
+        "api_key_env": "OPENAI_API_KEY",
+        "temperature": 0.2,
+        "timeout_seconds": 60.0,
+    },
+    "gpt-5": {
+        "provider": LLMProvider.OPENAI,
+        "model": "gpt-5",
+        "api_key_env": "OPENAI_API_KEY",
+        "temperature": 0.2,
+        "timeout_seconds": 60.0,
+    },
 }
 
 
@@ -93,11 +114,17 @@ JUDGE_COMBOS: dict[str, JudgeCombo] = {
         large_preset="claude-sonnet-4-5-20250929",
         description="Claude Haiku ➜ Claude Sonnet",
     ),
-    "grok_claude": JudgeCombo(
-        identifier="grok_claude",
+    "gpt5_stack": JudgeCombo(
+        identifier="gpt5_stack",
+        small_preset="gpt-5-mini",
+        large_preset="gpt-5",
+        description="GPT-5 Mini ➜ GPT-5",
+    ),
+    "grok_stack": JudgeCombo(
+        identifier="grok_stack",
         small_preset="grok-4-fast",
-        large_preset="claude-sonnet-4-5-20250929",
-        description="Grok 4 Fast ➜ Claude Sonnet",
+        large_preset="grok-4",
+        description="Grok 4 Fast ➜ Grok 4",
     ),
 }
 

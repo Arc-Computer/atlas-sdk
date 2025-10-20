@@ -42,6 +42,24 @@ def test_build_rim_config_applies_presets():
     assert rim_config.large_model.model == "claude-sonnet-4-5-20250929"
 
 
+def test_build_rim_config_handles_new_presets():
+    config = load_config("configs/examples/openai_agent.yaml")
+
+    gpt_combo = JUDGE_COMBOS["gpt5_stack"]
+    gpt_rim = _build_rim_config(config.rim, gpt_combo)
+    assert gpt_rim.small_model.provider.value == "openai"
+    assert gpt_rim.small_model.model == "gpt-5-mini"
+    assert gpt_rim.large_model.provider.value == "openai"
+    assert gpt_rim.large_model.model == "gpt-5"
+
+    grok_combo = JUDGE_COMBOS["grok_stack"]
+    grok_rim = _build_rim_config(config.rim, grok_combo)
+    assert grok_rim.small_model.provider.value == "xai"
+    assert grok_rim.small_model.model == "xai/grok-4-fast"
+    assert grok_rim.large_model.provider.value == "xai"
+    assert grok_rim.large_model.model == "xai/grok-4"
+
+
 class _StubEvaluator:
     def __init__(self) -> None:
         self._calls = 0

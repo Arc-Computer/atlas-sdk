@@ -28,11 +28,12 @@ This evaluation mirrors the probe and runtime sweeps for reward interpreters (RI
 
 ### Judge Candidates
 
-| ID            | Small Judge (provider)          | Large Judge (provider)             | Notes |
-|---------------|---------------------------------|------------------------------------|-------|
-| `gemini_pair` | `gemini/gemini-2.5-flash` (Gemini) | `gemini/gemini-2.5-pro` (Gemini)     | Current default shipped in `openai_agent.yaml`; used as baseline. |
-| `claude_stack`| `claude-haiku-4-5` (Anthropic)  | `claude-sonnet-4-5-20250929` (Anthropic) | Claude-only stack for provider redundancy. |
-| `grok_claude` | `xai/grok-4-fast` (xAI)         | `claude-sonnet-4-5-20250929` (Anthropic) | Fast small judge with stronger arbiter for escalations. |
+| ID            | Small Judge (provider)              | Large Judge (provider)               | Notes |
+|---------------|-------------------------------------|--------------------------------------|-------|
+| `gemini_pair` | `gemini/gemini-2.5-flash` (Gemini)  | `gemini/gemini-2.5-pro` (Gemini)     | Current default shipped in `openai_agent.yaml`; used as baseline. |
+| `claude_stack`| `claude-haiku-4-5` (Anthropic)      | `claude-sonnet-4-5-20250929` (Anthropic) | Claude-only stack for provider redundancy. |
+| `gpt5_stack`  | `gpt-5-mini` (OpenAI)               | `gpt-5` (OpenAI)                     | Evaluates OpenAI’s small/large pairing for parity with runtime options. |
+| `grok_stack`  | `xai/grok-4-fast` (xAI)             | `xai/grok-4` (xAI)                   | Tests xAI’s fast vs. larger Grok judges without cross-provider escalation. |
 
 Add new combinations by extending `JUDGE_PRESETS` and `JUDGE_COMBOS` in `scripts/eval_reward_models.py`; no orchestrator code changes are required.
 
