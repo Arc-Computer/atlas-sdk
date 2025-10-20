@@ -91,6 +91,15 @@ class Student:
         prompt_tokens = _coerce(normalised.get("prompt_tokens"))
         completion_tokens = _coerce(normalised.get("completion_tokens"))
         total_tokens = _coerce(normalised.get("total_tokens"))
+        reasoning_tokens = None
+        details_payload = normalised.get("completion_tokens_details")
+        if isinstance(details_payload, dict):
+            reasoning_tokens = _coerce(details_payload.get("reasoning_tokens"))
+        elif isinstance(details_payload, list) and details_payload:
+            aggregated = sum(_coerce(item.get("reasoning_tokens")) or 0 for item in details_payload if isinstance(item, dict))
+            reasoning_tokens = aggregated if aggregated else None
+        if reasoning_tokens is None:
+            reasoning_tokens = _coerce(normalised.get("reasoning_tokens"))
         if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
             total_tokens = (prompt_tokens or 0) + (completion_tokens or 0)
         if prompt_tokens is None and completion_tokens is None and total_tokens is None:
@@ -98,7 +107,13 @@ class Student:
         context = ExecutionContext.get()
         totals = context.metadata.setdefault(
             "token_usage",
-            {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+            {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "reasoning_tokens": 0,
+                "calls": 0,
+            },
         )
         if prompt_tokens is not None:
             totals["prompt_tokens"] = int(totals.get("prompt_tokens", 0)) + prompt_tokens
@@ -106,11 +121,14 @@ class Student:
             totals["completion_tokens"] = int(totals.get("completion_tokens", 0)) + completion_tokens
         if total_tokens is not None:
             totals["total_tokens"] = int(totals.get("total_tokens", 0)) + total_tokens
+        if reasoning_tokens is not None:
+            totals["reasoning_tokens"] = int(totals.get("reasoning_tokens", 0)) + reasoning_tokens
         totals["calls"] = int(totals.get("calls", 0)) + 1
         return {
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
             "total_tokens": total_tokens,
+            "reasoning_tokens": reasoning_tokens,
         }
 
     def update_prompts(self, student_prompts: RewrittenStudentPrompts) -> None:

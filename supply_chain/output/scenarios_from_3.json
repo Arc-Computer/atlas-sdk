@@ -1,0 +1,1924 @@
+[
+  {
+    "scenario_id": "HUDD-B2S-Q325-0722",
+    "task": "Analyze the inventory for the 'Trailblazer' backpack and recommend whether to execute a 40,000-unit inter-warehouse transfer from Warehouse A (Indianapolis) to Warehouse B (Atlanta). Justify your decision with a cost-benefit analysis.",
+    "context": {
+      "warehouse_a": {
+        "location": "Indianapolis, IN",
+        "utilization": 91.5,
+        "inventory_units": 228750,
+        "capacity_units": 250000
+      },
+      "warehouse_b": {
+        "location": "Atlanta, GA",
+        "utilization": 62.0,
+        "inventory_units": 111600,
+        "capacity_units": 180000
+      },
+      "product": {
+        "sku": "BPK-DLX-GRN-25L",
+        "category": "accessories",
+        "shelf_life_days": null,
+        "unit_cost": 15.5,
+        "description": "Deluxe Trailblazer Backpack, Forest Green, 25L"
+      },
+      "demand": {
+        "forecast_weekly_units": 15000,
+        "actual_trend_pct": -22.0,
+        "seasonality_factor": 2.5
+      },
+      "supplier": {
+        "lead_time_days": 21,
+        "reliability_score": 0.82,
+        "name": "Vietnam Textiles Co."
+      },
+      "costs": {
+        "transport_premium_pct": 15.0,
+        "carrying_cost_daily_per_unit": 0.015,
+        "stockout_penalty_per_unit": 7.0
+      },
+      "seasonal_context": "Q3_back_to_school",
+      "timestamp": "2025-07-22T11:00:00Z",
+      "additional_notes": "\u2022 Open POs: (1) 50,000 units to Warehouse A, currently delayed by 5 days, new ETA is 8 days. Supplier cannot defer or reroute this shipment. (2) 25,000 units to Warehouse B, ETA in 15 days. \u2022 Standard inter-warehouse transfer (A\u2192B) base cost: $0.55 per unit; transit time 2 days. Expedited is 1 day. \u2022 A major retail partner served by Warehouse B has a strict On-Time In-Full (OTIF) policy, with a 15% penalty on the wholesale price ($25) for any units shorted during the critical 4-week period starting next week. \u2022 Warehouse A is experiencing severe labor shortages; any week ending with utilization over 90% results in mandatory overtime, costing an estimated $7,500. \u2022 The marketing department has a planned promotion for the Southeast region starting in 10 days, expected to lift sales from Warehouse B by 20% for two weeks. \u2022 Due to the high volume, a 40,000-unit transfer requires booking two full truckloads. \u2022 Safety stock target is 2.5 weeks of sales during this peak season."
+    },
+    "complexity_score": 8
+  },
+  {
+    "scenario_id": "HUDD-NUT-Q126-0120",
+    "task": "Evaluate the inventory position for 'WheyPRO' protein powder and recommend whether to proceed with a 15,000-unit inter-warehouse transfer from Warehouse A (Seattle) to Warehouse B (Denver). Detail the risks, costs, and benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Seattle, WA",
+        "utilization": 95.0,
+        "inventory_units": 95000,
+        "capacity_units": 100000
+      },
+      "warehouse_b": {
+        "location": "Denver, CO",
+        "utilization": 58.0,
+        "inventory_units": 43500,
+        "capacity_units": 75000
+      },
+      "product": {
+        "sku": "WHEY-PRO-VNL-5LB",
+        "category": "health_supplements",
+        "shelf_life_days": 365,
+        "unit_cost": 28.0,
+        "description": "WheyPRO Protein Powder, Vanilla, 5lb Tub"
+      },
+      "demand": {
+        "forecast_weekly_units": 6000,
+        "actual_trend_pct": -12.0,
+        "seasonality_factor": 1.5
+      },
+      "supplier": {
+        "lead_time_days": 10,
+        "reliability_score": 0.98,
+        "name": "NutriFormulators USA"
+      },
+      "costs": {
+        "transport_premium_pct": 18.0,
+        "carrying_cost_daily_per_unit": 0.025,
+        "stockout_penalty_per_unit": 12.0
+      },
+      "seasonal_context": "Q1_new_year_wellness",
+      "timestamp": "2026-01-20T14:00:00Z",
+      "additional_notes": "\u2022 The overstock in Warehouse A is the result of a large, one-time purchase to meet a supplier's MOQ for a 10% price discount. No further POs are planned for 6 weeks. \u2022 Inventory must be sold at least 90 days before its expiration date. The current stock expires in 280 days. Unsold expired product incurs a disposal fee of $2.50 per unit. \u2022 The congestion at Warehouse A is blocking inbound receiving for other fast-moving wellness products, creating a backlog. Management has mandated that 15,000 units of *something* must be moved out of A within 10 days. \u2022 Standard inter-warehouse transfer (A\u2192B) base cost: $0.90 per unit; transit time 3 days. \u2022 Warehouse B (Denver) requires a specific high-altitude pressure seal check on all food products, which adds a $0.05 per-unit handling cost and a 4-hour processing delay for transferred goods. \u2022 A regional competitor in the Mountain West region is experiencing stockouts, creating a short-term opportunity for market share gain if inventory is available at B. \u2022 Service level target is 98% for this product category."
+    },
+    "complexity_score": 8
+  },
+  {
+    "scenario_id": "HUDD-ODG-Q225-0428",
+    "task": "Analyze the critical inventory of 'Ember' portable grills and recommend whether to initiate a 5,000-unit transfer from Warehouse A (Jacksonville) to Warehouse B (Philadelphia). Quantify the rationale behind your decision, focusing on supply uncertainty.",
+    "context": {
+      "warehouse_a": {
+        "location": "Jacksonville, FL",
+        "utilization": 93.0,
+        "inventory_units": 46500,
+        "capacity_units": 50000
+      },
+      "warehouse_b": {
+        "location": "Philadelphia, PA",
+        "utilization": 65.0,
+        "inventory_units": 29250,
+        "capacity_units": 45000
+      },
+      "product": {
+        "sku": "GRILL-PTBL-RED-LP",
+        "category": "outdoor_goods",
+        "shelf_life_days": null,
+        "unit_cost": 45.0,
+        "description": "Ember Portable Propane Grill, Red"
+      },
+      "demand": {
+        "forecast_weekly_units": 2500,
+        "actual_trend_pct": -25.0,
+        "seasonality_factor": 1.8
+      },
+      "supplier": {
+        "lead_time_days": 90,
+        "reliability_score": 0.75,
+        "name": "Global Metalworks"
+      },
+      "costs": {
+        "transport_premium_pct": 12.0,
+        "carrying_cost_daily_per_unit": 0.03,
+        "stockout_penalty_per_unit": 25.0
+      },
+      "seasonal_context": "Q2_outdoor_living",
+      "timestamp": "2025-04-28T07:30:00Z",
+      "additional_notes": "\u2022 The primary supplier, Global Metalworks, suffered a major factory fire two weeks ago. All future POs are on hold indefinitely. The current network inventory is all that is available for the entire peak season. \u2022 The demand trend is negative due to an unseasonably cold and wet spring in the Northeast, but long-range weather forecasts predict a heatwave in 2-3 weeks. \u2022 Warehouse A is a port-adjacent facility and is under pressure to clear space for incoming summer seasonal goods (patio furniture), which are arriving in 12 days. Yard and dock congestion at A triggers $8,000/week in extra operational costs above 90% utilization. \u2022 Standard inter-warehouse transfer (A\u2192B) base cost: $1.20 per unit due to dimensional weight; transit time 3 days. \u2022 A 5,000-unit transfer is considered a multi-truck shipment and requires a 48-hour booking lead time with carriers, limiting the effectiveness of 'expedited' options. \u2022 Warehouse B serves key home improvement retail channels in the Northeast that are highly sensitive to stockouts on seasonal items and may de-list the product for next year if service is poor. \u2022 Current on-hand inventory network-wide is 75,750 units."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "psr_2025_10_15_ggf_saladkit",
+    "task": "Analyze the current inventory situation and recommend whether to expedite the pending purchase order to reduce lead time from 10 to 7 days (incurring a 19.0% transport premium). Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Riverside, CA",
+        "utilization": 72.0,
+        "inventory_units": 3600,
+        "capacity_units": 5000
+      },
+      "warehouse_b": {
+        "location": "Columbus, OH",
+        "utilization": 65.0,
+        "inventory_units": 2470,
+        "capacity_units": 3800
+      },
+      "product": {
+        "sku": "PF-OG-SALADKIT-10OZ",
+        "category": "perishable_food",
+        "shelf_life_days": 14,
+        "unit_cost": 2.35,
+        "description": "Chilled Organic Caesar Salad Kit 10oz (Romaine + Dressing)"
+      },
+      "demand": {
+        "forecast_weekly_units": 8400,
+        "actual_trend_pct": 28.0,
+        "seasonality_factor": 1.27
+      },
+      "supplier": {
+        "lead_time_days": 10,
+        "reliability_score": 0.86,
+        "name": "GreenGrove Foods"
+      },
+      "costs": {
+        "transport_premium_pct": 19.0,
+        "carrying_cost_daily_per_unit": 0.022,
+        "stockout_penalty_per_unit": 3.2
+      },
+      "seasonal_context": "Q4_holiday_peak",
+      "timestamp": "2025-10-15T08:00:00Z",
+      "additional_notes": "Operational notes and constraints: \n- Demand mix: ~60% Midwest, 40% West. Midwest retailer promo starts in 5 days (Thursday) for 10 days. \n- On-hand age (FEFO): \n  - Riverside (3,600 units): 900 units have 4 days remaining; 1,700 units have 7 days remaining; 1,000 units have 10 days remaining. \n  - Columbus (2,470 units): 650 units have 3 days remaining; 1,100 units have 5 days remaining; 720 units have 9 days remaining. \n- Store acceptance rule: must ship product with \u22655 days remaining at DC ship time for promo stores; non-promo stores accept \u22653 days. \n- Open PO: GG-11753 for 8,500 units. Standard arrival ETA: 2025-10-25 (10 days from now). Expedite option reduces arrival to 2025-10-22 (7 days from now). Supplier minimum expedite split: 3,000 units; remaining can stay standard. Supplier guarantees minimum remaining shelf life on arrival (MRSL): 11 days for both modes (product packed after PO release just before shipment). \n- Logistics costs: standard refrigerated linehaul ~ $0.85/unit. Expedite adds 19% to transport cost on expedited quantity only. \n- DC-to-DC transfer (Riverside \u2192 Columbus): 2 days door-to-door, cost ~$0.16/unit, expected additional shrink 1.2% from handling. Transfer units lose 2 days of remaining shelf life while in transit. \n- Capacity: Riverside cooler slot capacity at 72% utilization; Columbus at 65%. Both DCs can receive up to 2 inbound POs/day. Overtime receiving for an expedited load requires pre-approval and incurs ~$1,200 per load (not in the cost table). \n- Service target: 97% fill rate for promo stores, 95% for non-promo. \n- Reserved/constraints: eCommerce allocation holds 300 units at Riverside and 150 units at Columbus (cannot be reassigned). Quality hold at Riverside: 120 units pending inspection (expected release in 24 hours). \n- Expiry/markdown: expired write-off cost approximates unit_cost ($2.35) + disposal $0.05; markdown salvage before expiry typically recovers ~$0.50/unit if sold 1\u20132 days before expiry (limited slots). \n- Risk: supplier on-time-in-full variability \u00b11 day has occurred in 2 of the last 10 deliveries; winter weather risk is low this week but increases next week. \n- Retailer penalties: promo short-ships can trigger a $500 per DC per day fee if fill rate <90% for that retailer in the Midwest."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "psr_2025_05_20_ffp_sausage",
+    "task": "Analyze the current inventory situation for Premium Pork Sausages and recommend whether to expedite the pending purchase order to reduce lead time from 8 to 5 days (incurring a 15.0% transport premium). Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Atlanta, GA",
+        "utilization": 75.0,
+        "inventory_units": 4500,
+        "capacity_units": 6000
+      },
+      "warehouse_b": {
+        "location": "Dallas, TX",
+        "utilization": 58.2,
+        "inventory_units": 3200,
+        "capacity_units": 5500
+      },
+      "product": {
+        "sku": "PF-PM-SAUSAGE-16OZ",
+        "category": "perishable_meat",
+        "shelf_life_days": 21,
+        "unit_cost": 4.1,
+        "description": "Premium Pork Sausages for Grilling 16oz"
+      },
+      "demand": {
+        "forecast_weekly_units": 11500,
+        "actual_trend_pct": 35.0,
+        "seasonality_factor": 1.45
+      },
+      "supplier": {
+        "lead_time_days": 8,
+        "reliability_score": 0.82,
+        "name": "FarmFresh Provisions"
+      },
+      "costs": {
+        "transport_premium_pct": 15.0,
+        "carrying_cost_daily_per_unit": 0.035,
+        "stockout_penalty_per_unit": 5.5
+      },
+      "seasonal_context": "Q2_summer_bbq_season",
+      "timestamp": "2025-05-20T09:00:00Z",
+      "additional_notes": "Operational notes and constraints: \n- Demand mix: ~55% Southeast, 45% Southwest. Major regional sporting event (The Southern Cup) begins in 4 days, driving significant retail traffic for 7 days. \n- On-hand age (FEFO): \n  - Atlanta (4,500 units): 1,200 units have 5 days remaining; 2,300 units have 8 days remaining; 1,000 units have 12 days remaining. \n  - Dallas (3,200 units): 800 units have 4 days remaining; 1,500 units have 7 days remaining; 900 units have 11 days remaining. \n- Store acceptance rule: must ship product with \u22657 days remaining shelf life at DC ship time for all major retailers in the event area. Other stores accept \u22654 days. \n- Open PO: FFP-22981 for 12,000 units. Standard arrival ETA: 2025-05-28 (8 days). Expedite option reduces arrival to 2025-05-25 (5 days). Supplier can expedite the entire order. \n- Logistics costs: standard refrigerated LTL ~ $1.10/unit. Expedite adds 15% to transport cost. \n- DC-to-DC transfer (Atlanta \u2192 Dallas): 1.5 days door-to-door, cost ~$0.25/unit, expected additional shrink 1.0% from handling. Transfer units lose 2 days of shelf life. \n- Capacity: Both DCs have ample cooler capacity. However, Dallas receiving is short-staffed this week; an expedited load would require $1,500 in overtime pay. \n- Service target: 98% fill rate for retailers in the event area. \n- Reserved/constraints: 400 units at Atlanta are reserved for a specialty restaurant client and cannot be reallocated. \n- Expiry/markdown: expired write-off cost is unit_cost ($4.10) + $0.10 disposal fee. No established markdown program for this product; it is a total loss. \n- Risk: Supplier FFP has a history of +/- 2 day delivery variance due to carrier availability in their rural location. Weather risk is minimal."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "psr_2026_01_28_ady_yogurt",
+    "task": "Analyze the inventory for Artisanal Greek Yogurt and recommend whether to expedite the pending purchase order to reduce lead time from 9 to 6 days (incurring a 22.0% transport premium). Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Allentown, PA",
+        "utilization": 73.3,
+        "inventory_units": 8800,
+        "capacity_units": 12000
+      },
+      "warehouse_b": {
+        "location": "Jessup, MD",
+        "utilization": 72.2,
+        "inventory_units": 6500,
+        "capacity_units": 9000
+      },
+      "product": {
+        "sku": "PF-DY-YOGURT-6OZ",
+        "category": "perishable_dairy",
+        "shelf_life_days": 35,
+        "unit_cost": 1.85,
+        "description": "Artisanal Greek Yogurt, Strawberry Rose 6oz"
+      },
+      "demand": {
+        "forecast_weekly_units": 15000,
+        "actual_trend_pct": 15.0,
+        "seasonality_factor": 1.8
+      },
+      "supplier": {
+        "lead_time_days": 9,
+        "reliability_score": 0.92,
+        "name": "Artisan Dairy Co."
+      },
+      "costs": {
+        "transport_premium_pct": 22.0,
+        "carrying_cost_daily_per_unit": 0.015,
+        "stockout_penalty_per_unit": 2.5
+      },
+      "seasonal_context": "Q1_valentines_day_demand",
+      "timestamp": "2026-01-28T11:00:00Z",
+      "additional_notes": "Operational notes and constraints: \n- Demand mix: 65% Northeast, 35% Mid-Atlantic. A major retailer is running a 'Dessert for Two' promotion starting Feb 5th, featuring this yogurt. \n- On-hand age (FEFO): \n  - Allentown (8,800 units): 3,000 units have 10 days remaining; 4,000 units have 16 days remaining; 1,800 units have 22 days remaining. \n  - Jessup (6,500 units): 2,500 units have 9 days remaining; 2,500 units have 15 days remaining; 1,500 units have 21 days remaining. \n- Store acceptance rule: Promo stores require product to have a 'Best By' date after Feb 20th (i.e., >23 days remaining shelf life at time of analysis). Non-promo stores accept \u226510 days. \n- Open PO: ADC-4415 for 16,000 units. Standard arrival ETA: 2026-02-06 (9 days). Expedite option reduces arrival to 2026-02-03 (6 days). Supplier guarantees MRSL of 30 days on arrival. \n- Logistics costs: standard refrigerated transport ~ $0.65/unit. Expedite premium of 22% is high due to potential for winter weather delays in the region. \n- DC-to-DC transfer (Allentown \u2192 Jessup): 1 day transit, cost ~$0.12/unit, minimal shrink. Transfer units lose 1 day of shelf life. \n- Capacity: Both DCs are nearing capacity, but can manage one more inbound load before requiring overflow storage at a 3PL (cost of $500/day). \n- Service target: 99% fill rate for the promo is contractually required. \n- Reserved/constraints: A quality hold of 500 units in Allentown is pending lab results on a new flavor batch; release is uncertain (2-4 days). \n- Expiry/markdown: Expired product is a full write-off. Retailer contract includes a 'freshness credit' clause, charging back $0.25/unit for any product shipped with less than 15 days remaining shelf life. \n- Risk: While the supplier is reliable, the carrier they use has a 15% chance of a 1-day weather-related delay in this corridor during late January/early February."
+    },
+    "complexity_score": 10
+  },
+  {
+    "scenario_id": "psr_2025_08_12_cpj_juice",
+    "task": "Analyze the inventory for Cold-Pressed Green Juice and recommend whether to expedite the pending purchase order to reduce lead time from 5 to 3 days (incurring a 25.0% transport premium). Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Chicago, IL",
+        "utilization": 60.0,
+        "inventory_units": 1800,
+        "capacity_units": 3000
+      },
+      "warehouse_b": {
+        "location": "Denver, CO",
+        "utilization": 52.3,
+        "inventory_units": 1150,
+        "capacity_units": 2200
+      },
+      "product": {
+        "sku": "PF-BV-JUICE-12OZ",
+        "category": "perishable_beverage",
+        "shelf_life_days": 10,
+        "unit_cost": 3.75,
+        "description": "Cold-Pressed Organic Green Juice 12oz"
+      },
+      "demand": {
+        "forecast_weekly_units": 4000,
+        "actual_trend_pct": 45.0,
+        "seasonality_factor": 1.15
+      },
+      "supplier": {
+        "lead_time_days": 5,
+        "reliability_score": 0.88,
+        "name": "ColdPress Juicery"
+      },
+      "costs": {
+        "transport_premium_pct": 25.0,
+        "carrying_cost_daily_per_unit": 0.04,
+        "stockout_penalty_per_unit": 4.5
+      },
+      "seasonal_context": "Q3_back_to_school",
+      "timestamp": "2025-08-12T07:00:00Z",
+      "additional_notes": "Operational notes and constraints: \n- Demand mix: ~70% Midwest, 30% Mountain West. A 'Healthy Habits' marketing campaign starts next Monday (in 6 days). \n- On-hand age (FEFO): \n  - Chicago (1,800 units): 800 units have 2 days remaining; 1,000 units have 4 days remaining. \n  - Denver (1,150 units): 550 units have 3 days remaining; 600 units have 5 days remaining. \n- Store acceptance rule: Retailers require a minimum of 4 days shelf life remaining upon DC departure. Anything less is rejected. \n- Open PO: CPJ-8832 for 4,500 units. Standard arrival ETA: 2025-08-17 (5 days). Expedite option (air freight) reduces arrival to 2025-08-15 (3 days). Supplier can expedite in minimums of 1,000 units. MRSL on arrival is 8 days. \n- Logistics costs: standard refrigerated transport ~ $0.90/unit. Expedite air freight adds 25% to this cost. \n- DC-to-DC transfer (Chicago \u2192 Denver): 2 days transit. This is considered extremely risky for this product, as it would arrive with only 1-2 days of usable life after accounting for picking/packing time. Not a recommended option. \n- Capacity: Chilled capacity is not a concern at either DC. \n- Service target: Maintain a 96% fill rate to avoid losing premium shelf placement to a competitor who is launching a similar product. \n- Reserved/constraints: Online subscription orders have reserved 200 units in Chicago and 100 in Denver for shipment in the next 48 hours. \n- Expiry/markdown: Product is a total loss upon expiry (cost $3.75 + $0.05 disposal). There is no secondary market or markdown opportunity. \n- Risk: The supplier's production process is sensitive; they have had to cut orders by 10-15% with 24-hour notice twice in the last year due to ingredient quality issues. The 45% demand trend is based on only two weeks of data and may not be stable."
+    },
+    "complexity_score": 10
+  },
+  {
+    "scenario_id": "psr_2025_05_15_bbn_brioche",
+    "task": "Analyze the inventory for Gourmet Brioche Buns and recommend whether to expedite the pending purchase order to reduce lead time from 7 to 5 days (incurring an 18.0% transport premium). Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Seattle, WA",
+        "utilization": 60.0,
+        "inventory_units": 2100,
+        "capacity_units": 3500
+      },
+      "warehouse_b": {
+        "location": "Phoenix, AZ",
+        "utilization": 68.8,
+        "inventory_units": 3300,
+        "capacity_units": 4800
+      },
+      "product": {
+        "sku": "PF-BK-BRIOCHE-8CT",
+        "category": "perishable_bakery",
+        "shelf_life_days": 12,
+        "unit_cost": 2.95,
+        "description": "Gourmet Brioche Buns 8-count"
+      },
+      "demand": {
+        "forecast_weekly_units": 7500,
+        "actual_trend_pct": 25.0,
+        "seasonality_factor": 1.6
+      },
+      "supplier": {
+        "lead_time_days": 7,
+        "reliability_score": 0.95,
+        "name": "Bayside Bakery Network"
+      },
+      "costs": {
+        "transport_premium_pct": 18.0,
+        "carrying_cost_daily_per_unit": 0.025,
+        "stockout_penalty_per_unit": 3.5
+      },
+      "seasonal_context": "Q2_memorial_day_kickoff",
+      "timestamp": "2025-05-15T10:00:00Z",
+      "additional_notes": "Operational notes and constraints: \n- Demand mix: ~40% Pacific Northwest, ~60% Southwest. Demand surge expected for the Memorial Day holiday weekend, which begins in 8 days. \n- On-hand age (FEFO): \n  - Seattle (2,100 units): 600 units have 3 days remaining; 900 units have 5 days remaining; 600 units have 7 days remaining. \n  - Phoenix (3,300 units): 1,300 units have 4 days remaining; 1,100 units have 6 days remaining; 900 units have 8 days remaining. \n- Store acceptance rule: Must ship with \u22655 days remaining shelf life. \n- Open PO: BBN-5138 for 9,000 units. Standard arrival ETA: 2025-05-22 (7 days). Expedite option reduces arrival to 2025-05-20 (5 days). Supplier has a daily expedite capacity limit of 4,000 units; the rest of the PO would have to come on the standard lead time. MRSL on arrival is 10 days. \n- Logistics costs: standard refrigerated transport ~ $0.75/unit. Expedite adds 18% to the transport cost. \n- DC-to-DC transfer (Seattle \u2194 Phoenix): 3 days transit, cost ~$0.45/unit. Transfer is possible but costly and consumes significant shelf life. \n- Capacity: Both DCs have adequate space. \n- Service target: 97% fill rate. \n- Reserved/constraints: None. \n- Expiry/markdown: Product with 1-2 days remaining can be sold to a liquidator for $0.75/unit. Expired product is a full write-off ($2.95 unit cost). Retailer contract includes a markdown allowance penalty if more than 5% of a DC's weekly shipments have less than 7 days of shelf life remaining. \n- Risk: Bayside Bakery is very reliable on timing (95% on-time) but has a known issue with order quantity variance, with shipments frequently arriving 5-10% short of the PO quantity due to production line rejects. This is not communicated until the truck is loaded."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "MWR-2025-10-15-001",
+    "task": "Analyze the current inventory situation and recommend whether to initiate inter-warehouse transfers to rebalance stock across Chicago, Newark, and Los Angeles (or hold positions and await inbound POs). Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Chicago, IL",
+        "utilization": 72.0,
+        "inventory_units": 43200,
+        "capacity_units": 60000
+      },
+      "warehouse_b": {
+        "location": "Newark, NJ",
+        "utilization": 85.0,
+        "inventory_units": 34000,
+        "capacity_units": 40000
+      },
+      "warehouse_c": {
+        "location": "Los Angeles, CA",
+        "utilization": 50.0,
+        "inventory_units": 27500,
+        "capacity_units": 55000
+      },
+      "product": {
+        "sku": "FP-SALADKIT-12OZ",
+        "category": "perishable_food",
+        "shelf_life_days": 21,
+        "unit_cost": 6.8,
+        "description": "12oz refrigerated salad kit, mixed greens with dressing, case-packed"
+      },
+      "demand": {
+        "forecast_weekly_units": 37000,
+        "actual_trend_pct": -12.0,
+        "seasonality_factor": 0.92
+      },
+      "supplier": {
+        "lead_time_days": 14,
+        "reliability_score": 0.78,
+        "name": "GreenHarvest Farms Cooperative"
+      },
+      "costs": {
+        "transport_premium_pct": 18.5,
+        "carrying_cost_daily_per_unit": 0.06,
+        "stockout_penalty_per_unit": 11.5
+      },
+      "seasonal_context": "winter_weather_disruption",
+      "timestamp": "2025-10-15T08:00:00Z",
+      "additional_notes": "Active cold chain (2\u20138\u00b0C) required for all moves. Palletization: 60 units/pallet. Standard interfacility linehaul rates (reefer) per pallet: CHI\u2194EWR $120, LAX\u2194CHI $180, LAX\u2194EWR $290. Standard transfer lead times (business days): CHI\u2192EWR 2, EWR\u2192CHI 2, LAX\u2192CHI 3, LAX\u2192EWR 4. Expedited service limited to 12 pallets/day network-wide and priced at transport_premium_pct above listed rates. Handling cost for inter-DC transfer: $0.22 per unit (load/unload). Age profile by days remaining to expiry (units): CHI {0\u20137: 12000, 8\u201314: 15600, 15\u201321: 15600}; EWR {0\u20137: 8500, 8\u201314: 12240, 15\u201321: 13260}; LAX {0\u20137: 9900, 8\u201314: 10300, 15\u201321: 7300}. Regional weekly demand allocation (units): Northeast 16000, Midwest 11000, West 10000. Newark has a temporary dock constraint (max 18 inbound/outbound pallets per day for next 3 days) due to ice; exceeding 85% utilization triggers overtime picking at +$0.12/unit processed. Two open purchase orders are in transit: PO#11754 \u2192 CHI 18000 units ETA 2025-10-21 (weather-risk: moderate), PO#11802 \u2192 LAX 12000 units ETA 2025-10-24 (weather-risk: high). Carrier blackouts on LAX\u2192EWR lane until 2025-10-18 for standard service; expedite slots available but capped at 6 pallets/day on that lane. Target service level 97% fill rate. Stockout penalties reflect lost margin and retailer chargebacks."
+    },
+    "complexity_score": 10
+  },
+  {
+    "scenario_id": "MWR-2026-08-05-002",
+    "task": "Analyze the current inventory situation and recommend whether to initiate inter-warehouse transfers to rebalance stock across Atlanta, Dallas, and Seattle (or hold positions and await inbound POs). Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Atlanta, GA",
+        "utilization": 65.0,
+        "inventory_units": 52000,
+        "capacity_units": 80000
+      },
+      "warehouse_b": {
+        "location": "Dallas, TX",
+        "utilization": 92.0,
+        "inventory_units": 69000,
+        "capacity_units": 75000
+      },
+      "warehouse_c": {
+        "location": "Seattle, WA",
+        "utilization": 40.0,
+        "inventory_units": 22000,
+        "capacity_units": 55000
+      },
+      "product": {
+        "sku": "AUD-SPKR-V4",
+        "category": "consumer_electronics",
+        "shelf_life_days": null,
+        "unit_cost": 115.0,
+        "description": "Voice-activated smart speaker, 4th generation"
+      },
+      "demand": {
+        "forecast_weekly_units": 45000,
+        "actual_trend_pct": 8.5,
+        "seasonality_factor": 1.45
+      },
+      "supplier": {
+        "lead_time_days": 25,
+        "reliability_score": 0.72,
+        "name": "Innovatech Electronics"
+      },
+      "costs": {
+        "transport_premium_pct": 25.0,
+        "carrying_cost_daily_per_unit": 0.08,
+        "stockout_penalty_per_unit": 150.0
+      },
+      "seasonal_context": "pre_holiday_peak_season",
+      "timestamp": "2026-08-05T10:00:00Z",
+      "additional_notes": "Palletization: 40 units/pallet. Standard interfacility linehaul rates (dry van) per pallet: ATL\u2194DFW $150, DFW\u2194SEA $240, ATL\u2194SEA $350. Standard transfer lead times (business days): ATL\u2192DFW 2, DFW\u2192SEA 3, ATL\u2192SEA 4. Dallas warehouse triggers labor overtime at +$0.15/unit for all units handled above 90% utilization. Regional weekly demand allocation (units): Southeast 18000, South Central 17000, Pacific NW 10000. Air freight is available for expedite but costs $4.50/unit and is limited to 5 pallets per day per lane. An open purchase order PO#78112 for 30000 units is en route to Seattle, but its ETA of 2026-08-20 is at high risk of a 7-day delay due to customs clearance backlogs. Target service level 98% fill rate. Stockout penalties reflect lost sales and impact on retailer relationships during a critical sales period."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "MWR-2025-09-20-003",
+    "task": "Analyze the current inventory situation and recommend whether to initiate inter-warehouse transfers to rebalance stock across Miami, Houston, and Memphis (or hold positions and await inbound POs). Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Miami, FL",
+        "utilization": 88.0,
+        "inventory_units": 26400,
+        "capacity_units": 30000
+      },
+      "warehouse_b": {
+        "location": "Houston, TX",
+        "utilization": 55.0,
+        "inventory_units": 19250,
+        "capacity_units": 35000
+      },
+      "warehouse_c": {
+        "location": "Memphis, TN",
+        "utilization": 70.0,
+        "inventory_units": 42000,
+        "capacity_units": 60000
+      },
+      "product": {
+        "sku": "VAC-FLU-TETRA-2ML",
+        "category": "pharmaceutical",
+        "shelf_life_days": 90,
+        "unit_cost": 85.5,
+        "description": "2mL pre-filled syringe, tetravalent influenza vaccine"
+      },
+      "demand": {
+        "forecast_weekly_units": 28000,
+        "actual_trend_pct": 2.0,
+        "seasonality_factor": 1.8
+      },
+      "supplier": {
+        "lead_time_days": 7,
+        "reliability_score": 0.98,
+        "name": "BioGenix Labs"
+      },
+      "costs": {
+        "transport_premium_pct": 30.0,
+        "carrying_cost_daily_per_unit": 0.15,
+        "stockout_penalty_per_unit": 225.0
+      },
+      "seasonal_context": "hurricane_season_disruption",
+      "timestamp": "2025-09-20T11:00:00Z",
+      "additional_notes": "Strict cold chain (2\u20138\u00b0C) required. Palletization: 120 units/pallet. Standard interfacility linehaul rates (validated reefer) per pallet: MIA\u2194MEM $190, HOU\u2194MEM $160, MIA\u2194HOU $210. Standard transfer lead times (business days): MIA\u2192MEM 2, HOU\u2192MEM 1, MIA\u2192HOU 2. A Category 3 hurricane is forecast to make landfall near Miami within 72 hours, posing a high risk of facility closure for 3-5 days. Reefer truck capacity is constrained region-wide due to pre-storm positioning of relief supplies. Age profile by days remaining to expiry (units): MIA {0\u201330: 8000, 31\u201360: 9400, 61\u201390: 9000}; HOU {0\u201330: 3000, 31\u201360: 7250, 61\u201390: 9000}; MEM {0\u201330: 5000, 31\u201360: 15000, 61\u201390: 22000}. Regional weekly demand allocation (units): Southeast 12000, Gulf Coast 9000, Central 7000. An inbound PO#V9980 for 15000 units to Houston is on schedule for 2025-09-24, but the route passes through the storm's potential impact zone. Target service level 99.5% fill rate."
+    },
+    "complexity_score": 10
+  },
+  {
+    "scenario_id": "MWR-2026-07-15-004",
+    "task": "Analyze the current inventory situation and recommend whether to initiate inter-warehouse transfers to rebalance stock across Denver, Phoenix, and Kansas City (or hold positions and await inbound POs). Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Denver, CO",
+        "utilization": 50.0,
+        "inventory_units": 45000,
+        "capacity_units": 90000
+      },
+      "warehouse_b": {
+        "location": "Phoenix, AZ",
+        "utilization": 62.5,
+        "inventory_units": 50000,
+        "capacity_units": 80000
+      },
+      "warehouse_c": {
+        "location": "Kansas City, MO",
+        "utilization": 85.0,
+        "inventory_units": 102000,
+        "capacity_units": 120000
+      },
+      "product": {
+        "sku": "DNM-STRGHT-M-3232",
+        "category": "apparel",
+        "shelf_life_days": null,
+        "unit_cost": 22.5,
+        "description": "Men's straight-fit denim jeans, size 32x32"
+      },
+      "demand": {
+        "forecast_weekly_units": 60000,
+        "actual_trend_pct": 15.0,
+        "seasonality_factor": 1.9
+      },
+      "supplier": {
+        "lead_time_days": 30,
+        "reliability_score": 0.85,
+        "name": "Global Textile Imports"
+      },
+      "costs": {
+        "transport_premium_pct": 15.0,
+        "carrying_cost_daily_per_unit": 0.02,
+        "stockout_penalty_per_unit": 18.0
+      },
+      "seasonal_context": "back_to_school_rush",
+      "timestamp": "2026-07-15T09:00:00Z",
+      "additional_notes": "Palletization: 200 units/pallet. Standard interfacility linehaul rates (dry van) per pallet: DEN\u2194PHX $130, PHX\u2194KC $190, DEN\u2194KC $110. All rates are subject to a temporary 15% fuel surcharge. Standard transfer lead times (business days): DEN\u2192PHX 1, PHX\u2192KC 2, DEN\u2192KC 1. The Phoenix facility is under a 'heat protocol', reducing outbound processing speed by 20% and adding a $0.05 per unit handling surcharge. The inventory in Kansas City consists of 40% prior-season styles, which have a 50% lower sell-through rate in target markets (Denver, Phoenix). Regional weekly demand allocation (units): Mountain West 25000, Southwest 22000, Midwest 13000. Two open POs for the new season's styles are in transit: PO#A4510 \u2192 DEN 30000 units ETA 2026-07-25 (on time), PO#A4511 \u2192 PHX 30000 units ETA 2026-07-28 (low risk of delay). The key decision is whether to move old stock from KC to meet surging demand or wait for new stock to arrive, risking stockouts."
+    },
+    "complexity_score": 8
+  },
+  {
+    "scenario_id": "MWR-2025-11-01-005",
+    "task": "Analyze the current inventory situation and recommend whether to initiate inter-warehouse transfers to rebalance stock across Oakland, Salt Lake City, and Indianapolis (or hold positions and await inbound POs). Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Oakland, CA",
+        "utilization": 75.0,
+        "inventory_units": 9000,
+        "capacity_units": 12000
+      },
+      "warehouse_b": {
+        "location": "Salt Lake City, UT",
+        "utilization": 80.0,
+        "inventory_units": 16000,
+        "capacity_units": 20000
+      },
+      "warehouse_c": {
+        "location": "Indianapolis, IN",
+        "utilization": 30.0,
+        "inventory_units": 4500,
+        "capacity_units": 15000
+      },
+      "product": {
+        "sku": "HYD-PUMP-700C",
+        "category": "industrial_parts",
+        "shelf_life_days": null,
+        "unit_cost": 850.0,
+        "description": "High-pressure hydraulic pump for heavy machinery"
+      },
+      "demand": {
+        "forecast_weekly_units": 5000,
+        "actual_trend_pct": -5.0,
+        "seasonality_factor": 1.05
+      },
+      "supplier": {
+        "lead_time_days": 45,
+        "reliability_score": 0.65,
+        "name": "Precision Mechanics GmbH"
+      },
+      "costs": {
+        "transport_premium_pct": 20.0,
+        "carrying_cost_daily_per_unit": 0.4,
+        "stockout_penalty_per_unit": 4500.0
+      },
+      "seasonal_context": "west_coast_port_congestion",
+      "timestamp": "2025-11-01T14:00:00Z",
+      "additional_notes": "Palletization: 10 units/pallet. Standard interfacility rates (LTL/FTL) per pallet: OAK\u2194SLC $200, SLC\u2194IND $310, OAK\u2194IND $480. Standard transfer lead times (business days): OAK\u2192SLC 2, SLC\u2192IND 3, OAK\u2192IND 5. Intermodal rail is an option from OAK/SLC to IND, taking 7 business days but costing 25% less than road freight. Regional weekly demand allocation (units): West Coast 1800, Mountain 1200, Midwest/East 2000. An inbound PO#MEC-934 for 10000 units destined for Oakland is stuck at the port with an indeterminate delay, currently estimated at 15-20 days beyond its original ETA of 2025-10-28. The stockout penalty reflects the cost of shutting down a customer's production line. Indianapolis is facing a critical stockout within 3 weeks. Salt Lake City's inventory is committed to regional customers but could be reallocated if the penalty is severe enough. Target service level 99.8% due to criticality of parts."
+    },
+    "complexity_score": 10
+  },
+  {
+    "scenario_id": "scn_2025-10-15_q4_peak_ceiling_01",
+    "task": "Analyze the current inventory situation and recommend whether to divert the Oct 19 and Oct 22 inbound POs (total 40,000 units) for Warehouse B to overflow 3PL storage near Edison, or receive them in-house and manage with inter-DC transfers/expedited shipping. Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Dallas, TX",
+        "utilization": 72.0,
+        "inventory_units": 86400,
+        "capacity_units": 120000
+      },
+      "warehouse_b": {
+        "location": "Edison, NJ",
+        "utilization": 89.0,
+        "inventory_units": 80100,
+        "capacity_units": 90000
+      },
+      "product": {
+        "sku": "WH-STRM4K-HB25",
+        "category": "consumer_electronics",
+        "shelf_life_days": 365,
+        "unit_cost": 49.0,
+        "description": "WaveHome Stream 4K holiday bundle (streaming device + voice remote)"
+      },
+      "demand": {
+        "forecast_weekly_units": 50000,
+        "actual_trend_pct": 16.0,
+        "seasonality_factor": 1.4
+      },
+      "supplier": {
+        "lead_time_days": 14,
+        "reliability_score": 0.86,
+        "name": "DeltaWave Electronics (Juarez, MX)"
+      },
+      "costs": {
+        "transport_premium_pct": 18.0,
+        "carrying_cost_daily_per_unit": 0.03,
+        "stockout_penalty_per_unit": 24.0
+      },
+      "seasonal_context": "Q4_holiday_peak",
+      "timestamp": "2025-10-15T08:00:00Z",
+      "additional_notes": "Capacity policy: Target <90% utilization; hard ceiling 95% due to safety/fire code. Regional demand split this month: 58% East (Edison), 42% Central/West (Dallas). Inter-DC transfer: $0.40/unit, 2 days Dallas\u2192Edison, 3 days Edison\u2192Dallas. Base inbound freight: $1.10/unit Juarez\u2192Dallas, $1.35/unit Juarez\u2192Edison. Expedite option (capacity-limited to 18,000 units this week): reduce lead time from 14 to 10 days at +18% transport premium. Open POs for this SKU: PO#78421 \u2192 Dallas ETA 2025-10-18 14:00 (28,000 units); PO#78422 \u2192 Edison ETA 2025-10-19 09:00 (22,000 units); PO#78433 \u2192 Edison ETA 2025-10-22 13:00 (18,000 units); PO#78435 \u2192 Dallas ETA 2025-10-23 10:00 (20,000 units). Overflow 3PL options: (1) Carteret, NJ (8 miles from Edison): up to 40,000 units available this month; storage $0.52/unit/week; in/out handling $0.18/$0.15 per unit; WMS integration live, 1\u20132 day retrieval to Edison (daily cutoff 10:30 AM). (2) Grand Prairie, TX (27 miles from Dallas): up to 25,000 units; storage $0.45/unit/week; in/out handling $0.16/$0.14 per unit; 24-hour retrieval. Labor: Outbound capacity\u2014Dallas 8,000 units/day; Edison 10,000 units/day. Current expected outbound next 7 days: Dallas ~21,000 units (avg 3,000/day), Edison ~29,000 units (avg 4,140/day). Customer SLA: 96% 2-day delivery coverage; major e-commerce retail partners assess chargebacks for late ship (captured in stockout penalty). Note: Retail promo starting 2025-10-20 could add +10\u201315% to daily demand at Edison for 5 days. Any overflow or transfer must be confirmed by 2025-10-16 17:00 local to adjust carrier appointments and ASN routing."
+    },
+    "complexity_score": 8
+  },
+  {
+    "scenario_id": "scn_2025-07-28_bts_capacity_01",
+    "task": "Analyze the current inventory situation for the Los Angeles DC. Recommend whether to divert the incoming POs for Aug 2 and Aug 5 (total 55,000 units) to a 3PL in City of Industry, or receive them in-house and use inter-DC transfers from Atlanta to balance stock. Quantify the expected costs and service level impacts of each option.",
+    "context": {
+      "warehouse_a": {
+        "location": "Atlanta, GA",
+        "utilization": 68.0,
+        "inventory_units": 136000,
+        "capacity_units": 200000
+      },
+      "warehouse_b": {
+        "location": "Los Angeles, CA",
+        "utilization": 91.0,
+        "inventory_units": 163800,
+        "capacity_units": 180000
+      },
+      "product": {
+        "sku": "BT-TEE-NVY-M25",
+        "category": "apparel",
+        "shelf_life_days": 730,
+        "unit_cost": 12.5,
+        "description": "Navigator Youth Graphic Tee - Navy"
+      },
+      "demand": {
+        "forecast_weekly_units": 65000,
+        "actual_trend_pct": 8.0,
+        "seasonality_factor": 1.8
+      },
+      "supplier": {
+        "lead_time_days": 28,
+        "reliability_score": 0.91,
+        "name": "Global Textiles (Vietnam)"
+      },
+      "costs": {
+        "transport_premium_pct": 20.0,
+        "carrying_cost_daily_per_unit": 0.01,
+        "stockout_penalty_per_unit": 8.0
+      },
+      "seasonal_context": "Back-to-School_Rush",
+      "timestamp": "2025-07-28T11:00:00Z",
+      "additional_notes": "Capacity policy: Target <88% utilization; hard ceiling 94% for operational efficiency. Regional demand split: 65% West (Los Angeles), 35% East/South (Atlanta). Inter-DC transfer: $0.85/unit, 4 days Atlanta\u2192LA, 4 days LA\u2192Atlanta. Base inbound freight (ocean+drayage): $0.95/unit to LA, $1.05/unit to Atlanta. Open POs for this SKU: PO#91134 \u2192 LA ETA 2025-08-02 (30,000 units); PO#91135 \u2192 Atlanta ETA 2025-08-04 (25,000 units); PO#91140 \u2192 LA ETA 2025-08-05 (25,000 units). Overflow 3PL option: City of Industry, CA (25 miles from LA DC): up to 60,000 units capacity; storage $0.40/unit/week; in/out handling $0.22/$0.18 per unit; 24-hour retrieval lead time. A major retail partner's 'Back to Cool' promotion begins Aug 4, expected to increase West region demand by 15-20% for 10 days. Any diversion plan must be finalized by EOD 2025-07-29 to reroute containers at the port."
+    },
+    "complexity_score": 8
+  },
+  {
+    "scenario_id": "scn_2026-05-04_summer_patio_crunch_01",
+    "task": "The Phoenix DC is approaching its hard capacity limit. An inbound shipment of 800 patio sets is due on May 7. Given the supplier's recent unreliability, should we secure 3PL overflow space in Tolleson, AZ immediately, or risk receiving it in-house and relying on emergency transfers to the Chicago DC? Provide a recommendation with cost analysis and risk assessment.",
+    "context": {
+      "warehouse_a": {
+        "location": "Chicago, IL",
+        "utilization": 75.0,
+        "inventory_units": 9000,
+        "capacity_units": 12000
+      },
+      "warehouse_b": {
+        "location": "Phoenix, AZ",
+        "utilization": 91.0,
+        "inventory_units": 8190,
+        "capacity_units": 9000
+      },
+      "product": {
+        "sku": "OD-PATSET-GRY-5P",
+        "category": "outdoor_living",
+        "shelf_life_days": 1825,
+        "unit_cost": 350.0,
+        "description": "SunScape 5-Piece Patio Dining Set"
+      },
+      "demand": {
+        "forecast_weekly_units": 1200,
+        "actual_trend_pct": 12.0,
+        "seasonality_factor": 2.1
+      },
+      "supplier": {
+        "lead_time_days": 45,
+        "reliability_score": 0.78,
+        "name": "ASEAN Outdoor Furnishings (Malaysia)"
+      },
+      "costs": {
+        "transport_premium_pct": 15.0,
+        "carrying_cost_daily_per_unit": 0.15,
+        "stockout_penalty_per_unit": 150.0
+      },
+      "seasonal_context": "Summer_Patio_Season",
+      "timestamp": "2026-05-04T14:00:00Z",
+      "additional_notes": "Capacity policy: Target <90%; hard ceiling 93% due to bulky item handling safety. Regional demand split: 60% Southwest (Phoenix), 40% Midwest (Chicago). Inter-DC transfer: $45.00/unit (LTL), 3 days Phoenix\u2192Chicago, 3 days Chicago\u2192Phoenix. Base inbound freight: $38.00/unit to Phoenix, $42.00/unit to Chicago. Open POs: PO#24551 \u2192 Phoenix ETA 2026-05-07 (800 units); PO#24552 \u2192 Chicago ETA 2026-05-11 (600 units). Overflow 3PL option: Tolleson, AZ (15 miles from Phoenix DC): up to 1,000 units capacity; storage $8.00/unit/week; in/out handling $12.00/$10.00 per unit; 48-hour retrieval notice required. Supplier has been impacted by port congestion, with 2 of the last 5 shipments arriving 3-5 days early. The product is a key feature in the 'Summer Kick-off' catalog mailing next week. Outbound capacity: Phoenix 250 units/day; Chicago 200 units/day. Current expected outbound next 7 days: Phoenix ~1,400 units, Chicago ~800 units."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "scn_2026-02-23_spring_fertilizer_risk_01",
+    "task": "Orlando DC is at 88% capacity ahead of the peak gardening season. Two inbound truckloads (1,600 units total) arrive Feb 26. Given the product's 180-day shelf life, evaluate the trade-offs of diverting to a 3PL in Lakeland with no WMS integration vs. receiving in-house and potentially using slow, costly transfers from the Denver DC. Provide a clear recommendation and rationale.",
+    "context": {
+      "warehouse_a": {
+        "location": "Denver, CO",
+        "utilization": 65.0,
+        "inventory_units": 5200,
+        "capacity_units": 8000
+      },
+      "warehouse_b": {
+        "location": "Orlando, FL",
+        "utilization": 88.0,
+        "inventory_units": 7040,
+        "capacity_units": 8000
+      },
+      "product": {
+        "sku": "GRW-FERT-ORG-25LB",
+        "category": "lawn_and_garden",
+        "shelf_life_days": 180,
+        "unit_cost": 22.0,
+        "description": "GroWell Premium Organic Fertilizer (25 lb bag)"
+      },
+      "demand": {
+        "forecast_weekly_units": 2500,
+        "actual_trend_pct": 5.0,
+        "seasonality_factor": 3.0
+      },
+      "supplier": {
+        "lead_time_days": 7,
+        "reliability_score": 0.98,
+        "name": "NutriGrow Solutions (Iowa, USA)"
+      },
+      "costs": {
+        "transport_premium_pct": 25.0,
+        "carrying_cost_daily_per_unit": 0.04,
+        "stockout_penalty_per_unit": 18.0
+      },
+      "seasonal_context": "Spring_Gardening_Launch",
+      "timestamp": "2026-02-23T09:30:00Z",
+      "additional_notes": "Capacity policy: Target <85%; hard ceiling 95%. Shelf life policy: must ship to retailer with >90 days remaining. Regional demand split: 70% Southeast (Orlando), 30% Mountain West (Denver). Inter-DC transfer: $2.10/unit, 3 days Denver\u2192Orlando. Base inbound freight: $1.80/unit to Orlando. Open POs: PO#D4598 \u2192 Orlando ETA 2026-02-26 (800 units); PO#D4599 \u2192 Orlando ETA 2026-02-26 (800 units); PO#D4602 \u2192 Denver ETA 2026-03-05 (1,200 units). Overflow 3PL option: Lakeland, FL (30 miles from Orlando DC): storage $0.35/unit/week; in/out handling $0.25/$0.25 per unit. CRITICAL: 3PL has no WMS integration, requiring manual order processing and a 2-day retrieval lead time. A major competitor is reporting stockouts on a similar product in the Southeast, creating a significant market opportunity. Decision on diversion required by 2026-02-24 12:00 EST to update carrier instructions."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "scn_2025-11-10_bfcm_capacity_freeze_01",
+    "task": "The Carlisle, PA DC is at 92% utilization just before the Black Friday code freeze. Two large import containers (30,000 units total) are due Nov 13. With the expedite freight option unavailable, should we divert these units to a high-cost 3PL in Harrisburg, or receive them and use inter-DC transfers from Kansas City, risking fulfillment delays for the heavily skewed East Coast demand? Justify your recommendation with a cost/benefit analysis.",
+    "context": {
+      "warehouse_a": {
+        "location": "Kansas City, MO",
+        "utilization": 68.0,
+        "inventory_units": 68000,
+        "capacity_units": 100000
+      },
+      "warehouse_b": {
+        "location": "Carlisle, PA",
+        "utilization": 92.0,
+        "inventory_units": 110400,
+        "capacity_units": 120000
+      },
+      "product": {
+        "sku": "APL-AFRY-XL-BLK",
+        "category": "small_appliances",
+        "shelf_life_days": 1095,
+        "unit_cost": 65.0,
+        "description": "CrispAir XL 8-Quart Air Fryer"
+      },
+      "demand": {
+        "forecast_weekly_units": 70000,
+        "actual_trend_pct": 25.0,
+        "seasonality_factor": 2.5
+      },
+      "supplier": {
+        "lead_time_days": 35,
+        "reliability_score": 0.88,
+        "name": "Shenzhen KitchenTech (China)"
+      },
+      "costs": {
+        "transport_premium_pct": 30.0,
+        "carrying_cost_daily_per_unit": 0.05,
+        "stockout_penalty_per_unit": 40.0
+      },
+      "seasonal_context": "Pre_Black_Friday_Inventory_Build",
+      "timestamp": "2025-11-10T07:00:00Z",
+      "additional_notes": "Capacity policy: Target <90%; hard ceiling 96%. A systems 'code freeze' for all WMS and TMS changes begins Nov 15. Any new 3PL setup must be completed before then. Regional demand split: 70% East (Carlisle), 30% Central (Kansas City). Inter-DC transfer: $0.60/unit, 2 days KC\u2192Carlisle. Base inbound freight: $1.85/unit to Carlisle. Open POs: PO#C7720 \u2192 Carlisle ETA 2025-11-13 (15,000 units); PO#C7721 \u2192 Carlisle ETA 2025-11-13 (15,000 units); PO#C7728 \u2192 KC ETA 2025-11-18 (10,000 units). Overflow 3PL option: Harrisburg, PA (18 miles from Carlisle DC): Peak season rates apply - storage $0.75/unit/week; in/out handling $0.30/$0.25 per unit; 24-hour retrieval. The expedite freight option is fully booked by other companies and is not available. A viral social media post featuring the product has just been identified, which could drive unforecasted demand spikes."
+    },
+    "complexity_score": 10
+  },
+  {
+    "scenario_id": "SRS-2025-10-15-CAES-01",
+    "task": "Analyze the current inventory situation and recommend whether to expedite the next open PO from FreshFields Farms at an 18.5% transport premium and adjust safety stock for SKU PF-SAL-CAES-12OZ for the next four weeks. Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Chicago, IL",
+        "utilization": 74.0,
+        "inventory_units": 11840,
+        "capacity_units": 16000
+      },
+      "warehouse_b": {
+        "location": "Dallas, TX",
+        "utilization": 77.0,
+        "inventory_units": 9240,
+        "capacity_units": 12000
+      },
+      "product": {
+        "sku": "PF-SAL-CAES-12OZ",
+        "category": "perishable_food",
+        "shelf_life_days": 21,
+        "unit_cost": 2.95,
+        "description": "Ready-to-eat Caesar salad kit, 12oz, refrigerated"
+      },
+      "demand": {
+        "forecast_weekly_units": 13200,
+        "actual_trend_pct": 18.0,
+        "seasonality_factor": 1.1
+      },
+      "supplier": {
+        "lead_time_days": 14,
+        "reliability_score": 0.78,
+        "name": "FreshFields Farms"
+      },
+      "costs": {
+        "transport_premium_pct": 18.5,
+        "carrying_cost_daily_per_unit": 0.006,
+        "stockout_penalty_per_unit": 2.4
+      },
+      "seasonal_context": "Q2_spring_refresh",
+      "timestamp": "2025-10-15T08:00:00Z",
+      "additional_notes": "Primary supplier lead time is contractual 14 days order-to-receipt but has drifted: 3 of the last 10 loads arrived 5\u20137 days late. Supplier cites film shortage for the next two weeks, increasing delay risk to +3\u20137 days. Expedite option (air + priority line time) reduces lead time to 7 days; premium equals 18.5% of unit cost; supplier can expedite up to 8,000 units over the next 14 days. Current open POs: PO#11872 (8,000 units) planned pack 2025-10-17; standard receipt 2025-10-31; expedite arrival 2025-10-22 if approved by 2025-10-16 EOD. PO#11899 (12,000 units) planned pack 2025-10-22; standard receipt 2025-11-05; expedite arrival 2025-10-29. Warehouse service splits: Chicago serves Midwest/Northeast (65% of demand), Dallas serves South (35%). A 10-day regional promotion in TX/OK (major grocer) runs 2025-10-22 to 2025-11-01; expected uplift +25% in Dallas region (~1,050 incremental units total vs baseline). Inter-DC transfer (refrigerated) costs $0.11/unit and takes 2 days door-to-door; receiving calendars show Chicago can receive max 10,000 units/day between 2025-10-20 and 2025-10-26 due to dock repairs. Safety stock policy is 95% CSL using last 12 weeks of demand and LT variability; currently set at 6 days in Chicago and 5 days in Dallas; policy not yet updated for the recent LT slippage. Freshness rule for top two retailers requires \u226575% remaining shelf life upon DC receipt (measured at inbound QC). On-hand aging: Chicago has 3,200 units expiring within 9 days; Dallas has 1,600 units expiring within 7 days; salvage value for expired product is $0.20/unit. Alternate supplier GreenLeaf Foods offers 10-day lead time at unit cost $3.33 (MOQ 6,000 units, capacity 6,000/week); no expedite needed; historical OTIF 96%. Budget note: remaining expedite budget for October is $12,000. Case pack is 12 units; order multiples apply to both suppliers. Any expedite voids the 2% early-payment discount on that PO. Customer fill-rate target is 96% weekly; chargeback terms are embedded in the stockout penalty figure above."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "SRS-2026-08-01-ELEC-01",
+    "task": "Analyze the current inventory situation for the SparkTab 10 tablet. Recommend whether to expedite the next open PO from ChipSource Inc. at a 15% transport premium and adjust safety stock for SKU EL-TAB-SPRK-10 for the next six weeks. Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Atlanta, GA",
+        "utilization": 82.0,
+        "inventory_units": 4100,
+        "capacity_units": 5000
+      },
+      "warehouse_b": {
+        "location": "Los Angeles, CA",
+        "utilization": 78.0,
+        "inventory_units": 3120,
+        "capacity_units": 4000
+      },
+      "product": {
+        "sku": "EL-TAB-SPRK-10",
+        "category": "consumer_electronics",
+        "shelf_life_days": 730,
+        "unit_cost": 185.5,
+        "description": "SparkTab 10-inch consumer tablet, 64GB"
+      },
+      "demand": {
+        "forecast_weekly_units": 1800,
+        "actual_trend_pct": 25.0,
+        "seasonality_factor": 1.4
+      },
+      "supplier": {
+        "lead_time_days": 28,
+        "reliability_score": 0.72,
+        "name": "ChipSource Inc."
+      },
+      "costs": {
+        "transport_premium_pct": 15.0,
+        "carrying_cost_daily_per_unit": 0.03,
+        "stockout_penalty_per_unit": 95.0
+      },
+      "seasonal_context": "Q3_back_to_school",
+      "timestamp": "2026-08-01T10:00:00Z",
+      "additional_notes": "Primary supplier ChipSource Inc. has a 28-day lead time but has been erratic; 4 of the last 8 shipments were 7-10 days late due to a global semiconductor shortage impacting their key component supplier. They warn this could persist for 6-8 weeks. The expedite option (air freight) reduces lead time to 12 days; premium is 15% of unit cost. Current open POs: PO#77431 (2,500 units) planned ship 2026-08-05; standard receipt 2026-09-02; expedite arrival 2026-08-17. PO#77502 (3,000 units) planned ship 2026-08-15; standard receipt 2026-09-12. Warehouse service splits: Atlanta serves East/South (60% of demand), Los Angeles serves West (40%). A major online retailer is running a 'Dorm Tech' promotion from 2026-08-10 to 2026-08-24, expected to lift demand by 30% in the Atlanta region. Inter-DC transfer costs $4.50/unit and takes 4 days. Safety stock is currently set to 10 days of supply based on historical data but does not account for the recent lead time volatility. Alternate supplier, OmniTech, can supply a comparable unit at $205/unit with a stable 21-day lead time (MOQ 1,000 units). Budget note: remaining Q3 expedite budget is $50,000. Customer fill-rate target is 98%; stockout penalty reflects lost margin and contractual penalties."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "SRS-2025-11-05-APRL-02",
+    "task": "Analyze the inventory for the 'Arctic Parka' winter coat. Recommend whether to expedite the next PO from Global Garments at a 22% cost premium and adjust the inventory policy for SKU AP-COAT-ARCT-M for the critical 8-week holiday period. Justify your decision with a cost/benefit analysis.",
+    "context": {
+      "warehouse_a": {
+        "location": "Newark, NJ",
+        "utilization": 88.0,
+        "inventory_units": 17600,
+        "capacity_units": 20000
+      },
+      "warehouse_b": {
+        "location": "Denver, CO",
+        "utilization": 81.0,
+        "inventory_units": 8100,
+        "capacity_units": 10000
+      },
+      "product": {
+        "sku": "AP-COAT-ARCT-M",
+        "category": "apparel",
+        "shelf_life_days": 365,
+        "unit_cost": 72.0,
+        "description": "Men's Arctic Parka, Black, Medium. High risk of obsolescence post-season."
+      },
+      "demand": {
+        "forecast_weekly_units": 4500,
+        "actual_trend_pct": 15.0,
+        "seasonality_factor": 2.5
+      },
+      "supplier": {
+        "lead_time_days": 45,
+        "reliability_score": 0.81,
+        "name": "Global Garments"
+      },
+      "costs": {
+        "transport_premium_pct": 22.0,
+        "carrying_cost_daily_per_unit": 0.015,
+        "stockout_penalty_per_unit": 40.0
+      },
+      "seasonal_context": "Q4_holiday_peak",
+      "timestamp": "2025-11-05T09:00:00Z",
+      "additional_notes": "Primary supplier Global Garments is experiencing rolling labor slowdowns, causing production delays of 5-12 days on their standard 45-day sea freight lead time. Expediting uses air freight, reducing total lead time to 18 days. Open PO#2198 (10,000 units) is due to ship 2025-11-10; standard arrival 2025-12-25 (too late for peak); expedite arrival 2025-11-28. A major department store's Black Friday promotion (2025-11-25 to 2025-12-02) is expected to increase demand by 50% in the Newark (Northeast) region. Newark serves 70% of demand, Denver 30%. The Newark DC has limited receiving appointments through November, max 8,000 units/day. Inter-DC transfer costs $2.75/unit and takes 3 days. Post-January, unsold units must be marked down by 60%. Alternate supplier 'Mountain Threads' has a 30-day lead time at $85/unit, but their current production is fully allocated for the next 4 weeks. Safety stock is currently 14 days, but the markdown risk of overstocking is severe. The stockout penalty includes a $15 per-unit chargeback from the department store for promotional stock-outs."
+    },
+    "complexity_score": 10
+  },
+  {
+    "scenario_id": "SRS-2026-07-20-BEV-03",
+    "task": "Evaluate the supply risk for 'Morning Rush Cold Brew' due to a regional heatwave. Recommend whether to expedite the upcoming PO from CoolBrew Co. at a 20% premium, adjust safety stock, or source from an alternate supplier for the next 4 weeks. Quantify the financial impact of your recommendation.",
+    "context": {
+      "warehouse_a": {
+        "location": "Phoenix, AZ",
+        "utilization": 75.0,
+        "inventory_units": 15000,
+        "capacity_units": 20000
+      },
+      "warehouse_b": {
+        "location": "Orlando, FL",
+        "utilization": 80.0,
+        "inventory_units": 12800,
+        "capacity_units": 16000
+      },
+      "product": {
+        "sku": "BV-CFE-RUSH-32OZ",
+        "category": "refrigerated_beverage",
+        "shelf_life_days": 45,
+        "unit_cost": 4.1,
+        "description": "Ready-to-drink cold brew coffee, 32oz, requires refrigeration"
+      },
+      "demand": {
+        "forecast_weekly_units": 8000,
+        "actual_trend_pct": 40.0,
+        "seasonality_factor": 1.6
+      },
+      "supplier": {
+        "lead_time_days": 7,
+        "reliability_score": 0.85,
+        "name": "CoolBrew Co."
+      },
+      "costs": {
+        "transport_premium_pct": 20.0,
+        "carrying_cost_daily_per_unit": 0.008,
+        "stockout_penalty_per_unit": 3.5
+      },
+      "seasonal_context": "Q3_summer_peak",
+      "timestamp": "2026-07-20T11:00:00Z",
+      "additional_notes": "A severe, prolonged heatwave across the Sun Belt has driven demand 40% above forecast. Primary supplier CoolBrew Co. is struggling to maintain their refrigerated truck fleet, leading to transit delays of 2-4 days on their normal 7-day lead time. This also impacts product freshness upon arrival. Expediting involves dedicated, team-driven refrigerated trucks, reducing lead time to 3 days. Open PO#CB-4551 (12,000 units) is scheduled for pickup on 2026-07-22; standard arrival 2026-07-29; expedite arrival 2026-07-25. Phoenix serves the Southwest (55% of demand), Orlando the Southeast (45%). Retailers require >=80% remaining shelf life on receipt. On-hand inventory: Phoenix has 4,000 units with 12 days of shelf life remaining. Inter-DC transfer (refrigerated LTL) costs $0.45/unit and takes 3 days. Alternate supplier 'JavaExpress' can supply up to 5,000 units/week to the Orlando DC only, at a cost of $4.75/unit with a 5-day lead time. Spoilage/obsolescence cost is high due to the short shelf life. Safety stock is currently 4 days, which is insufficient for the current lead time variability."
+    },
+    "complexity_score": 8
+  },
+  {
+    "scenario_id": "SRS-2027-01-10-PHRM-04",
+    "task": "Assess the critical supply situation for 'FluGuard Cold & Flu' capsules following a supplier production halt. Recommend an immediate course of action, including whether to pay a 35% premium to expedite from PharmaGen Labs, adjust safety stock, and/or activate the alternate supplier. Your analysis must prioritize supply continuity and quantify all associated costs.",
+    "context": {
+      "warehouse_a": {
+        "location": "Memphis, TN",
+        "utilization": 65.0,
+        "inventory_units": 26000,
+        "capacity_units": 40000
+      },
+      "warehouse_b": {
+        "location": "Seattle, WA",
+        "utilization": 68.0,
+        "inventory_units": 10200,
+        "capacity_units": 15000
+      },
+      "product": {
+        "sku": "PH-FLU-GUARD-24CT",
+        "category": "pharmaceuticals_otc",
+        "shelf_life_days": 1095,
+        "unit_cost": 8.2,
+        "description": "Over-the-counter cold and flu relief capsules, 24 count. Requires 15-25C storage."
+      },
+      "demand": {
+        "forecast_weekly_units": 15000,
+        "actual_trend_pct": 60.0,
+        "seasonality_factor": 1.8
+      },
+      "supplier": {
+        "lead_time_days": 21,
+        "reliability_score": 0.92,
+        "name": "PharmaGen Labs"
+      },
+      "costs": {
+        "transport_premium_pct": 35.0,
+        "carrying_cost_daily_per_unit": 0.005,
+        "stockout_penalty_per_unit": 25.0
+      },
+      "seasonal_context": "Q1_flu_season",
+      "timestamp": "2027-01-10T14:00:00Z",
+      "additional_notes": "A severe flu outbreak in the Pacific Northwest has caused demand in the Seattle region to spike by 100% over the past week. Compounding this, primary supplier PharmaGen Labs just announced a 5-day production halt due to a batch failing quality control, creating a significant order backlog. Their 21-day lead time is now expected to be 28-30 days for the next month. Expediting via temp-controlled air freight reduces lead time to 8 days, but at a 35% cost premium. Open PO#PG-9912 (20,000 units) was due to ship 2027-01-09 but is now delayed to 2027-01-14; standard arrival is now ~2027-02-11; expedite arrival 2027-01-22. Memphis serves as the national DC (75% of demand), while Seattle serves the PNW (25%). Alternate supplier 'HealthDirect Pharma' is fully qualified and can ship 10,000 units/week at $9.50/unit with a 14-day lead time (MOQ 5,000 units). Inter-DC transfer costs $0.80/unit and takes 4 days. The stockout penalty reflects severe contractual fines from major pharmacy chains for failure to supply during a public health event. Safety stock is currently 12 days, based on a 98% CSL under normal conditions."
+    },
+    "complexity_score": 10
+  },
+  {
+    "scenario_id": "PMO-2025-10-15-NXTAB10-01",
+    "task": "Analyze the current inventory situation and recommend whether to divert the 12,000-unit inbound shipment of NX-TAB10 from Warehouse A to Warehouse B using premium transport this week. Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Moreno Valley, CA",
+        "utilization": 72.0,
+        "inventory_units": 86400,
+        "capacity_units": 120000
+      },
+      "warehouse_b": {
+        "location": "Harrisburg, PA",
+        "utilization": 85.0,
+        "inventory_units": 76500,
+        "capacity_units": 90000
+      },
+      "product": {
+        "sku": "NX-TAB10",
+        "category": "consumer_electronics",
+        "shelf_life_days": 730,
+        "unit_cost": 145.0,
+        "description": "10-inch Android tablet, 64GB, Wi-Fi, mid-tier model"
+      },
+      "demand": {
+        "forecast_weekly_units": 3800,
+        "actual_trend_pct": -18.0,
+        "seasonality_factor": 0.88
+      },
+      "supplier": {
+        "lead_time_days": 14,
+        "reliability_score": 0.88,
+        "name": "BrightTech Electronics Ltd."
+      },
+      "costs": {
+        "transport_premium_pct": 16.8,
+        "carrying_cost_daily_per_unit": 0.1,
+        "stockout_penalty_per_unit": 24.0
+      },
+      "seasonal_context": "Q1_post_holiday_slowdown",
+      "timestamp": "2025-10-15T08:00:00Z",
+      "additional_notes": "Space/velocity mix pressure at Warehouse A over the next 7\u201310 days. NX-TAB10 current on-hand by site: A = 20,160 units (336 pallets; 60 units/pallet), B = 12,480 units (208 pallets). Pipeline: PO BT-7841 (12,000 units) currently routed to A, ETA 2025-10-17 (2 days); diverting to B adds 2 days transit and applies a +16.8% transport premium to the base inter-DC cost. Additional POs: BT-7890 (8,000 units to A, ETA 2025-10-24) and BT-7922 (6,000 units to B, ETA 2025-10-27). Regional demand split: West 45%, East 55% of network forecast; recent actuals trending -18% vs forecast network-wide, with West underperforming more than East. \n\nSpace outlook at A: Total pallet slots (60 units/slot) = 2,000; currently used ~1,440; immediately available ~560. Time-phased inbound at A for other SKUs within 5 days: PF-SALAD-12 (perishable_food, 7-day shelf life) 40,800 units (~680 pallets) supporting a retailer health-push promo; if not stored at A, must go to nearby overflow 3PL with 8\u201310% expected shrink. Optional PF-JUICE-18 (14-day shelf life) 7,200 units (~120 pallets) may stage if space allows. If NX-TAB10 PO BT-7841 is received at A as planned (12,000 units = ~200 pallets), available slots would fall from ~560 to ~360 just as PF-SALAD-12 arrives, creating an estimated shortfall of ~320 pallets vs. the 680-pallet requirement. \n\nWarehouse B constraints: Temporary racking repair reduces available capacity by ~10% to 90,000 units through 2025-10-25 (reflected in current capacity). Current headroom at B = 13,500 units (~225 pallets). Accepting the 12,000-unit diversion would raise B utilization to ~98% until picks and the 10/25 capacity restoration relieve pressure. \n\nCost context to evaluate: Base inter-DC linehaul (A to B) averages $1.60 per unit; premium transport adds +16.8% when used. Local overflow 3PL near A: $18 per pallet/week storage, $12 per pallet inbound handling, $12 per pallet outbound handling; 50-pallet weekly minimum; typical accessorials apply. Port demurrage for delaying drayage (if considered as an alternative) averages ~$165 per container/day after last free day (3 containers for the 12,000 units). NX-TAB10 gross margin guidance (for mix considerations): ~$32 per unit; perishable PF-SALAD-12 estimated margin ~$6 per unit but with high shrink risk beyond 7 days. Service levels: eCommerce 97% fill target, retail 95% fill target; typical lead-times: A serves West in 1\u20132 days, B serves East in 1\u20132 days. Labor: A is already running two overtime shifts on receiving this week; B is constrained on putaway until racking work completes. No additional dock doors available at A during 10/16\u201310/18 peak inbound window."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "PMO-2025-07-20-FTWSNK-01",
+    "task": "Analyze the current inventory situation and recommend whether to divert the 25,000-unit inbound shipment of FTW-KID-SNK-04 from Warehouse A to Warehouse B using premium transport this week. Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Savannah, GA",
+        "utilization": 88.0,
+        "inventory_units": 220000,
+        "capacity_units": 250000
+      },
+      "warehouse_b": {
+        "location": "Columbus, OH",
+        "utilization": 82.0,
+        "inventory_units": 164000,
+        "capacity_units": 200000
+      },
+      "product": {
+        "sku": "FTW-KID-SNK-04",
+        "category": "apparel_footwear",
+        "shelf_life_days": 540,
+        "unit_cost": 22.5,
+        "description": "Kids' athletic sneaker, size 4, blue/green"
+      },
+      "demand": {
+        "forecast_weekly_units": 8500,
+        "actual_trend_pct": 12.0,
+        "seasonality_factor": 1.75
+      },
+      "supplier": {
+        "lead_time_days": 21,
+        "reliability_score": 0.85,
+        "name": "Global Garments Inc."
+      },
+      "costs": {
+        "transport_premium_pct": 14.3,
+        "carrying_cost_daily_per_unit": 0.12,
+        "stockout_penalty_per_unit": 21.6
+      },
+      "seasonal_context": "Q3_back_to_school_peak",
+      "timestamp": "2025-07-20T10:00:00Z",
+      "additional_notes": "Significant space pressure at Warehouse A (Savannah) due to the back-to-school peak. Current on-hand for FTW-KID-SNK-04: A = 45,000 units, B = 28,000 units. The inbound shipment (PO GG-9102, 25,000 units) is due at A in 3 days. Diverting to B adds 3 days transit and the 14.3% transport premium. Regional demand split: Southeast 60%, Midwest 40%; both regions are seeing demand above forecast.\n\nSpace outlook at A: A critical, time-sensitive shipment of AP-UNIFORM-PL (school uniforms, 80,000 units) for a major retail partner's promotional event is arriving in 4 days. This shipment requires 1,000 dedicated pallet positions for rapid cross-docking and sorting. Current available pallet positions at A are ~850. The inbound sneaker shipment (25,000 units) requires ~250 pallet positions. If the sneakers are received as planned, A will face a ~400 pallet shortfall, forcing the use of a local 3PL for the uniform overflow. The 3PL has high handling fees ($25/pallet in/out) and a history of mis-picks (est. 2% error rate) during peak season. \n\nWarehouse B constraints: The Columbus facility is facing a seasonal labor shortage, with receiving teams running at ~75% of required headcount. Diverting the 25,000-unit sneaker shipment would push utilization to ~95% and likely cause a 24-48 hour delay in putaway, creating significant dock congestion and potentially delaying other inbound receipts. Base inter-DC transport cost is $0.95 per unit. The retail partner has a strict on-time penalty clause for the uniform promotion, valued at $50,000 per day delayed."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "PMO-2025-04-10-RXVITA-01",
+    "task": "Analyze the cold-chain capacity situation and recommend whether to divert the 4,000-unit inbound shipment of RX-VITA-D3-5K from Warehouse A to Warehouse B using priority transport this week. Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Memphis, TN",
+        "utilization": 75.0,
+        "inventory_units": 150000,
+        "capacity_units": 200000
+      },
+      "warehouse_b": {
+        "location": "Denver, CO",
+        "utilization": 89.0,
+        "inventory_units": 80100,
+        "capacity_units": 90000
+      },
+      "product": {
+        "sku": "RX-VITA-D3-5K",
+        "category": "pharmaceuticals_otc",
+        "shelf_life_days": 1095,
+        "unit_cost": 8.75,
+        "description": "Vitamin D3 Supplement, 5000 IU, 120-count bottle"
+      },
+      "demand": {
+        "forecast_weekly_units": 1200,
+        "actual_trend_pct": 5.0,
+        "seasonality_factor": 1.1
+      },
+      "supplier": {
+        "lead_time_days": 10,
+        "reliability_score": 0.97,
+        "name": "PharmaGen Solutions"
+      },
+      "costs": {
+        "transport_premium_pct": 20.2,
+        "carrying_cost_daily_per_unit": 0.12,
+        "stockout_penalty_per_unit": 28.8
+      },
+      "seasonal_context": "Q2_allergy_season_ramp_up",
+      "timestamp": "2025-04-10T09:30:00Z",
+      "additional_notes": "A critical capacity conflict is emerging in the refrigerated section of Warehouse A (Memphis). The inbound shipment of RX-VITA-D3-5K (PO PG-4431, 4,000 units, ambient storage) is scheduled to arrive in 2 days. Diverting to B adds 2 days transit and a 20.2% premium. Regional demand split: South 55%, West 45%.\n\nSpace outlook at A: The facility has a total of 5,000 pallet slots, with 800 designated for 2-8\u00b0C cold storage. The cold storage is currently at 90% capacity. A large, high-priority shipment of RX-ALRG-NSPRAY (temperature-sensitive allergy nasal spray, 15,000 units) is arriving in 3 days to support the seasonal peak. This shipment requires 150 cold-storage pallet slots. The only way to create this space is to clear an adjacent ambient staging area, which is currently occupied by general receiving overflow. The inbound vitamin shipment (4,000 units, ~40 pallets) is scheduled to use that exact staging area. If it is not diverted, the allergy spray will not have a designated staging zone for temperature validation and QC checks upon arrival, violating GMP protocol and risking the entire shipment's integrity (value ~$750k). The only certified cold-chain 3PL nearby is fully booked.\n\nWarehouse B constraints: The Denver facility is undergoing a scheduled validation of its cold chain monitoring system, which does not affect ambient products like the vitamins. However, overall receiving capacity is reduced by 30% as technicians are occupying dock space and staff are involved in the validation process. Accepting the diverted 4,000-unit shipment would push B's general capacity utilization to ~93% and would be the third-lowest priority receipt, likely waiting 72 hours on the dock before being processed. Base inter-DC transport cost is $2.10 per unit."
+    },
+    "complexity_score": 10
+  },
+  {
+    "scenario_id": "PMO-2025-11-05-INDBRG-01",
+    "task": "Analyze the current operational constraints and recommend whether to divert the 30,000-unit inbound shipment of IND-BRG-5512 from Warehouse A to Warehouse B using expedited LTL services this week. Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Chicago, IL",
+        "utilization": 84.0,
+        "inventory_units": 126000,
+        "capacity_units": 150000
+      },
+      "warehouse_b": {
+        "location": "Dallas, TX",
+        "utilization": 91.0,
+        "inventory_units": 109200,
+        "capacity_units": 120000
+      },
+      "product": {
+        "sku": "IND-BRG-5512",
+        "category": "industrial_parts",
+        "shelf_life_days": 9999,
+        "unit_cost": 18.0,
+        "description": "Standard 55mm industrial ball bearing"
+      },
+      "demand": {
+        "forecast_weekly_units": 4500,
+        "actual_trend_pct": 8.0,
+        "seasonality_factor": 1.3
+      },
+      "supplier": {
+        "lead_time_days": 18,
+        "reliability_score": 0.9,
+        "name": "Precision Parts Co."
+      },
+      "costs": {
+        "transport_premium_pct": 15.1,
+        "carrying_cost_daily_per_unit": 0.08,
+        "stockout_penalty_per_unit": 48.0
+      },
+      "seasonal_context": "Q4_end_of_year_production_push",
+      "timestamp": "2025-11-05T14:00:00Z",
+      "additional_notes": "Warehouse A (Chicago) is facing a handling and space conflict between standard and oversized freight. An inbound shipment of IND-BRG-5512 (PO PP-6554, 30,000 units) is due in 2 days. The decision is whether to divert it to Dallas. Diversion adds 2 days transit and a 15.1% transport premium. Regional demand split: Midwest 65%, South 35%.\n\nSpace outlook at A: A just-in-time shipment of IND-HYD-PUMP-V8 (80 large hydraulic pumps) for a key automotive client is arriving in 3 days. These pumps are oversized, non-stackable, and require a specific 5,000 sq ft staging area with access for a heavy-duty forklift. The inbound bearing shipment (30,000 units, ~50 standard pallets) is routed to the only available receiving area, which doubles as the only feasible staging zone for the pumps. If the bearings arrive as planned, the pumps cannot be unloaded safely or efficiently, causing a 2-3 day delay. The client's assembly line would be shut down, incurring a contract penalty of $100,000 per day. Using an external heavy-lift 3PL is an option, but would cost a flat $25,000 and add 24 hours of handling time.\n\nWarehouse B constraints: The Dallas facility is experiencing severe outbound congestion due to a surge in orders from the energy sector. All 20 of its outbound dock doors are fully scheduled for the next 4 days, and the yard is at 95% trailer capacity. An unscheduled inbound shipment would have to be 'live unloaded' in the yard, a slow process that is 50% less efficient and carries a higher risk of product damage. This would likely delay the receipt processing by 48-72 hours. Base inter-DC transport cost is $1.25 per unit."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "PMO-2025-05-15-CPGSNCK-01",
+    "task": "Analyze the current facility constraints and recommend whether to divert the 18,000-case inbound shipment of CPG-SNCK-CHIP-BBQ from Warehouse A to Warehouse B using expedited transport this week. Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Lakeland, FL",
+        "utilization": 86.0,
+        "inventory_units": 193500,
+        "capacity_units": 225000
+      },
+      "warehouse_b": {
+        "location": "Kansas City, MO",
+        "utilization": 81.0,
+        "inventory_units": 129600,
+        "capacity_units": 160000
+      },
+      "product": {
+        "sku": "CPG-SNCK-CHIP-BBQ",
+        "category": "cpg_food",
+        "shelf_life_days": 180,
+        "unit_cost": 19.2,
+        "description": "Family-size BBQ potato chips, 12-pack case"
+      },
+      "demand": {
+        "forecast_weekly_units": 7000,
+        "actual_trend_pct": 15.0,
+        "seasonality_factor": 1.4
+      },
+      "supplier": {
+        "lead_time_days": 12,
+        "reliability_score": 0.82,
+        "name": "TasteMakers Foods"
+      },
+      "costs": {
+        "transport_premium_pct": 17.5,
+        "carrying_cost_daily_per_unit": 0.115,
+        "stockout_penalty_per_unit": 20.4
+      },
+      "seasonal_context": "Q2_pre_summer_beverage_build",
+      "timestamp": "2025-05-15T11:00:00Z",
+      "additional_notes": "Warehouse A (Lakeland) is facing a unique MHE (Material Handling Equipment) and automation system constraint. An inbound shipment of CPG-SNCK-CHIP-BBQ (PO TM-2189, 18,000 cases) is due in 3 days. The decision is whether to divert it to Kansas City. Diversion adds 3 days transit and a 17.5% transport premium. Regional demand split: Southeast 50%, Central 50%.\n\nOperational outlook at A: A massive, pre-built promotional shipment of BEV-SODA-PROMO-24PK (200,000 cases of soda) is arriving in 4 days for a major summer ad campaign. These are pre-built pallet displays that are extremely heavy and can only be handled by the facility's automated conveyor system for direct putaway into a specific high-density storage zone. The inbound chip shipment (18,000 cases, ~300 pallets) is light but bulky and requires manual forklift handling. The receiving docks equipped for manual unloading are the same ones that feed the automated conveyor. If the chip shipment is being unloaded, the conveyor system cannot be used for the soda, and vice-versa. Unloading the chips will take a full 8-hour shift, which falls directly in the arrival window for the soda. Delaying the soda receipt will cause a missed promotional launch date, with an estimated $80,000 penalty in co-op advertising funds from the retail partner.\n\nWarehouse B constraints: The Kansas City facility's primary AS/RS (Automated Storage and Retrieval System) is down for unscheduled emergency maintenance for the next 3-5 days. All putaway and retrieval is being done manually, which is 3x slower and has created a 36-hour inbound processing backlog. Diverting the chip shipment would push B's utilization to ~92% and add to the existing backlog, increasing the risk of damage from staging on the dock for an extended period. Base inter-DC transport cost is $1.40 per case."
+    },
+    "complexity_score": 10
+  },
+  {
+    "scenario_id": "LTSPK-CE-20251015-01",
+    "task": "Analyze the current inventory situation and recommend whether to expedite the delayed PO. Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Chicago, IL",
+        "utilization": 74.0,
+        "inventory_units": 8880,
+        "capacity_units": 12000
+      },
+      "warehouse_b": {
+        "location": "Reno, NV",
+        "utilization": 57.0,
+        "inventory_units": 4560,
+        "capacity_units": 8000
+      },
+      "product": {
+        "sku": "CE-GAN-65W-USB-C-CHGR",
+        "category": "consumer_electronics",
+        "shelf_life_days": 730,
+        "unit_cost": 13.4,
+        "description": "65W USB-C GaN wall charger, single-port, US plug"
+      },
+      "demand": {
+        "forecast_weekly_units": 4800,
+        "actual_trend_pct": 22.0,
+        "seasonality_factor": 1.15
+      },
+      "supplier": {
+        "lead_time_days": 21,
+        "reliability_score": 0.83,
+        "name": "BajaTech Assembly S.A. de C.V."
+      },
+      "costs": {
+        "transport_premium_pct": 18.7,
+        "carrying_cost_daily_per_unit": 0.008,
+        "stockout_penalty_per_unit": 6.5
+      },
+      "seasonal_context": "winter_weather_disruption",
+      "timestamp": "2025-10-15T08:00:00Z",
+      "additional_notes": "Primary supplier is across the Laredo crossing; a severe winter front has extended border wait times and reduced carrier availability. Current on-hand for SKU CE-GAN-65W-USB-C-CHGR: Warehouse A = 1,680 units; Warehouse B = 1,120 units (total 2,800 units). Demand split: 65% East/Midwest, 35% West. Current backorders: 240 units (West-heavy). In-transit: 2,400 units (TL) originally ETA 2025-10-18, revised ETA 2025-10-22 due to weather. Open purchase orders with primary supplier: PO#78432 = 6,000 units, originally planned ship 2025-10-17; under current conditions standard arrival projects to 2025-11-07. Carrier offers expedite slot that would reduce arrival to 2025-10-27 for up to 3,000 units at an 18.7% line-haul premium. Base inbound freight (standard) averages $0.36 per unit. Alternate domestic supplier (not on file in 'supplier' block): Midwest GaN Solutions (OH), 7-day lead time, MOQ 2,000 units, unit cost +12% over primary ($15.01), standard freight $0.24 per unit, availability confirmed for up to 3,500 units ship-ready within 72 hours. Inter-warehouse transfer lead time 3 days door-to-door; transfer cost $0.35 per unit; daily transfer capacity limit 1,200 units. Customer service target: 97% weekly fill rate; marketing has a sitewide power-accessories promotion scheduled 2025-10-20 to 2025-10-25, not fully captured in the base forecast (+10\u201320% expected over baseline in those days). Outbound SLA: 2-day delivery promise for 80% of orders; tolerable backlog window is 48\u201372 hours before marketplace penalties apply. No packaging constraints; case pack 40 units; pallet 1,280 units. Finance note: expedite budget remaining this month is $28,000; procurement can bypass MOQ with primary supplier only if paying an additional $0.12 per unit kitting surcharge."
+    },
+    "complexity_score": 8
+  },
+  {
+    "scenario_id": "LTSPK-AP-20250820-01",
+    "task": "Analyze the current inventory position for the fleece jacket and recommend a course of action regarding the delayed ocean container. Quantify the financial impact of expediting via air freight versus sourcing from the alternate supplier or risking a stockout during the peak fall season.",
+    "context": {
+      "warehouse_a": {
+        "location": "Newark, NJ",
+        "utilization": 74.0,
+        "inventory_units": 11100,
+        "capacity_units": 15000
+      },
+      "warehouse_b": {
+        "location": "Atlanta, GA",
+        "utilization": 62.0,
+        "inventory_units": 6200,
+        "capacity_units": 10000
+      },
+      "product": {
+        "sku": "AP-WJKT-FLC-NVY-M",
+        "category": "apparel",
+        "shelf_life_days": 365,
+        "unit_cost": 28.5,
+        "description": "Women's Fleece Jacket, Navy, Medium"
+      },
+      "demand": {
+        "forecast_weekly_units": 2500,
+        "actual_trend_pct": 15.0,
+        "seasonality_factor": 1.25
+      },
+      "supplier": {
+        "lead_time_days": 35,
+        "reliability_score": 0.88,
+        "name": "Saigon Garment Co."
+      },
+      "costs": {
+        "transport_premium_pct": 25.0,
+        "carrying_cost_daily_per_unit": 0.015,
+        "stockout_penalty_per_unit": 15.0
+      },
+      "seasonal_context": "port_congestion_peak_season",
+      "timestamp": "2025-08-20T11:00:00Z",
+      "additional_notes": "A major container (PO#91334, 8,000 units) is delayed at the Port of Long Beach due to peak season congestion. Original ETA to warehouse was 2025-08-28, now projected for 2025-09-15. Current on-hand for SKU AP-WJKT-FLC-NVY-M: Warehouse A = 2,200 units; Warehouse B = 1,500 units (total 3,700 units). Demand split: 70% Northeast, 30% Southeast. Current backorders: 150 units. An air freight forwarder can pull up to 4,000 units from the container and fly them to Newark for a 2025-08-29 arrival, but at a 25% premium over the standard ocean freight cost of $1.10/unit. An alternate supplier, 'Juarez Textiles', can produce up to 5,000 units at a 15% higher unit cost ($32.78) with a 10-day lead time (MOQ 2,500 units). A 'Fall Fashion' promotion is scheduled for the first week of September, expected to lift demand by an additional 25% over the seasonal forecast. Inter-warehouse transfers from Atlanta to Newark take 2 days and cost $0.85/unit."
+    },
+    "complexity_score": 8
+  },
+  {
+    "scenario_id": "LTSPK-FB-20250710-01",
+    "task": "The primary supplier for organic green juice has a production delay. Analyze the risk of spoilage and stockouts, and recommend a strategy. Compare the costs of expediting a partial order, activating a local co-packer, or rebalancing inventory, considering the product's short shelf life.",
+    "context": {
+      "warehouse_a": {
+        "location": "Dallas, TX",
+        "utilization": 79.0,
+        "inventory_units": 15800,
+        "capacity_units": 20000
+      },
+      "warehouse_b": {
+        "location": "Denver, CO",
+        "utilization": 45.0,
+        "inventory_units": 5400,
+        "capacity_units": 12000
+      },
+      "product": {
+        "sku": "FB-JUC-ORG-GRN-12Z",
+        "category": "food_and_beverage",
+        "shelf_life_days": 45,
+        "unit_cost": 2.15,
+        "description": "Organic Cold-Pressed Green Juice, 12oz Bottle"
+      },
+      "demand": {
+        "forecast_weekly_units": 12000,
+        "actual_trend_pct": 5.0,
+        "seasonality_factor": 1.4
+      },
+      "supplier": {
+        "lead_time_days": 7,
+        "reliability_score": 0.78,
+        "name": "Golden Valley Organics"
+      },
+      "costs": {
+        "transport_premium_pct": 15.0,
+        "carrying_cost_daily_per_unit": 0.01,
+        "stockout_penalty_per_unit": 1.5
+      },
+      "seasonal_context": "heatwave_and_drought",
+      "timestamp": "2025-07-10T09:00:00Z",
+      "additional_notes": "A regional drought has created a shortage of organic kale, delaying PO#GV-5542 (20,000 units) from our primary supplier. The order was due to ship today, but is now delayed by 7-10 days. Current on-hand inventory: Dallas = 8,000 units (avg. 12 days remaining shelf life); Denver = 3,500 units (avg. 18 days remaining shelf life). Demand split: 60% Texas/South, 40% Mountain region. The supplier can prioritize a smaller run of 8,000 units to ship in 3 days if we pay for a dedicated refrigerated truck, a 15% premium on the standard $0.18/unit freight. A local co-packer ('Austin Fresh') can produce up to 10,000 units within 4 days, but their unit cost is $2.50 and they require a 5,000 unit MOQ. A 'Healthy Living' social media campaign is driving higher-than-forecasted sales. Inter-warehouse refrigerated transfer takes 2 days and costs $0.25/unit. We risk losing a key retail shelf placement if we are out of stock for more than 5 days."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "LTSPK-IC-20250905-01",
+    "task": "A hurricane has shut down our primary supplier for a critical hydraulic valve. Evaluate the extreme cost of air freight from an alternate international supplier against the severe penalties for causing a customer's production line to go down. Provide a cost-benefit analysis and a recommended sourcing plan.",
+    "context": {
+      "warehouse_a": {
+        "location": "Houston, TX",
+        "utilization": 63.0,
+        "inventory_units": 3150,
+        "capacity_units": 5000
+      },
+      "warehouse_b": {
+        "location": "Cleveland, OH",
+        "utilization": 81.0,
+        "inventory_units": 6480,
+        "capacity_units": 8000
+      },
+      "product": {
+        "sku": "IC-VLV-HYD-34NPT-5K",
+        "category": "industrial_components",
+        "shelf_life_days": 1825,
+        "unit_cost": 85.0,
+        "description": "Hydraulic Valve Assembly, 3/4in NPT, 5000 PSI"
+      },
+      "demand": {
+        "forecast_weekly_units": 800,
+        "actual_trend_pct": 0.0,
+        "seasonality_factor": 1.0
+      },
+      "supplier": {
+        "lead_time_days": 28,
+        "reliability_score": 0.95,
+        "name": "Gulfstream Machining Inc."
+      },
+      "costs": {
+        "transport_premium_pct": 40.0,
+        "carrying_cost_daily_per_unit": 0.02,
+        "stockout_penalty_per_unit": 250.0
+      },
+      "seasonal_context": "hurricane_season_gulf_coast",
+      "timestamp": "2025-09-05T14:00:00Z",
+      "additional_notes": "Hurricane Leo made landfall near our supplier in Louisiana, halting all production and logistics. PO#GM-1120 (1,500 units) is indefinitely delayed. Current on-hand: Houston = 450 units; Cleveland = 700 units. Total 1,150 units. Demand is split 50/50 between two major OEM customers serviced from these locations. We have less than 1.5 weeks of supply. A stockout will cause a customer line-down event, incurring a contractual penalty of $250 per unit per day, capped at the PO value. Gulfstream believes they can produce and ship 500 units within 10 days, but this is not guaranteed. An approved alternate supplier, 'Hamburg Fluid-Technik' in Germany, has 1,000 units available to ship immediately. Their unit cost is 18% higher ($100.30), and the only viable transport option is international air freight at a cost of $12.50/unit, compared to standard LTL from Gulfstream at $2.20/unit. Inter-warehouse transfer is not a primary option as both locations are nearing critical levels."
+    },
+    "complexity_score": 10
+  },
+  {
+    "scenario_id": "LTSPK-HW-20251101-01",
+    "task": "A shipment of Vitamin D3 is stuck in a customs hold, and regional wildfires are disrupting ground transit. Analyze the options of paying for priority clearance and expedited trucking versus sourcing from a secondary North American supplier. Recommend a plan to avoid stockouts ahead of a key subscription box promotion.",
+    "context": {
+      "warehouse_a": {
+        "location": "Seattle, WA",
+        "utilization": 72.0,
+        "inventory_units": 18000,
+        "capacity_units": 25000
+      },
+      "warehouse_b": {
+        "location": "Phoenix, AZ",
+        "utilization": 65.0,
+        "inventory_units": 11700,
+        "capacity_units": 18000
+      },
+      "product": {
+        "sku": "HW-SUP-VITD3-5K-180C",
+        "category": "health_and_wellness",
+        "shelf_life_days": 1095,
+        "unit_cost": 7.8,
+        "description": "Vitamin D3 5000IU Capsules, 180 Count Bottle"
+      },
+      "demand": {
+        "forecast_weekly_units": 6000,
+        "actual_trend_pct": 18.0,
+        "seasonality_factor": 1.3
+      },
+      "supplier": {
+        "lead_time_days": 45,
+        "reliability_score": 0.75,
+        "name": "Bangalore NutraScience"
+      },
+      "costs": {
+        "transport_premium_pct": 22.0,
+        "carrying_cost_daily_per_unit": 0.005,
+        "stockout_penalty_per_unit": 4.0
+      },
+      "seasonal_context": "wildfire_season_logistics_disruption",
+      "timestamp": "2025-11-01T10:00:00Z",
+      "additional_notes": "PO#BN-8843 (15,000 units) from India is on an FDA/CBP hold at the Port of Seattle, delaying release by at least 7-10 days. Wildfires in Northern California are also disrupting standard LTL routes to Phoenix. Current on-hand: Seattle = 3,100 units; Phoenix = 2,400 units (total 5,500 units). Demand split: 55% West/PNW, 45% Southwest. We have less than one week of supply. Our customs broker offers a 'priority processing' service for a flat fee of $5,000, which could secure release in 2-3 days. Once released, we can use an expedited team-driver truck to Phoenix for a 22% premium over the standard $0.45/unit inland freight cost to bypass disruptions. A secondary supplier in Vancouver, BC ('Can-Nutra Manufacturing') can ship 10,000 units within 5 days. Their unit cost is $8.90, and cross-border freight is $0.60/unit. Our 'Winter Wellness' subscription box, featuring this product, is scheduled to ship to 5,000 customers on 2025-11-12."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "scn_2025-10-15_apparel_polo_clearance_001",
+    "task": "Analyze the current inventory situation and recommend whether to defer or partially cancel the next two purchase orders (PO#VS-441 and PO#VS-442) for this SKU given the demand shortfall. Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Dallas, TX",
+        "utilization": 71.0,
+        "inventory_units": 35500,
+        "capacity_units": 50000
+      },
+      "warehouse_b": {
+        "location": "Edison, NJ",
+        "utilization": 83.0,
+        "inventory_units": 24900,
+        "capacity_units": 30000
+      },
+      "product": {
+        "sku": "APP-SS25-POLO-NAVY-M",
+        "category": "apparel",
+        "shelf_life_days": 90,
+        "unit_cost": 18.5,
+        "description": "Men's Short-Sleeve Piqu\u00e9 Polo, Navy, Size M (SS25)"
+      },
+      "demand": {
+        "forecast_weekly_units": 4200,
+        "actual_trend_pct": -26.0,
+        "seasonality_factor": 0.85
+      },
+      "supplier": {
+        "lead_time_days": 14,
+        "reliability_score": 0.88,
+        "name": "VietStyle Garments Co., Ltd."
+      },
+      "costs": {
+        "transport_premium_pct": 18.0,
+        "carrying_cost_daily_per_unit": 0.012,
+        "stockout_penalty_per_unit": 9.0
+      },
+      "seasonal_context": "summer_clearance",
+      "timestamp": "2025-10-15T08:00:00Z",
+      "additional_notes": "Open POs: PO#VS-441 for 9,000 units scheduled to depart factory on 2025-10-17; PO#VS-442 for 12,000 units scheduled to depart on 2025-10-25. Standard mode is ocean (14-day lead time). Supplier allows deferring up to 30% of each PO by one production cycle with 7 calendar days notice; cancellations beyond 30% incur a 5% restocking fee on canceled units. Air expedite available at +18% transport premium (reduces lead time to 7 days), minimum air lot size 2,000 units. Default DC allocation on receipt is 45% Dallas / 55% Edison unless changed 72 hours before vessel departure. Edison DC triggers overflow storage if utilization exceeds 90%, billed at $0.06 per unit per day with a 48-hour setup lag. Inter-DC transfer cost is $0.45 per unit, 5-day ground transit, transfer lanes have a weekly capacity of 8,000 units. Returns are running 5.5% of sales within 30 days; returned units are re-stockable after 2 days of inspection. A 3-day Veterans Day promotion (expected 1.2x lift) is planned for 2025-11-08 to 2025-11-10; markdown guidance indicates an additional 10\u201320% discount may be taken in late November if inventory remains above 10 weeks of supply. Competitive pressure: two national retailers launched 2-for-$30 polos on 2025-10-05, impacting sell-through. Approximately 38% of Edison on-hand is aged >60 days against a 90-day style life. Finance flagged working capital targets for Q4; inventory carrying cost targets are under review. Last day to modify PO#VS-441 without penalty is 2025-10-16 12:00 local factory time."
+    },
+    "complexity_score": 7
+  },
+  {
+    "scenario_id": "scn_2026-09-20_electronics_headphone_holiday_001",
+    "task": "Demand for the new Aura-7 headphones is 30% below forecast. Analyze the inventory levels and recommend a course of action for the next two inbound air shipments (PO#AW-8810 and PO#AW-8812). Should we defer, cancel a portion, or re-route to a 3PL to avoid network congestion ahead of the holiday peak? Quantify the financial implications of your recommendation.",
+    "context": {
+      "warehouse_a": {
+        "location": "Los Angeles, CA",
+        "utilization": 88.0,
+        "inventory_units": 132000,
+        "capacity_units": 150000
+      },
+      "warehouse_b": {
+        "location": "Chicago, IL",
+        "utilization": 75.0,
+        "inventory_units": 90000,
+        "capacity_units": 120000
+      },
+      "product": {
+        "sku": "ELC-AU7-HDPH-BLK",
+        "category": "consumer_electronics",
+        "shelf_life_days": 730,
+        "unit_cost": 85.0,
+        "description": "Aura-7 Noise-Cancelling Headphones, Black (2026 Model)"
+      },
+      "demand": {
+        "forecast_weekly_units": 15000,
+        "actual_trend_pct": -30.0,
+        "seasonality_factor": 1.5
+      },
+      "supplier": {
+        "lead_time_days": 5,
+        "reliability_score": 0.95,
+        "name": "AudioWave Precision Mfg."
+      },
+      "costs": {
+        "transport_premium_pct": 0.0,
+        "carrying_cost_daily_per_unit": 0.045,
+        "stockout_penalty_per_unit": 40.0
+      },
+      "seasonal_context": "pre_holiday_stock_up",
+      "timestamp": "2026-09-20T11:00:00Z",
+      "additional_notes": "Open POs are both air shipments: PO#AW-8810 for 25,000 units departs 2026-09-22; PO#AW-8812 for 25,000 units departs 2026-09-29. Supplier allows cancellation of up to 20% of a PO with 48 hours notice for a 10% fee on the unit cost of canceled items. Deferrals are not permitted due to production scheduling for other customers. LA warehouse triggers 3PL overflow if utilization exceeds 95%, costing $0.10/unit/day. A major Black Friday promotion is confirmed with a national retailer, requiring 50,000 units to be in their RDCs by 2026-11-01. A key competitor launched a similar model with a $50 rebate last week. Finance has mandated a 15% reduction in on-hand inventory value by year-end. Default DC allocation is 60% LA / 40% Chicago."
+    },
+    "complexity_score": 8
+  },
+  {
+    "scenario_id": "scn_2025-01-15_pharma_cold_remedy_001",
+    "task": "A milder-than-expected flu season has resulted in a 22% drop in sales for 'ColdGuard Plus'. With two large production runs scheduled for delivery, determine the optimal strategy for PO#RXM-5210 and PO#RXM-5211. Analyze the trade-offs between incurring high carrying costs for expired product versus the risk of a late-season demand surge and severe stockout penalties. Provide a cost-based recommendation.",
+    "context": {
+      "warehouse_a": {
+        "location": "Memphis, TN",
+        "utilization": 65.0,
+        "inventory_units": 390000,
+        "capacity_units": 600000
+      },
+      "warehouse_b": {
+        "location": "Atlanta, GA",
+        "utilization": 85.0,
+        "inventory_units": 340000,
+        "capacity_units": 400000
+      },
+      "product": {
+        "sku": "PHM-CGP-LIQ-250ML",
+        "category": "pharmaceuticals",
+        "shelf_life_days": 540,
+        "unit_cost": 4.75,
+        "description": "ColdGuard Plus Nighttime Liquid, 250ml"
+      },
+      "demand": {
+        "forecast_weekly_units": 80000,
+        "actual_trend_pct": -22.0,
+        "seasonality_factor": 1.8
+      },
+      "supplier": {
+        "lead_time_days": 21,
+        "reliability_score": 0.82,
+        "name": "RxMed Formulations Inc."
+      },
+      "costs": {
+        "transport_premium_pct": 25.0,
+        "carrying_cost_daily_per_unit": 0.005,
+        "stockout_penalty_per_unit": 15.0
+      },
+      "seasonal_context": "peak_flu_season",
+      "timestamp": "2025-01-15T09:00:00Z",
+      "additional_notes": "Open POs: PO#RXM-5210 for 150,000 units departs plant 2025-01-20; PO#RXM-5211 for 150,000 units departs 2025-02-03. Supplier has a history of 3-5 day production delays. Cancellation is not allowed within 30 days of departure. Deferral of one full PO by 14 days is possible with 5 days' notice but forfeits a 2% volume rebate on the entire order. A competitor's new product launch has captured an estimated 10% market share. Public health agencies are reporting a potential second wave of a more severe flu strain, which could cause demand to spike by 50-100% with little warning. Over 30% of current on-hand inventory in Atlanta will expire in 120 days. Disposal cost for expired product is $0.50 per unit."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "scn_2025-07-22_fnb_craft_soda_summer_001",
+    "task": "Unseasonably cool weather has dampened demand for our seasonal 'Summer Berry Fizz' soda by 18%. With two significant production batches (PO#FV-238A and PO#FV-239A) due to ship, recommend whether to accept, defer, or partially cancel the orders. Your analysis must balance the high spoilage risk and daily cold storage costs against potential lost sales if a heatwave materializes.",
+    "context": {
+      "warehouse_a": {
+        "location": "Denver, CO",
+        "utilization": 89.0,
+        "inventory_units": 44500,
+        "capacity_units": 50000
+      },
+      "warehouse_b": {
+        "location": "Phoenix, AZ",
+        "utilization": 78.0,
+        "inventory_units": 31200,
+        "capacity_units": 40000
+      },
+      "product": {
+        "sku": "FNB-SBF-SODA-12PK",
+        "category": "food_and_beverage",
+        "shelf_life_days": 75,
+        "unit_cost": 6.2,
+        "description": "Summer Berry Fizz Craft Soda, 12-pack cans"
+      },
+      "demand": {
+        "forecast_weekly_units": 9500,
+        "actual_trend_pct": -18.0,
+        "seasonality_factor": 2.2
+      },
+      "supplier": {
+        "lead_time_days": 7,
+        "reliability_score": 0.91,
+        "name": "FizzVentures Bottling"
+      },
+      "costs": {
+        "transport_premium_pct": 30.0,
+        "carrying_cost_daily_per_unit": 0.025,
+        "stockout_penalty_per_unit": 7.5
+      },
+      "seasonal_context": "mid_summer_peak",
+      "timestamp": "2025-07-22T14:00:00Z",
+      "additional_notes": "Open POs: PO#FV-238A for 15,000 units ships 2025-07-24; PO#FV-239A for 15,000 units ships 2025-07-31. Supplier is experiencing a raw material (berry concentrate) shortage and has offered a 5% discount on the next quarter's orders if we do not cancel or defer more than 10% of the current POs. Deadline to modify PO#FV-238A is tomorrow. The Denver DC requires refrigerated trucks for overflow, costing $0.15/unit/day. A regional festival sponsorship starting August 10th is expected to lift sales by 1.4x for two weeks. Long-range weather forecasts show a 60% chance of a major heatwave across the Southwest in the first half of August. 40% of current inventory is already over 45 days old."
+    },
+    "complexity_score": 8
+  },
+  {
+    "scenario_id": "scn_2026-04-10_industrial_sensor_auto_001",
+    "task": "A major automotive OEM client has just cut its Q2 production forecast for the 'TundraMax' truck model, causing our demand for the required proximity sensor to drop by 40%. Given our JIT supply agreement and the high cost of these components, evaluate the options for two inbound POs (PO#SEN-9550 and PO#SEN-9562). The primary goal is to minimize excess inventory and avoid line-down penalties at our own assembly plant, which uses these sensors. What is your recommendation?",
+    "context": {
+      "warehouse_a": {
+        "location": "Detroit, MI",
+        "utilization": 68.0,
+        "inventory_units": 8160,
+        "capacity_units": 12000
+      },
+      "warehouse_b": {
+        "location": "Greenville, SC",
+        "utilization": 80.0,
+        "inventory_units": 9600,
+        "capacity_units": 12000
+      },
+      "product": {
+        "sku": "IND-PROX-SENS-TMX",
+        "category": "industrial_components",
+        "shelf_life_days": 1825,
+        "unit_cost": 210.0,
+        "description": "Proximity Sensor, Model 4B, for TundraMax Assembly"
+      },
+      "demand": {
+        "forecast_weekly_units": 2000,
+        "actual_trend_pct": -40.0,
+        "seasonality_factor": 1.0
+      },
+      "supplier": {
+        "lead_time_days": 28,
+        "reliability_score": 0.99,
+        "name": "Sensortech AG"
+      },
+      "costs": {
+        "transport_premium_pct": 15.0,
+        "carrying_cost_daily_per_unit": 0.08,
+        "stockout_penalty_per_unit": 1200.0
+      },
+      "seasonal_context": "q2_production_ramp_up",
+      "timestamp": "2026-04-10T10:00:00Z",
+      "additional_notes": "Open POs: PO#SEN-9550 for 4,000 units scheduled to ship from Germany on 2026-04-15; PO#SEN-9562 for 4,000 units scheduled to ship 2026-04-29. The supply contract with Sensortech AG has a strict 'no cancellation' clause within 60 days of shipment. Deferring a shipment by up to 30 days is possible but requires a formal engineering change request (ECR) and incurs a 3% price increase on the deferred units. The OEM client has hinted they may pull forward their Q3 forecast if their own supply chain issues resolve, but with no firm commitment. Our own assembly line requires a minimum of 3 weeks of supply (WOS) on hand to avoid risk of a line-down event, which costs an estimated $250,000 per day. The current inventory is split 45% Detroit / 55% Greenville."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "TCS-20251015-001",
+    "task": "Analyze the current inventory situation and recommend whether to pay the 18.7% transport premium to move 4,000 units from Warehouse A (Stockton, CA) to Warehouse B (Kansas City, MO) via reefer FTL within the next 48 hours. Provide your reasoning and quantify expected costs/benefits.",
+    "context": {
+      "warehouse_a": {
+        "location": "Stockton, CA",
+        "utilization": 72.0,
+        "inventory_units": 17280,
+        "capacity_units": 24000
+      },
+      "warehouse_b": {
+        "location": "Kansas City, MO",
+        "utilization": 65.0,
+        "inventory_units": 10400,
+        "capacity_units": 16000
+      },
+      "product": {
+        "sku": "PF-ROM-12CT",
+        "category": "perishable_food",
+        "shelf_life_days": 14,
+        "unit_cost": 18.6,
+        "description": "Romaine Hearts 12ct retail pack (case)"
+      },
+      "demand": {
+        "forecast_weekly_units": 14000,
+        "actual_trend_pct": 22.0,
+        "seasonality_factor": 1.15
+      },
+      "supplier": {
+        "lead_time_days": 10,
+        "reliability_score": 0.88,
+        "name": "GreenFields Farms Cooperative"
+      },
+      "costs": {
+        "transport_premium_pct": 18.7,
+        "carrying_cost_daily_per_unit": 0.05,
+        "stockout_penalty_per_unit": 7.5
+      },
+      "seasonal_context": "Q2_spring_refresh",
+      "timestamp": "2025-10-15T08:00:00Z",
+      "additional_notes": "Carrier fuel surcharges increased mid-week; reefer carriers quoting +18.7% over last week's linehaul. Current spot quote Stockton, CA -> Kansas City, MO: $5,880 per FTL load (last week: $4,950). Two FTL moves would cover 4,000 units (approx. 2,000 units per load). Inter-warehouse reefer FTL transit time: ~2.5\u20133 days door-to-door. Temperature control 34\u201336\u00b0F; max recommended in-transit time 5 days for quality.\nRegional demand split of forecast: West 40% (served by Stockton), Central/East 60% (served by Kansas City). Baseline forecast = 14,000 units/week (West 5,600; Central/East 8,400). Actual trend +22% over the past 2 weeks, with store ads planned to run in Central/East starting in 6 days.\nOn-hand average age: Stockton 5 days, Kansas City 6 days. No inbound to Kansas City arriving within 7 days. Open PO GF-1175 to Kansas City: 8,800 units, planned ship in 2 days from Salinas, CA with supplier lead time 10 days (ETA ~10 days). Direct supplier reefer FTL to KC this week would also incur the +18.7% premium; current quote Salinas, CA -> KC: $6,050 per load; four loads planned for PO (2,200 units/load typical).\nAlternate mode: Temperature-controlled intermodal available Stockton -> KC (limited capacity). Two containers available within 48 hours, each ~2,000 units. Estimated all-in cost: $5,300 per container (linehaul + dray), not subject to the current premium. Estimated transit: 6\u20137 days (risk of 0.5\u20131 day variability). Rail provider on-time reliability 85% last quarter.\nOperational constraints: Stockton DC can pick/ship max 6,000 units/day for this SKU due to labor; KC outbound capacity up to 5,000 units/day. Customer service SLA is 98% case fill rate weekly. Any shorts incur a stockout penalty of $7.50/unit.\nDecision tension: Paying the premium improves speed (FTL 2.5\u20133 days) but increases cost; intermodal reduces cost but adds ~4 days; deferring to wait for supplier PO may create service risk given current trend and upcoming ads. Shelf-life at receipt for any transferred or inbound product must allow at least 5 days of sell-through upon arrival."
+    },
+    "complexity_score": 7
+  },
+  {
+    "scenario_id": "TCS-20251120-002",
+    "task": "Analyze inventory of new 'QuantumLeap G7' gaming consoles and recommend whether to pay a 21.5% drayage/FTL premium to move 1,500 units from a Long Beach, CA deconsolidation center to a Chicago, IL distribution center within 72 hours.",
+    "context": {
+      "warehouse_a": {
+        "location": "Long Beach, CA",
+        "utilization": 80.0,
+        "inventory_units": 8000,
+        "capacity_units": 10000
+      },
+      "warehouse_b": {
+        "location": "Chicago, IL",
+        "utilization": 20.8,
+        "inventory_units": 2500,
+        "capacity_units": 12000
+      },
+      "product": {
+        "sku": "QL-G7-CONSOLE",
+        "category": "consumer_electronics",
+        "shelf_life_days": 730,
+        "unit_cost": 450.0,
+        "description": "QuantumLeap G7 Gaming Console"
+      },
+      "demand": {
+        "forecast_weekly_units": 6000,
+        "actual_trend_pct": 35.0,
+        "seasonality_factor": 2.5
+      },
+      "supplier": {
+        "lead_time_days": 28,
+        "reliability_score": 0.95,
+        "name": "Quantum Tech Inc."
+      },
+      "costs": {
+        "transport_premium_pct": 21.5,
+        "carrying_cost_daily_per_unit": 0.12,
+        "stockout_penalty_per_unit": 150.0
+      },
+      "seasonal_context": "Q4_holiday_peak",
+      "timestamp": "2025-11-20T10:00:00Z",
+      "additional_notes": "Port congestion at LA/Long Beach is causing severe drayage and OTR capacity shortages. Premium quote for expedited team-driver FTL Long Beach -> Chicago: $7,150 per truck (500 units/truck). Three FTLs are needed. A slower intermodal option is available for $5,500 per 53' container (500 units/container), but has a 7-9 day transit time. The next vessel with 4,000 units allocated to Chicago is due in port in 12 days but faces potential berthing delays of 3-5 days. National Black Friday ad circulars launch in 8 days, heavily featuring the G7 console. Chicago DC serves the entire Midwest region, which accounts for 35% of national sales."
+    },
+    "complexity_score": 8
+  },
+  {
+    "scenario_id": "TCS-20250925-003",
+    "task": "Evaluate the critical inventory of 'FluVax-2025' and decide whether to pay a 25.0% premium for a validated cold-chain FTL to move 50,000 doses (5,000 units of 10-dose packs) from Raleigh, NC to Dallas, TX within 36 hours.",
+    "context": {
+      "warehouse_a": {
+        "location": "Raleigh, NC",
+        "utilization": 80.0,
+        "inventory_units": 12000,
+        "capacity_units": 15000
+      },
+      "warehouse_b": {
+        "location": "Dallas, TX",
+        "utilization": 15.0,
+        "inventory_units": 3000,
+        "capacity_units": 20000
+      },
+      "product": {
+        "sku": "PH-FLVX-10PK",
+        "category": "pharmaceuticals",
+        "shelf_life_days": 180,
+        "unit_cost": 85.0,
+        "description": "FluVax-2025 10-dose vial pack"
+      },
+      "demand": {
+        "forecast_weekly_units": 8000,
+        "actual_trend_pct": 15.0,
+        "seasonality_factor": 1.8
+      },
+      "supplier": {
+        "lead_time_days": 7,
+        "reliability_score": 0.75,
+        "name": "BioGenix Labs"
+      },
+      "costs": {
+        "transport_premium_pct": 25.0,
+        "carrying_cost_daily_per_unit": 0.08,
+        "stockout_penalty_per_unit": 40.0
+      },
+      "seasonal_context": "Q4_flu_season_ramp_up",
+      "timestamp": "2025-09-25T14:00:00Z",
+      "additional_notes": "A national shortage of qualified +2 to +8\u00b0C refrigerated carriers is driving up costs. Premium spot quote Raleigh -> Dallas: $6,500 per FTL (2,500 units/load). Standard rate is $5,200. Transit time is 2 days. An upcoming production batch of 10,000 units from BioGenix is scheduled to ship in 3 days, but their on-time in-full has dropped to 75% this quarter due to quality control holds. A multi-stop LTL cold-chain carrier can move the product for ~$5,000 per equivalent load, but transit is 4-5 days with a higher risk of temperature excursion. A state health department media campaign begins next week, expected to drive demand significantly."
+    },
+    "complexity_score": 9
+  },
+  {
+    "scenario_id": "TCS-20250801-004",
+    "task": "Assess the inventory of 'AeroFlex Skinny Jeans' and recommend whether to pay a 16.5% spot rate premium to move 6,000 units from Savannah, GA to Allentown, PA via dry van FTL within 48 hours to support back-to-school sales.",
+    "context": {
+      "warehouse_a": {
+        "location": "Savannah, GA",
+        "utilization": 62.5,
+        "inventory_units": 25000,
+        "capacity_units": 40000
+      },
+      "warehouse_b": {
+        "location": "Allentown, PA",
+        "utilization": 16.7,
+        "inventory_units": 5000,
+        "capacity_units": 30000
+      },
+      "product": {
+        "sku": "AP-JNS-SKNY-28",
+        "category": "apparel",
+        "shelf_life_days": 120,
+        "unit_cost": 22.5,
+        "description": "AeroFlex Skinny Jeans, size 28"
+      },
+      "demand": {
+        "forecast_weekly_units": 15000,
+        "actual_trend_pct": 18.0,
+        "seasonality_factor": 1.9
+      },
+      "supplier": {
+        "lead_time_days": 35,
+        "reliability_score": 0.92,
+        "name": "Global Garments Co."
+      },
+      "costs": {
+        "transport_premium_pct": 16.5,
+        "carrying_cost_daily_per_unit": 0.03,
+        "stockout_penalty_per_unit": 12.0
+      },
+      "seasonal_context": "Q3_back_to_school",
+      "timestamp": "2025-08-01T11:00:00Z",
+      "additional_notes": "Post-hurricane recovery efforts in the Southeast have tightened truck capacity. Current spot quote Savannah -> Allentown: $4,200 per FTL (last month: $3,600). 3 FTLs are needed for 6,000 units (2,000 units/load). Transit time is 2 days. The alternative is rail intermodal, costing $3,500 per container, but capacity is tight and transit is 5-6 days. The next import container with 8,000 units for Allentown is not due for another 11 days. This SKU is featured in a major retailer's catalog that drops in 5 days. Any stock arriving after the first two weeks of the sales period will likely require a 30% markdown to clear."
+    },
+    "complexity_score": 7
+  },
+  {
+    "scenario_id": "TCS-20250520-005",
+    "task": "Analyze the stock situation for 'VoltRush Tropical' energy drink and advise whether to pay a 20.0% transport premium to move 10,000 cases (units) from Atlanta, GA to Miami, FL using temp-controlled FTLs within the next 24 hours.",
+    "context": {
+      "warehouse_a": {
+        "location": "Atlanta, GA",
+        "utilization": 75.0,
+        "inventory_units": 45000,
+        "capacity_units": 60000
+      },
+      "warehouse_b": {
+        "location": "Miami, FL",
+        "utilization": 16.0,
+        "inventory_units": 8000,
+        "capacity_units": 50000
+      },
+      "product": {
+        "sku": "CPG-VR-TROP-24PK",
+        "category": "beverages",
+        "shelf_life_days": 270,
+        "unit_cost": 9.8,
+        "description": "VoltRush Tropical Energy Drink 24pk case"
+      },
+      "demand": {
+        "forecast_weekly_units": 25000,
+        "actual_trend_pct": 10.0,
+        "seasonality_factor": 1.4
+      },
+      "supplier": {
+        "lead_time_days": 4,
+        "reliability_score": 0.82,
+        "name": "Liquid Energy Bottling"
+      },
+      "costs": {
+        "transport_premium_pct": 20.0,
+        "carrying_cost_daily_per_unit": 0.02,
+        "stockout_penalty_per_unit": 5.5
+      },
+      "seasonal_context": "Q2_summer_beverage_promo",
+      "timestamp": "2025-05-20T09:00:00Z",
+      "additional_notes": "The Southeast produce season is consuming available reefer and temp-controlled capacity, causing rates to spike. Premium quote for temp-controlled FTL Atlanta -> Miami: $3,000 per load (last month: $2,500). Five FTLs are needed (2,000 cases/load). Transit time is 1-2 days. The next production run of 15,000 cases for Miami is scheduled to be ready in 3 days, but the plant has been missing its schedule by 1-2 days recently. A major grocery chain's 'Summer Kickoff' promotion featuring this product begins in 4 days in the Miami region. Failure to fill the initial promotional order could result in losing endcap space to a competitor for the entire event. Using standard dry vans for $2,200/load is an option, but risks product quality if trailers sit in the Florida sun."
+    },
+    "complexity_score": 8
+  }
+]
