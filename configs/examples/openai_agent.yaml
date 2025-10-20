@@ -10,6 +10,7 @@ agent:
     api_key_env: OPENAI_API_KEY
     temperature: 0.2
     max_output_tokens: 4096
+    timeout_seconds: 180
   response_format: null
 
 student:
@@ -25,6 +26,7 @@ teacher:
     api_key_env: OPENAI_API_KEY
     temperature: 0.1
     max_output_tokens: 4096
+    timeout_seconds: 180
 
 rim:
   small_model:
