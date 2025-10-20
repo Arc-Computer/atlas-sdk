@@ -384,6 +384,7 @@ On success you will see the export path echoed back along with a reminder that A
 ## Testing
 
 - Dual-agent runtime evaluation harness: see `docs/runtime_eval.md` for metrics, dataset schema, and CLI usage.
+- Reward model evaluation harness: see `docs/reward_eval.md` for judge matrices, dataset schema, and replay commands.
 
 ```bash
 PYTHONPATH=. pytest tests --disable-warnings
