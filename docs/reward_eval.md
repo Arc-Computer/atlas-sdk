@@ -49,7 +49,16 @@ Add new combinations by extending `JUDGE_PRESETS` and `JUDGE_COMBOS` in `scripts
      --repeats 1 \
      --concurrency 1
    ```
-4. Inspect the console table for high-level metrics and review the JSON artifact for per-run details.
+   4. Inspect the console table for high-level metrics and review the JSON artifact for per-run details.
+   When you are ready to compare every judge pairing in one pass, run:
+   ```bash
+   python -m scripts.eval_reward_models \
+     --judge-combos gemini_pair claude_stack gpt5_stack grok_stack \
+     --dataset atlas/data/reward_eval_trajectories.jsonl \
+     --output results/reward/latest.json \
+     --repeats 1 \
+     --concurrency 1
+   ```
 
 Key command options:
 - `--judge-combos`: space-separated combo IDs to evaluate (defaults to all built-ins).
@@ -66,10 +75,16 @@ Key command options:
 - **Baseline agreement:** delta statistics, Pearson correlation, and fraction of runs within ±0.02 reward of the baseline pair.
   *Tip:* divide `latency_*_ms` by 1 000 when reporting seconds.
 
-### Results (to be updated)
+#### Latest Evaluation (2025-10-20)
 
-| Date       | Baseline        | Highlights | Notes |
-|------------|-----------------|------------|-------|
-| YYYY-MM-DD | `gemini_pair`   | _TBD_      | Run `python -m scripts.eval_reward_models` and capture JSON under `results/reward/`. |
+| Combo ID      | Avg Reward | σ (Reward) | Avg Uncertainty | Escalation Rate | Avg Latency (s) |
+|---------------|-----------:|-----------:|----------------:|----------------:|----------------:|
+| `gemini_pair` | 0.938      | 0.206      | 0.028           | 5.0 %           | 13.8            |
+| `claude_stack`| 0.625      | 0.388      | 0.395           | 2.5 %           | 13.3            |
+| `gpt5_stack`  | 0.869      | 0.116      | 0.164           | 22.5 %          | 35.4            |
+| `grok_stack`  | 0.923      | 0.173      | 0.072           | 2.5 %           | 6.2             |
 
-Record final metrics in the table above once the evaluation completes, and summarize the preferred judge stack alongside escalation/latency observations. Reference the runtime findings in `docs/runtime_eval.md` to maintain continuity across probe → runtime → reward analyses.
+- Gemini remains the strongest overall scorer with low variance and minimal escalations at moderate latency (~14 s).  
+- Grok is nearly as strong on reward, with very low uncertainty and the fastest latency (~6 s).  
+- GPT‑5 yields solid reward but escalates frequently and costs ~35 s per evaluation.  
+- Claude shows competitive highs but 11/40 runs dropped to 0 (uncertainty 1.0), indicating remaining response-parsing issues for this stack—investigate before relying on it.
