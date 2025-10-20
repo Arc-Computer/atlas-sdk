@@ -13,7 +13,7 @@ This evaluation mirrors the probe and runtime sweeps for reward interpreters (RI
   - `task`, `final_answer`, `plan`, `steps`, `execution_mode`, `teacher_intervened`
   - `adaptive_summary`, `session_metadata`, `trajectory_type`
   - Optional `focus_prompt`
-- **Composition:** four cold-start (paired lane) sessions plus two warm-start samples that include `auto` and `coach` mode traces with stored learning history. The dataset was captured by instrumenting dual-agent runs just before the runtime invoked the existing evaluator.
+- **Composition:** Start with the curated seed trajectories (paired, auto, coach) included in the repo, then append fresh captures that contain full `final_answer` text and step outputs. The capture tool automatically skips blank runs so the dataset only contains usable trajectories.
 - **Expansion:** Use `scripts/capture_reward_trajectories.py` to record new trajectories without editing runtime code:
   ```bash
   python -m scripts.capture_reward_trajectories \
@@ -22,7 +22,8 @@ This evaluation mirrors the probe and runtime sweeps for reward interpreters (RI
     --limit 30 \
     --repeats 2 \
     --shuffle \
-    --append
+    --append \
+    --config configs/examples/openai_agent.yaml
   ```
   Run multiple passes (optionally with different task datasets or repeats) until at least 30 trajectories are captured; the script appends to the JSONL file while preserving the README header.
 
@@ -63,6 +64,7 @@ Key command options:
 - **Latency:** mean, median, and p95 wall-clock latency (milliseconds).
 - **Failures:** count of judge requests that raised exceptions.
 - **Baseline agreement:** delta statistics, Pearson correlation, and fraction of runs within ±0.02 reward of the baseline pair.
+  *Tip:* divide `latency_*_ms` by 1 000 when reporting seconds.
 
 ### Results (to be updated)
 

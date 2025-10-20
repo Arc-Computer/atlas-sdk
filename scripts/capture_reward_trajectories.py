@@ -151,6 +151,29 @@ def serialize_trajectory(
     }
 
 
+def _normalise_payload(entry: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(entry, dict):
+        return None
+    entry.setdefault("steps", [])
+    entry.setdefault("session_metadata", {})
+    entry.setdefault("adaptive_summary", {})
+    entry.setdefault("capture_metadata", {})
+    entry.setdefault("task_metadata", {})
+    return entry
+
+
+def _is_valid_payload(entry: dict[str, Any]) -> bool:
+    final_answer = str(entry.get("final_answer", "") or "").strip()
+    if final_answer:
+        return True
+    steps = entry.get("steps") or []
+    for step in steps:
+        output = str((step or {}).get("output", "") or "").strip()
+        if output:
+            return True
+    return False
+
+
 def clean_metadata(payload: Any) -> Any:
     if isinstance(payload, dict):
         return {key: clean_metadata(value) for key, value in payload.items()}
@@ -182,7 +205,7 @@ class TrajectoryCollector:
         session_metadata: dict[str, Any] | None,
         task_metadata: dict[str, Any] | None,
         capture_metadata: dict[str, Any] | None,
-    ) -> None:
+    ) -> bool:
         payload = serialize_trajectory(
             trajectory,
             adaptive_summary=adaptive_summary,
@@ -190,7 +213,15 @@ class TrajectoryCollector:
             task_metadata=task_metadata,
             capture_metadata=capture_metadata,
         )
-        self._records.append(payload)
+        if _is_valid_payload(payload):
+            self._records.append(payload)
+            return True
+        else:
+            print(
+                "[capture] skipping trajectory with empty outputs "
+                f"(task='{payload.get('task', '')[:60]}')"
+            )
+            return False
 
     @property
     def records(self) -> list[dict[str, Any]]:
@@ -207,7 +238,8 @@ class TrajectoryCollector:
                     if not line:
                         continue
                     existing.append(json.loads(line))
-        combined = existing + self._records
+        combined = [_normalise_payload(entry) for entry in existing + self._records]
+        combined = [entry for entry in combined if entry is not None and _is_valid_payload(entry)]
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w", encoding="utf-8") as handle:
             handle.write(comment.rstrip() + "\n")
@@ -286,6 +318,7 @@ async def capture_trajectories(args: argparse.Namespace) -> None:
     tasks = load_tasks(args.tasks)
     collector = TrajectoryCollector()
     total_runs = 0
+    attempts = 0
 
     for repeat in range(args.repeats):
         if args.shuffle:
@@ -302,6 +335,7 @@ async def capture_trajectories(args: argparse.Namespace) -> None:
             evaluator_factory = build_evaluator_factory(
                 collector, task_entry.metadata, capture_metadata
             )
+            recorded_before = len(collector.records)
             with patch("atlas.core._build_evaluator_instance", new=evaluator_factory):
                 await atlas_arun(
                     task=task_entry.task,
@@ -309,10 +343,17 @@ async def capture_trajectories(args: argparse.Namespace) -> None:
                     session_metadata={},
                     stream_progress=False,
                 )
-            total_runs += 1
-            print(
-                f"[capture] run {total_runs}/{args.limit} | task='{task_entry.task[:60]}'"
-            )
+            attempts += 1
+            recorded_after = len(collector.records)
+            if recorded_after > recorded_before:
+                total_runs += 1
+                print(
+                    f"[capture] collected {total_runs}/{args.limit} | task='{task_entry.task[:60]}'"
+                )
+            else:
+                print(
+                    f"[capture] attempt {attempts} produced empty output, retrying"
+                )
             if args.sleep:
                 await asyncio.sleep(args.sleep)
         if total_runs >= args.limit:
