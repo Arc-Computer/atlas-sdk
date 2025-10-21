@@ -151,35 +151,6 @@ student:
 
 If you need to force Atlas-managed prompts (e.g., for comparison runs), set `behavior: atlas` without changing code.
 
-### Using the general self-managed loop adapter
-
-When you want Atlas to host an existing control loop without writing a bespoke adapter, use the built-in `self_managed` type. Provide lightweight environment/agent wrappers that satisfy the `ManagedEnvironment` and `ManagedAgent` protocols:
-
-```yaml
-agent:
-  type: self_managed
-  name: secrl-agent
-  system_prompt: "Atlas governs the outer loop for SecRL."
-  behavior: self
-  environment:
-    import_path: integrations.secrl.environment
-    attribute: SecRLEnvironment
-    options:
-      incident: incident_5
-  agent:
-    import_path: integrations.secrl.agent
-    attribute: SecRLAgent
-    options:
-      max_steps: 15
-  telemetry_stream: true
-```
-
-- **Environment**: implement `areset(task, metadata)` → `ManagedObservation`, `astep(action)` → `EnvironmentStep`, and `aclose()`.
-- **Agent**: implement `areset`, optionally `aplan`, `aact` (returns `ManagedAction`), and `asummarize`.
-- Both wrappers can expose `set_event_emitter` to receive Atlas’ telemetry callback; the adapter will emit `ADAPTER_EVENT` records automatically for each action/result.
-
-This general adapter negotiates `control_loop="self"`, constructs a single-shot plan, replays the inner loop until the agent submits, captures the full trajectory into `adapter_capabilities` metadata, and returns a `StudentStepResult`-compatible mapping—leaving you with only the environment-specific glue code.
-
 ---
 
 ## 5. Inspect Negotiated Capabilities from the CLI
