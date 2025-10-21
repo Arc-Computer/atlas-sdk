@@ -53,7 +53,6 @@ Each line in `traces.jsonl` is an `AtlasSessionTrace`. The layout mirrors the da
 - `reward_stats` – rolling statistics captured when the session reward was logged (score mean/stddev, uncertainty).
 - `reward_audit` – raw prompts, responses, and reasoning metadata returned by each judge/arbiter invocation so teams can audit reward decisions.
 - `review_status` / `review_notes` – human-in-the-loop guardrail metadata.
-- `reward_stats` – the reward distribution snapshot captured at runtime (mean, stddev, sample count, uncertainties).
 - `drift` + `drift_alert` – z-score/MAD deltas against the recent baseline for the same learning key.
 
 ## Training Workflow
