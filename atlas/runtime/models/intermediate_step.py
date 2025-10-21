@@ -45,6 +45,7 @@ class IntermediateStepType(str, Enum):
     SPAN_START = "SPAN_START"
     SPAN_CHUNK = "SPAN_CHUNK"
     SPAN_END = "SPAN_END"
+    ADAPTER_EVENT = "ADAPTER_EVENT"
 
 
 class IntermediateStepState(str, Enum):
@@ -134,6 +135,7 @@ class IntermediateStepPayload(BaseModel):
             IntermediateStepType.SPAN_START: IntermediateStepCategory.SPAN,
             IntermediateStepType.SPAN_CHUNK: IntermediateStepCategory.SPAN,
             IntermediateStepType.SPAN_END: IntermediateStepCategory.SPAN,
+            IntermediateStepType.ADAPTER_EVENT: IntermediateStepCategory.CUSTOM,
         }
         return mapping[self.event_type]
 
@@ -156,6 +158,7 @@ class IntermediateStepPayload(BaseModel):
             IntermediateStepType.SPAN_START: IntermediateStepState.START,
             IntermediateStepType.SPAN_CHUNK: IntermediateStepState.CHUNK,
             IntermediateStepType.SPAN_END: IntermediateStepState.END,
+            IntermediateStepType.ADAPTER_EVENT: IntermediateStepState.CHUNK,
         }
         return mapping[self.event_type]
 

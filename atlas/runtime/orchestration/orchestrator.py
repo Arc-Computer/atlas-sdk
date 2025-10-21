@@ -128,6 +128,7 @@ class Orchestrator:
         context.metadata["task"] = task
 
         decision = await self._determine_adaptive_mode(task, context, dossier)
+        decision = self._enforce_adapter_capabilities(decision, context)
         mode = decision.mode or "escalate"
         context.metadata["execution_mode"] = mode
         self._store_mode_metadata(context, decision)
@@ -412,6 +413,38 @@ class Orchestrator:
         fallback_source = "probe_disabled" if self._capability_probe is None else "probe_fallback"
         mode = fallback_mode if fallback_mode in {"paired", "coach", "escalate"} else "paired"
         return AdaptiveModeDecision(mode=mode, source=fallback_source)
+
+    def _enforce_adapter_capabilities(
+        self,
+        decision: AdaptiveModeDecision,
+        context: ExecutionContext,
+    ) -> AdaptiveModeDecision:
+        capabilities = context.metadata.get("adapter_capabilities")
+        if not isinstance(capabilities, dict):
+            return decision
+        control_loop = str(capabilities.get("control_loop") or "").lower()
+        supports_stepwise = bool(capabilities.get("supports_stepwise", False))
+        if control_loop != "self":
+            return decision
+        if supports_stepwise:
+            return decision
+        requested_mode = decision.mode or ""
+        if requested_mode in {"coach", "escalate"} or not requested_mode:
+            fallback_mode = "paired"
+            source = decision.source or "adaptive_router"
+            source = f"{source}+adapter_capabilities" if decision.source else "adapter_capabilities"
+            logger.info(
+                "Adapter capabilities constrain execution: requested mode '%s' -> '%s'",
+                requested_mode or "unset",
+                fallback_mode,
+            )
+            return AdaptiveModeDecision(
+                mode=fallback_mode,
+                confidence=decision.confidence,
+                probe=decision.probe,
+                source=source,
+            )
+        return decision
 
     async def _run_capability_probe(
         self,

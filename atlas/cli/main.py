@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
+import json
 import sys
 from pathlib import Path
 from textwrap import dedent, indent
 
 from atlas.cli import train as train_cli
 from atlas.cli.storage_runtime import InitOptions, QuitOptions, init_storage, quit_storage
+from atlas.config.loader import load_config
+from atlas.connectors.factory import create_from_atlas_config
+from atlas.core import _open_adapter_session
+from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.utils.env import load_dotenv_if_available
 
 
@@ -113,6 +119,35 @@ def _cmd_storage_up(args: argparse.Namespace) -> int:
     return _cmd_init_storage(args)
 
 
+def _cmd_adapters_describe(args: argparse.Namespace) -> int:
+    try:
+        config = load_config(args.config)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        print(f"Failed to load config: {exc}", file=sys.stderr)
+        return 1
+    adapter = create_from_atlas_config(config)
+    execution_context = ExecutionContext.get()
+    execution_context.reset()
+
+    async def _describe() -> int:
+        try:
+            capabilities = await _open_adapter_session(
+                adapter=adapter,
+                task=args.task,
+                execution_context=execution_context,
+                adapter_config=config.agent,
+            )
+        except Exception as exc:  # pragma: no cover - defensive guard
+            print(f"Adapter handshake failed: {exc}", file=sys.stderr)
+            return 1
+        finally:
+            execution_context.reset()
+        print(json.dumps(capabilities.to_dict(), indent=2))
+        return 0
+
+    return asyncio.run(_describe())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="atlas",
@@ -140,6 +175,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     init_parser.add_argument("--force", action="store_true", help="Overwrite the output file if it already exists.")
     init_parser.set_defaults(handler=_cmd_triage_init)
+
+    adapters_parser = subparsers.add_parser("adapters", help="Adapter helper commands.")
+    adapters_parser.set_defaults(handler=lambda args: adapters_parser.print_help() or 0)
+    adapters_subparsers = adapters_parser.add_subparsers(dest="adapters_command", metavar="<subcommand>")
+
+    describe_parser = adapters_subparsers.add_parser(
+        "describe",
+        help="Describe adapter capabilities negotiated via handshake.",
+    )
+    describe_parser.add_argument("--config", required=True, help="Path to an Atlas configuration file.")
+    describe_parser.add_argument(
+        "--task",
+        default="describe capabilities",
+        help="Task string supplied during the adapter handshake (default: %(default)s).",
+    )
+    describe_parser.set_defaults(handler=_cmd_adapters_describe)
 
     init_storage_parser = subparsers.add_parser(
         "init",

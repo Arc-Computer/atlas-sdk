@@ -11,6 +11,7 @@ from typing import Any
 from atlas.runtime.models import IntermediateStep
 from atlas.runtime.models import IntermediateStepPayload
 from atlas.runtime.models import IntermediateStepState
+from atlas.runtime.models import IntermediateStepType
 from atlas.runtime.orchestration.execution_context import ExecutionContextState
 from atlas.utils.reactive.observable import OnComplete
 from atlas.utils.reactive.observable import OnError
@@ -58,6 +59,8 @@ class IntermediateStepManager:
                 payload.event_type,
                 parent_step_id,
             )
+        elif payload.event_type == IntermediateStepType.ADAPTER_EVENT:
+            parent_step_id = span_stack[-1]
         elif payload.event_state == IntermediateStepState.END:
             open_step = self._open_steps.pop(payload.UUID, None)
             if open_step is None:

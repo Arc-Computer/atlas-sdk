@@ -19,7 +19,10 @@ from __future__ import annotations
 
 from atlas.cli.jsonl_writer import ExportRequest, ExportSummary, export_sessions_sync
 from atlas.connectors import (
+    AdapterCapabilities,
+    AdapterControlLoop,
     AdapterError,
+    AdapterEventEmitter,
     AgentAdapter,
     build_adapter,
     create_adapter,
@@ -40,7 +43,10 @@ __all__ = [
     "StudentStepResult",
     "Teacher",
     # Connector registry helpers
+    "AdapterCapabilities",
+    "AdapterControlLoop",
     "AdapterError",
+    "AdapterEventEmitter",
     "AgentAdapter",
     "build_adapter",
     "create_adapter",

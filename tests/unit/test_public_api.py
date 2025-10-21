@@ -1,5 +1,11 @@
+from collections.abc import Callable as CallableABC
+from typing import get_args, get_origin
+
 from atlas import (
+    AdapterCapabilities,
+    AdapterControlLoop,
     AdapterError,
+    AdapterEventEmitter,
     AgentAdapter,
     AtlasRewardBreakdown,
     AtlasSessionTrace,
@@ -33,6 +39,10 @@ def test_public_api_surface_is_importable():
     # Connector helpers
     assert issubclass(AgentAdapter, object)
     assert issubclass(AdapterError, Exception)
+    assert issubclass(AdapterCapabilities, object)
+    literal_args = get_args(AdapterControlLoop)
+    assert "atlas" in literal_args and "self" in literal_args
+    assert get_origin(AdapterEventEmitter) is CallableABC
     for helper in (create_adapter, create_from_atlas_config, build_adapter, register_adapter):
         assert callable(helper)
 

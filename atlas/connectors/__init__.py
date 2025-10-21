@@ -2,7 +2,10 @@
 
 from .factory import create_adapter, create_from_atlas_config
 from .registry import (
+    AdapterCapabilities,
+    AdapterControlLoop,
     AdapterError,
+    AdapterEventEmitter,
     AgentAdapter,
     build_adapter,
     register_adapter,
@@ -12,7 +15,10 @@ from .registry import (
 from . import http, openai, python  # noqa: F401
 
 __all__ = [
+    "AdapterCapabilities",
+    "AdapterControlLoop",
     "AdapterError",
+    "AdapterEventEmitter",
     "AgentAdapter",
     "build_adapter",
     "create_adapter",

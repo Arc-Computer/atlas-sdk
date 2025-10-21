@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import json
 import sys
 import threading
 from typing import Any, Dict, Optional, TextIO, Tuple
@@ -69,6 +70,8 @@ class ConsoleTelemetryStreamer:
             self._handle_task_start(event)
         elif event_type == IntermediateStepType.TASK_END:
             self._handle_task_end(event)
+        elif event_type == IntermediateStepType.ADAPTER_EVENT:
+            self._handle_adapter_event(event)
 
     def _handle_workflow_start(self, event: IntermediateStep) -> None:
         data = event.payload.data
@@ -169,6 +172,30 @@ class ConsoleTelemetryStreamer:
             self._write(
                 f"STEP {step_id}: retry {attempt} | Reward evaluation deferred to session-level judge"
             )
+
+    def _handle_adapter_event(self, event: IntermediateStep) -> None:
+        data = event.payload.data
+        payload = data.output if data is not None else None
+        if not isinstance(payload, dict):
+            return
+        event_name = str(payload.get("event") or "adapter_event")
+        step_marker = payload.get("step")
+        reason = payload.get("reason")
+        raw_content = payload.get("payload")
+        if isinstance(raw_content, (dict, list)):
+            content_text = self._shorten(json.dumps(raw_content, ensure_ascii=False), 120)
+        elif raw_content is None:
+            content_text = ""
+        else:
+            content_text = self._shorten(str(raw_content), 120)
+        pieces = [f"ADAPTER {event_name}"]
+        if isinstance(step_marker, (int, str)):
+            pieces.append(f"step={step_marker}")
+        if reason:
+            pieces.append(f"reason={self._shorten(str(reason), 100)}")
+        if content_text:
+            pieces.append(f"data={content_text}")
+        self._write(" | ".join(pieces))
 
     def _capture_plan_metadata(self) -> None:
         if self._execution_context is None:

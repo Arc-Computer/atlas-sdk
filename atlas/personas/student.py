@@ -17,7 +17,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.messages import SystemMessage
 from langchain_core.messages import BaseMessage
 
-from atlas.connectors.registry import AgentAdapter
+from atlas.connectors.registry import AdapterCapabilities, AdapterError, AgentAdapter
 from atlas.runtime.models.intermediate_step import IntermediateStepPayload
 from atlas.runtime.models.intermediate_step import IntermediateStepType
 from atlas.runtime.models.intermediate_step import StreamEventData
@@ -62,10 +62,12 @@ class Student:
         adapter_config: AdapterConfig,
         student_config: StudentConfig,
         student_prompts: RewrittenStudentPrompts,
+        adapter_capabilities: AdapterCapabilities | None = None,
     ) -> None:
         self._adapter = adapter
         self._student_config = student_config
         self._prompts: RewrittenStudentPrompts = student_prompts
+        self._adapter_capabilities = adapter_capabilities
         self._bridge_llm, self._tools = build_bridge(adapter, adapter_config.tools)
         self._graph: Any | None = None
         self._graph_builder = ToolCallAgentGraph(
@@ -79,6 +81,29 @@ class Student:
             return_direct=None,
         )
         self._llm_stream_state: Dict[str, Dict[str, Any]] = {}
+
+    def _is_self_managed(self) -> bool:
+        return bool(
+            isinstance(self._adapter_capabilities, AdapterCapabilities)
+            and getattr(self._adapter_capabilities, "control_loop", "atlas") == "self"
+        )
+
+    def _capabilities_payload(self) -> Dict[str, Any] | None:
+        if isinstance(self._adapter_capabilities, AdapterCapabilities):
+            return self._adapter_capabilities.model_dump()
+        return None
+
+    def _build_adapter_metadata(self, phase: str, **extra: Any) -> Dict[str, Any]:
+        context = ExecutionContext.get()
+        payload: Dict[str, Any] = {
+            "phase": phase,
+            "capabilities": self._capabilities_payload(),
+            "execution_mode": context.metadata.get("execution_mode"),
+        }
+        for key, value in extra.items():
+            if value is not None:
+                payload[key] = value
+        return {key: value for key, value in payload.items() if value is not None}
 
     def _apply_usage_payload(self, usage: Any) -> Dict[str, int] | None:
         normalised = normalise_usage_payload(usage)
@@ -138,7 +163,6 @@ class Student:
         context = ExecutionContext.get()
         manager = context.intermediate_step_manager
         event_id = str(uuid4())
-        context.metadata["_reasoning_origin"] = ("student", "plan")
         manager.push_intermediate_step(
             IntermediateStepPayload(
                 UUID=event_id,
@@ -147,30 +171,38 @@ class Student:
                 data=StreamEventData(input={"task": task}),
             )
         )
-        context.metadata["active_actor"] = "student"
-        prompt = self._compose_planner_prompt(task)
+        self_managed = self._is_self_managed()
+        if self_managed:
+            context.metadata["active_actor"] = "adapter"
+        else:
+            context.metadata["_reasoning_origin"] = ("student", "plan")
+            context.metadata["active_actor"] = "student"
         try:
-            response = await self._adapter.ainvoke(prompt, metadata={"mode": "planning"})
-            self._apply_usage_payload(getattr(response, "usage", None))
-            response = self._unwrap_adapter_payload(response)
-            if isinstance(response, (dict, list)):
-                payload = response
+            if self_managed:
+                plan = await self._adapter_plan(task)
             else:
-                payload = self._parse_json_response(response)
-            normalised = self._normalise_plan_payload(payload)
-            if not isinstance(normalised, dict) or not normalised.get("steps"):
-                normalised = {
-                    "steps": [
-                        {
-                            "id": 1,
-                            "description": task,
-                            "depends_on": [],
-                            "tool": None,
-                            "tool_params": None,
-                        }
-                    ]
-                }
-            plan = Plan.model_validate(normalised)
+                prompt = self._compose_planner_prompt(task)
+                response = await self._adapter.ainvoke(prompt, metadata={"mode": "planning"})
+                self._apply_usage_payload(getattr(response, "usage", None))
+                response = self._unwrap_adapter_payload(response)
+                if isinstance(response, (dict, list)):
+                    payload = response
+                else:
+                    payload = self._parse_json_response(response)
+                normalised = self._normalise_plan_payload(payload)
+                if not isinstance(normalised, dict) or not normalised.get("steps"):
+                    normalised = {
+                        "steps": [
+                            {
+                                "id": 1,
+                                "description": task,
+                                "depends_on": [],
+                                "tool": None,
+                                "tool_params": None,
+                            }
+                        ]
+                    }
+                plan = Plan.model_validate(normalised)
         except Exception as exc:
             manager.push_intermediate_step(
                 IntermediateStepPayload(
@@ -189,7 +221,8 @@ class Student:
                 data=StreamEventData(output=plan.model_dump()),
             )
         )
-        self._consume_reasoning_metadata("student", "plan")
+        if not self_managed:
+            self._consume_reasoning_metadata("student", "plan")
         return plan
 
     async def aexecute_step(
@@ -199,6 +232,8 @@ class Student:
         guidance: Sequence[str] | None = None,
         recursion_limit: int = 8,
     ) -> StudentStepResult:
+        if self._is_self_managed():
+            return await self._adapter_execute_step(step, context, guidance)
         graph = await self._ensure_graph()
         messages = self._build_execution_messages(step, context, guidance)
         execution_context = ExecutionContext.get()
@@ -306,15 +341,23 @@ class Student:
                 data=StreamEventData(input={"task": task, "step_results": step_results}),
             )
         )
-        prompt = self._compose_synthesis_prompt(task, step_results)
+        self_managed = self._is_self_managed()
+        if self_managed:
+            context.metadata["active_actor"] = "adapter"
+        else:
+            context.metadata["active_actor"] = "student"
+        prompt = self._compose_synthesis_prompt(task, step_results) if not self_managed else None
         try:
-            response = await self._adapter.ainvoke(prompt, metadata={"mode": "synthesis"})
-            self._apply_usage_payload(getattr(response, "usage", None))
-            response = self._unwrap_adapter_payload(response)
-            if isinstance(response, str):
-                final_answer = response
+            if self_managed:
+                final_answer = await self._adapter_synthesize(task, step_results)
             else:
-                final_answer = json.dumps(response)
+                response = await self._adapter.ainvoke(prompt, metadata={"mode": "synthesis"})
+                self._apply_usage_payload(getattr(response, "usage", None))
+                response = self._unwrap_adapter_payload(response)
+                if isinstance(response, str):
+                    final_answer = response
+                else:
+                    final_answer = json.dumps(response)
         except Exception as exc:
             manager.push_intermediate_step(
                 IntermediateStepPayload(
@@ -334,6 +377,128 @@ class Student:
             )
         )
         return final_answer
+
+    async def _adapter_plan(self, task: str) -> Plan:
+        metadata = self._build_adapter_metadata("plan")
+        try:
+            response = await self._adapter.aplan(task=task, metadata=metadata)
+        except AdapterError:
+            raise
+        except Exception as exc:
+            raise AdapterError(f"adapter aplan failed: {exc}") from exc
+        try:
+            plan = Plan.model_validate(response)
+        except Exception as exc:
+            raise AdapterError(f"adapter aplan returned invalid plan payload: {exc}") from exc
+        if not plan.steps:
+            plan = Plan(
+                steps=[
+                    Step(
+                        id=1,
+                        description=task,
+                        tool=None,
+                        tool_params=None,
+                        depends_on=[],
+                    )
+                ],
+                execution_mode="single_shot",
+            )
+        else:
+            plan = plan.model_copy(update={"execution_mode": "single_shot"})
+        return plan
+
+    async def _adapter_execute_step(
+        self,
+        step: Step,
+        context: Dict[int, Any],
+        guidance: Sequence[str] | None,
+    ) -> StudentStepResult:
+        execution_context = ExecutionContext.get()
+        execution_context.metadata["active_actor"] = "adapter"
+        task_name = execution_context.metadata.get("task") if isinstance(execution_context.metadata, dict) else None
+        plan_payload = self._current_plan_payload()
+        metadata = self._build_adapter_metadata(
+            "execute",
+            step=step.model_dump(),
+            context=context,
+            guidance=list(guidance or []),
+        )
+        try:
+            response = await self._adapter.aexecute(
+                task=str(task_name or ""),
+                plan=plan_payload,
+                step=step.model_dump(),
+                metadata=metadata,
+            )
+        except AdapterError:
+            raise
+        except Exception as exc:
+            raise AdapterError(f"adapter aexecute failed: {exc}") from exc
+        result = self._coerce_step_result(response)
+        if not result.trace:
+            result.trace = json.dumps({"origin": "adapter", "step": step.id}, ensure_ascii=False)
+        return result
+
+    async def _adapter_synthesize(self, task: str, step_results: List[Dict[str, Any]]) -> str:
+        plan_payload = self._current_plan_payload()
+        metadata = self._build_adapter_metadata("synthesize", step_results=step_results)
+        try:
+            response = await self._adapter.asynthesize(
+                task=task,
+                plan=plan_payload,
+                step_results=step_results,
+                metadata=metadata,
+            )
+        except AdapterError:
+            raise
+        except Exception as exc:
+            raise AdapterError(f"adapter asynthesize failed: {exc}") from exc
+        if response is None:
+            raise AdapterError("adapter asynthesize returned empty response")
+        if isinstance(response, str):
+            return response
+        if isinstance(response, (dict, list)):
+            return json.dumps(response, ensure_ascii=False)
+        return str(response)
+
+    def _coerce_step_result(self, payload: Any) -> StudentStepResult:
+        if isinstance(payload, StudentStepResult):
+            return payload
+        if isinstance(payload, dict):
+            metadata = payload.get("metadata")
+            if not isinstance(metadata, dict):
+                metadata = {}
+            artifacts = payload.get("artifacts")
+            if not isinstance(artifacts, dict):
+                artifacts = {}
+            status = payload.get("status") or metadata.get("status") or "ok"
+            messages_payload = payload.get("messages")
+            messages: List[BaseMessage] = []
+            if isinstance(messages_payload, list) and all(isinstance(item, BaseMessage) for item in messages_payload):
+                messages = messages_payload  # type: ignore[assignment]
+            trace_value = payload.get("trace")
+            output_value = payload.get("output")
+            result = StudentStepResult(
+                trace=str(trace_value or ""),
+                output=str(output_value or ""),
+                messages=messages,
+                metadata=metadata,
+                attempts=int(payload.get("attempts") or 1),
+                status=str(status),
+                artifacts=artifacts,
+                deliverable=payload.get("deliverable"),
+            )
+            return result
+        raise AdapterError("adapter aexecute must return StudentStepResult or a mapping")
+
+    def _current_plan_payload(self) -> Dict[str, Any]:
+        context = ExecutionContext.get()
+        plan_metadata = context.metadata.get("plan") if isinstance(context.metadata, dict) else None
+        if isinstance(plan_metadata, dict):
+            return plan_metadata
+        if isinstance(plan_metadata, Plan):
+            return plan_metadata.model_dump()
+        return {}
 
     def create_plan(self, task: str) -> Plan:
         return self._run_async(self.acreate_plan(task))

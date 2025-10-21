@@ -1,0 +1,49 @@
+agent:
+  type: python
+  name: stateful-sqlite-agent
+  system_prompt: >
+    Atlas delegates execution to the partner adapter. This prompt is unused when control_loop="self".
+  behavior: self
+  tools: []
+  import_path: examples.adapters
+  attribute: StatefulSQLiteAdapter
+  allow_generator: false
+
+student:
+  prompts:
+    planner: "{base_prompt}"
+    executor: "{base_prompt}"
+    synthesizer: "{base_prompt}"
+  max_plan_tokens: 1024
+  max_step_tokens: 1024
+  max_synthesis_tokens: 1024
+  tool_choice: auto
+
+teacher:
+  llm:
+    provider: openai
+    model: gpt-4o-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.0
+    max_output_tokens: 2048
+    timeout_seconds: 120
+
+rim:
+  small_model:
+    provider: gemini
+    model: gemini/gemini-2.5-flash
+    api_key_env: GEMINI_API_KEY
+    max_output_tokens: 512
+  large_model:
+    provider: gemini
+    model: gemini/gemini-2.5-flash
+    api_key_env: GEMINI_API_KEY
+    max_output_tokens: 768
+  judge_prompt: "Reward traces that stream adapter telemetry and complete the task safely."
+  variance_threshold: 0.15
+  uncertainty_threshold: 0.3
+
+adaptive_teaching:
+  mode_override: paired
+
+storage: null

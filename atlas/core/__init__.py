@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import logging
 import os
 import sys
-import json
 from datetime import datetime, timezone
 from statistics import fmean
 from typing import Any
@@ -17,9 +17,12 @@ from typing import Optional
 from typing import Protocol
 from importlib import import_module
 
+from pydantic import ValidationError
+
+from atlas.connectors import AdapterCapabilities, AdapterError, AdapterEventEmitter, AgentAdapter
 from atlas.connectors.factory import create_from_atlas_config
 from atlas.config.loader import load_config
-from atlas.config.models import AdaptiveTeachingConfig, AtlasConfig, RewardObjectiveConfig, RuntimeSafetyConfig
+from atlas.config.models import AdaptiveTeachingConfig, AdapterConfig, AtlasConfig, RewardObjectiveConfig, RuntimeSafetyConfig
 from atlas.prompts import (
     RewrittenStudentPrompts,
     RewrittenTeacherPrompts,
@@ -27,6 +30,7 @@ from atlas.prompts import (
     build_teacher_prompts,
 )
 from atlas.runtime.orchestration.execution_context import ExecutionContext
+from atlas.runtime.models import AdapterTelemetryEvent, IntermediateStepPayload, IntermediateStepType, StreamEventData
 from atlas.runtime.adaptive import CapabilityProbeClient
 from atlas.runtime.orchestration.orchestrator import Orchestrator
 from atlas.evaluation.evaluator import Evaluator
@@ -85,6 +89,12 @@ async def arun(
         streamer.session_started(task)
     adapter = create_from_atlas_config(config)
     adapter_config = config.agent
+    adapter_capabilities = await _open_adapter_session(
+        adapter=adapter,
+        task=task,
+        execution_context=execution_context,
+        adapter_config=adapter_config,
+    )
     base_prompt = getattr(adapter_config, "system_prompt", "")
     if config.prompt_rewrite is not None:
         raise ValueError(
@@ -106,7 +116,7 @@ async def arun(
             "guidance": base_teacher_prompts.guidance,
         },
     }
-    student = _build_student(adapter, config, base_student_prompts)
+    student = _build_student(adapter, config, base_student_prompts, adapter_capabilities)
     teacher = Teacher(config.teacher, base_teacher_prompts, adapter_config.tools)
     evaluator = _build_evaluator_instance(config, getattr(adaptive_teaching_cfg, "reward", None))
     execution_context.metadata["adaptive_default_tags"] = list(getattr(adaptive_teaching_cfg, "default_tags", []) or [])
@@ -219,14 +229,121 @@ def run(
     raise RuntimeError("atlas.run cannot be invoked inside an existing event loop")
 
 
-def _build_student(adapter, config: AtlasConfig, student_prompts) -> Student:
+def _build_student(
+    adapter: AgentAdapter,
+    config: AtlasConfig,
+    student_prompts,
+    capabilities: AdapterCapabilities,
+) -> Student:
     adapter_config = config.agent
     return Student(
         adapter=adapter,
         adapter_config=adapter_config,
         student_config=config.student,
         student_prompts=student_prompts,
+        adapter_capabilities=capabilities,
     )
+
+
+async def _open_adapter_session(
+    *,
+    adapter: AgentAdapter,
+    task: str,
+    execution_context: ExecutionContext,
+    adapter_config: AdapterConfig,
+) -> AdapterCapabilities:
+    session_meta = execution_context.metadata.get("session_metadata")
+    session_payload = session_meta if isinstance(session_meta, dict) else None
+    event_emitter = _build_adapter_event_emitter(execution_context)
+    try:
+        raw_capabilities = await adapter.aopen_session(
+            task=task,
+            metadata=session_payload,
+            emit_event=event_emitter,
+        )
+    except AdapterError:
+        raise
+    except Exception as exc:  # pragma: no cover - defensive guard
+        raise AdapterError(f"adapter handshake failed: {exc}") from exc
+    capabilities = _coerce_adapter_capabilities(raw_capabilities)
+    capabilities = _apply_behavior_override(capabilities, adapter_config.behavior)
+    capabilities_dict = capabilities.to_dict()
+    execution_context.metadata["adapter_capabilities"] = capabilities_dict
+    session_meta = execution_context.metadata.setdefault("session_metadata", {})
+    if isinstance(session_meta, dict):
+        session_meta["adapter_capabilities"] = capabilities_dict
+        execution_context.metadata["session_metadata"] = session_meta
+    logger.info(
+        "Adapter handshake negotiated control_loop=%s supports_stepwise=%s telemetry_stream=%s (override=%s)",
+        capabilities.control_loop,
+        capabilities.supports_stepwise,
+        capabilities.telemetry_stream,
+        adapter_config.behavior or "default",
+    )
+    return capabilities
+
+
+def _coerce_adapter_capabilities(payload: Any) -> AdapterCapabilities:
+    if isinstance(payload, AdapterCapabilities):
+        return payload
+    if isinstance(payload, dict):
+        try:
+            return AdapterCapabilities.model_validate(payload)
+        except ValidationError as exc:
+            raise AdapterError(f"invalid adapter capabilities payload: {exc}") from exc
+    raise AdapterError(f"unsupported adapter capabilities type: {type(payload).__name__}")
+
+
+def _coerce_adapter_event(payload: Any) -> AdapterTelemetryEvent:
+    if isinstance(payload, AdapterTelemetryEvent):
+        return payload
+    if isinstance(payload, dict):
+        try:
+            return AdapterTelemetryEvent.model_validate(payload)
+        except ValidationError as exc:
+            raise AdapterError(f"invalid adapter telemetry event: {exc}") from exc
+    raise AdapterError(f"unsupported adapter telemetry event type: {type(payload).__name__}")
+
+
+def _apply_behavior_override(
+    capabilities: AdapterCapabilities,
+    behavior: str | None,
+) -> AdapterCapabilities:
+    if behavior is None:
+        return capabilities
+    desired = behavior.strip().lower()
+    if desired not in {"atlas", "self"}:
+        logger.warning("Ignoring unknown adapter.behavior override '%s'", behavior)
+        return capabilities
+    updates: Dict[str, Any] = {"control_loop": desired}
+    if desired == "atlas":
+        updates.setdefault("supports_stepwise", True)
+    return capabilities.model_copy(update=updates)
+
+
+def _build_adapter_event_emitter(
+    execution_context: ExecutionContext,
+) -> AdapterEventEmitter:
+    manager = execution_context.intermediate_step_manager
+
+    async def _emit(event: Any) -> None:
+        try:
+            telemetry = _coerce_adapter_event(event)
+        except AdapterError as exc:
+            logger.warning("Dropping adapter telemetry event: %s", exc)
+            return
+        metadata: Dict[str, Any] = {"source": "adapter"}
+        if telemetry.metadata:
+            metadata["adapter_metadata"] = telemetry.metadata
+        payload = IntermediateStepPayload(
+            event_type=IntermediateStepType.ADAPTER_EVENT,
+            name=telemetry.event,
+            data=StreamEventData(output=telemetry.envelope()),
+            metadata=metadata,
+        )
+        manager.push_intermediate_step(payload)
+
+    return _emit
 
 
 def _build_evaluator_instance(

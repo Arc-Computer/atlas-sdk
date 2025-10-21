@@ -1,5 +1,6 @@
 """Data models used by telemetry, storage, and orchestration."""
 
+from .adapter_event import AdapterEventName, AdapterTelemetryEvent
 from .intermediate_step import (
     IntermediateStep,
     IntermediateStepPayload,
@@ -10,6 +11,8 @@ from .intermediate_step import (
 from .invocation_node import InvocationNode
 
 __all__ = [
+    "AdapterEventName",
+    "AdapterTelemetryEvent",
     "IntermediateStep",
     "IntermediateStepPayload",
     "IntermediateStepState",

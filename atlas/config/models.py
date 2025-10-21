@@ -73,6 +73,7 @@ class AdapterConfig(BaseModel):
     name: str
     system_prompt: str
     tools: List[ToolDefinition] = Field(default_factory=list)
+    behavior: Literal["atlas", "self"] | None = Field(default=None)
 
 class HTTPAdapterTransport(BaseModel):
     """Connection parameters for HTTP adapters."""
