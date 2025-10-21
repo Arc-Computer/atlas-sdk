@@ -5,8 +5,14 @@ import pytest
 
 pytest.importorskip("langchain_core")
 
-from atlas.connectors import AdapterCapabilities, AgentAdapter
-from atlas.config.models import AdapterType, PythonAdapterConfig, StudentConfig
+from atlas.connectors import AdapterCapabilities, AgentAdapter, create_adapter
+from atlas.config.models import (
+    AdapterType,
+    PythonAdapterConfig,
+    PythonComponentConfig,
+    SelfManagedAdapterConfig,
+    StudentConfig,
+)
 from atlas.core import _open_adapter_session
 from atlas.personas.student import Student
 from atlas.prompts import build_student_prompts
@@ -15,6 +21,7 @@ from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.runtime.orchestration.orchestrator import AdaptiveModeDecision, Orchestrator
 from atlas.config.models import OrchestrationConfig, RIMConfig, LLMParameters
 from atlas.cli.main import _cmd_adapters_describe
+from tests.unit.self_managed_components import LoopAgent, LoopEnvironment
 
 
 class _RecordingAdapter(AgentAdapter):
@@ -162,6 +169,52 @@ async def test_behavior_override_forces_stepwise_and_preserves_reported_capabili
     session_meta = context.metadata.get("session_metadata", {})
     assert session_meta.get("adapter_capabilities_reported") == reported
     assert session_meta.get("adapter_capabilities") == effective
+
+
+@pytest.mark.asyncio
+async def test_self_managed_loop_adapter_executes_inner_loop():
+    LoopEnvironment.instances.clear()
+    ExecutionContext.get().reset()
+    adapter_config = SelfManagedAdapterConfig(
+        type=AdapterType.SELF_MANAGED,
+        name="self-loop",
+        system_prompt="unused",
+        tools=[],
+        environment=PythonComponentConfig(
+            import_path="tests.unit.self_managed_components",
+            attribute="LoopEnvironment",
+            options={},
+        ),
+        agent=PythonComponentConfig(
+            import_path="tests.unit.self_managed_components",
+            attribute="LoopAgent",
+            options={},
+        ),
+        telemetry_stream=True,
+    )
+    adapter = create_adapter(adapter_config)
+    events: list[dict[str, object]] = []
+
+    async def _emit(event):
+        events.append(event)
+
+    capabilities = await adapter.aopen_session(task="Investigate", metadata={"qid": 7}, emit_event=_emit)
+    assert capabilities.control_loop == "self"
+    assert capabilities.supports_stepwise is False
+    plan = await adapter.aplan("Investigate")
+    assert plan.execution_mode == "single_shot"
+    result = await adapter.aexecute(
+        "Investigate",
+        plan.model_dump(),
+        plan.steps[0].model_dump(),
+    )
+    assert "final summary" in result["output"]
+    assert result["metadata"]["iterations"] == 2
+    assert events, "expected telemetry events to be emitted"
+    synthesized = await adapter.asynthesize("Investigate", plan.model_dump(), [result])
+    assert synthesized == result["deliverable"]
+    await adapter.aclose()
+    assert LoopEnvironment.instances[-1].closed is True
 
 
 def test_orchestrator_enforces_adapter_capabilities():

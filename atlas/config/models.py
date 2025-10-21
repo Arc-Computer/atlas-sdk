@@ -63,6 +63,7 @@ class AdapterType(str, Enum):
     HTTP = "http_api"
     PYTHON = "python"
     OPENAI = "openai"
+    SELF_MANAGED = "self_managed"
 
 class AdapterConfig(BaseModel):
     """Base configuration shared by BYOA adapters."""
@@ -74,6 +75,14 @@ class AdapterConfig(BaseModel):
     system_prompt: str
     tools: List[ToolDefinition] = Field(default_factory=list)
     behavior: Literal["atlas", "self"] | None = Field(default=None)
+
+
+class PythonComponentConfig(BaseModel):
+    """Lightweight configuration for dynamically imported Python components."""
+
+    import_path: str
+    attribute: str | None = None
+    options: Dict[str, Any] = Field(default_factory=dict)
 
 class HTTPAdapterTransport(BaseModel):
     """Connection parameters for HTTP adapters."""
@@ -102,6 +111,18 @@ class PythonAdapterConfig(AdapterConfig):
     working_directory: str | None = None
     allow_generator: bool = False
     llm: "LLMParameters | None" = None
+
+
+class SelfManagedAdapterConfig(AdapterConfig):
+    """Adapter that orchestrates a self-managed agent/environment loop."""
+
+    type: Literal[AdapterType.SELF_MANAGED] = AdapterType.SELF_MANAGED
+    environment: PythonComponentConfig
+    agent: PythonComponentConfig
+    telemetry_stream: bool = True
+    max_iterations: int | None = Field(default=None, ge=1)
+    plan_description: str | None = None
+    auto_close_environment: bool = True
 
 class LLMProvider(str, Enum):
     """LLM providers supported by Atlas."""
@@ -146,7 +167,7 @@ class OpenAIAdapterConfig(AdapterConfig):
             raise ValueError("openai adapter requires an OpenAI compatible provider")
         return value
 
-AdapterUnion = HTTPAdapterConfig | PythonAdapterConfig | OpenAIAdapterConfig
+AdapterUnion = HTTPAdapterConfig | PythonAdapterConfig | OpenAIAdapterConfig | SelfManagedAdapterConfig
 
 class StudentPrompts(BaseModel):
     """Prompt templates used when delegating to the Student."""

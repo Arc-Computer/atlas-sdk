@@ -12,7 +12,16 @@ from .registry import (
 )
 
 # Import adapters to trigger registration
-from . import http, openai, python  # noqa: F401
+from . import http, openai, python, self_managed  # noqa: F401
+
+from .self_managed import (
+    EnvironmentStep,
+    ManagedAction,
+    ManagedAgent,
+    ManagedEnvironment,
+    ManagedObservation,
+    SelfManagedLoopAdapter,
+)
 
 __all__ = [
     "AdapterCapabilities",
@@ -24,4 +33,10 @@ __all__ = [
     "create_adapter",
     "create_from_atlas_config",
     "register_adapter",
+    "EnvironmentStep",
+    "ManagedAction",
+    "ManagedAgent",
+    "ManagedEnvironment",
+    "ManagedObservation",
+    "SelfManagedLoopAdapter",
 ]

@@ -20,7 +20,7 @@ With the split between SDK (runtime) and ATLAS (training) in mind, here's what o
 - **Persistent Learning Memory** – After each task, we store what guidance helped and what didn’t. Helpful tips are ready for the next run, and you can plug in Postgres when you want a durable trail of persona memories.
 - **Production Telemetry & Export** – Out of the box you get a terminal feed that shows lane decisions, probe confidence, certification flags, and reward scores. Export the same telemetry to JSONL with one CLI call (`arc-atlas`) so training pipelines can consume it without extra wiring.
 - **Bring-Your-Own-Agent Harness** – Point the SDK at whatever agent you already run, OpenAI-compatible chat, a Python function, or an HTTP endpoint. Drop your prompts and tools into the provided YAML templates and the runtime handles the rest.
-- **Adapter Handshake** – Self-managed orchestrators can declare `control_loop=self`, stream adapter telemetry, and let Atlas handle teacher rewards without prompt rewrites ([design note](docs/adapters/adapters.md)).
+- **Adapter Handshake & Loop Adapter** – Self-managed orchestrators can declare `control_loop=self`, stream adapter telemetry, and let Atlas handle teacher rewards without prompt rewrites; the built-in `self_managed` adapter now hosts external control loops with only thin environment/agent wrappers ([design note](docs/adapters/adapters.md)).
 - **Lightweight Defaults** – Your first run doesn’t spin up databases or exporters. All the heavier integrations (storage, dashboards, advanced telemetry) stay optional until you explicitly enable them.
 
 ---
