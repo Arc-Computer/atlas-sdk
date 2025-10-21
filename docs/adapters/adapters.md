@@ -1,98 +1,179 @@
-# Adapter Handshake & Telemetry Contract
+# Atlas Adapter Handshake Guide
 
-Partners that already run multi-step agents were forced to let Atlas drive the inner loop. Issue #65 introduces a capability handshake that lets adapters declare whether they retain control, while Atlas continues to run the outer loop (triage, teacher review, reward capture, export guardrails). This note documents the contract and the reference implementation that shipped with the runtime.
+This guide shows you how to plug an existing agent into the Atlas runtime while keeping your own control loop. By implementing a small handshake plus three async hooks you can let Atlas record telemetry, run governance (teacher, reward, review), and export datasets without prompt rewrites or retries in the middle of your run.
 
-## Capability Handshake
+---
 
-Every adapter now receives an `aopen_session` call when a session starts:
+## Prerequisites
+
+- Python 3.10+ with the `atlas` package installed in your environment.
+- An adapter that implements the `AgentAdapter` protocol (see `atlas/connectors/registry.py`).
+- Access to the Atlas config file that wraps your adapter (YAML).
+
+If you are starting from scratch, copy the sample implementation in `examples/adapters.py` and the config in `configs/examples/adapters.yaml` to your project.
+
+---
+
+## 1. Advertise Capabilities During Session Handshake
+
+When Atlas opens a session it calls `aopen_session`. Your adapter must return an `AdapterCapabilities` object (or dict) describing how you want Atlas to orchestrate the run.
 
 ```python
-async def aopen_session(
-    self,
-    *,
-    task: str,
-    metadata: dict[str, Any] | None = None,
-    emit_event: AdapterEventEmitter | None = None,
-) -> AdapterCapabilities:
+from atlas.connectors import AdapterCapabilities, AgentAdapter, AdapterEventEmitter
+
+class MyAdapter(AgentAdapter):
+    async def aopen_session(
+        self,
+        *,
+        task: str,
+        metadata: dict[str, str] | None = None,
+        emit_event: AdapterEventEmitter | None = None,
+    ) -> AdapterCapabilities:
+        self._emit_event = emit_event
+        return AdapterCapabilities(
+            control_loop="self",      # you own planning/execution
+            supports_stepwise=False, # Atlas should stay on auto/paired lanes
+            telemetry_stream=True,   # you will emit adapter events
+        )
+```
+
+Key fields:
+
+| Field | Description |
+|-------|-------------|
+| `control_loop` | `"atlas"` (apply prompts + retries) or `"self"` (your adapter owns the inner loop). |
+| `supports_stepwise` | `True` only if you can participate in Atlas’ step-by-step lanes (`coach`/`escalate`). |
+| `telemetry_stream` | Set to `True` to opt into event streaming (see Section 3). |
+
+The handshake payload is stored in `ExecutionContext.metadata["adapter_capabilities"]` and exported with the session record. Operators can override the behaviour in YAML by setting `agent.behavior: atlas|self`.
+
+---
+
+## 2. Implement Outer-Loop Hooks
+
+Self-managed adapters must implement three async hooks. Atlas calls each hook once per session to cover plan, execute, and synthesis phases. Stateless adapters can continue using `ainvoke` only.
+
+```python
+from atlas.types import Plan, Step
+from atlas.personas.student import StudentStepResult
+
+class MyAdapter(AgentAdapter):
     ...
+    async def aplan(self, task: str, metadata: dict | None = None) -> dict:
+        # return dict that validates against atlas.types.Plan
+        return {
+            "steps": [{
+                "id": 1,
+                "description": "Run entire task in one shot.",
+                "depends_on": [],
+                "tool": None,
+                "tool_params": None,
+            }],
+            "execution_mode": "single_shot",
+        }
+
+    async def aexecute(
+        self,
+        task: str,
+        plan: dict,
+        step: dict,
+        metadata: dict | None = None,
+    ) -> dict:
+        # perform your inner loop and return StudentStepResult-compatible dict
+        result_text = await self._run_agent(task)
+        return {
+            "trace": "...",              # string (for replay/debug)
+            "output": result_text,       # string (final student output)
+            "metadata": {"status": "ok", "reason": "..."},
+            "deliverable": result_text,  # optional rich deliverable
+        }
+
+    async def asynthesize(
+        self,
+        task: str,
+        plan: dict,
+        step_results: list[dict],
+        metadata: dict | None = None,
+    ) -> str:
+        return step_results[0].get("deliverable", "") if step_results else ""
 ```
 
-Return an `AdapterCapabilities` payload describing the inner-loop behaviour:
+Atlas still handles:
 
-```json
-{
-  "control_loop": "self",
-  "supports_stepwise": false,
-  "telemetry_stream": true
-}
-```
+- Triage and routing (auto / paired / coach / escalate) based on your capabilities.
+- Teacher validation and reward evaluation.
+- Persistence to Postgres and export reviews.
 
-- `control_loop`: `"atlas"` (default) keeps the existing prompt-driven flow. `"self"` tells Atlas to call the adapter once per outer-loop phase and skip intermediate retries.
-- `supports_stepwise`: set to `true` only if the adapter can participate in Atlas’ step-by-step lanes (`coach` / `escalate`). When `false`, Atlas automatically routes self-managed adapters to the single-shot modes (`auto` or `paired`).
-- `telemetry_stream`: advertise whether the adapter will use the supplied event emitter.
+---
 
-The handshake result is stored in `ExecutionContext.metadata["adapter_capabilities"]` and exported with the session metadata. Integrators can pin the behaviour in configuration with:
+## 3. Stream Adapter Telemetry (Optional but Recommended)
 
-```yaml
-agent:
-  behavior: self  # or atlas
-```
-
-The runtime honours the override while still recording the true handshake payload for audit.
-
-## Outer-Loop Hooks
-
-When `control_loop="self"`, the `Student` façade stops rewriting prompts. Instead, Atlas calls the adapter once per outer-loop phase:
+The `emit_event` callback provided during `aopen_session` lets you push telemetry into Atlas’ trajectory stream. Emit structured dictionaries or `AdapterTelemetryEvent` objects:
 
 ```python
-await adapter.aplan(task, metadata=...)
-await adapter.aexecute(task, plan, step, metadata=...)
-await adapter.asynthesize(task, plan, step_results, metadata=...)
-```
-
-- `aplan` should return a `Plan` (or dict) describing the work the adapter will perform. The runtime enforces single-shot execution unless `supports_stepwise=True`.
-- `aexecute` runs the entire inner loop and returns a mapping compatible with `StudentStepResult` (`trace`, `output`, `metadata`, optional `deliverable`, etc.).
-- `asynthesize` produces the final answer given the plan and step summaries.
-
-Atlas still:
-- Triages the task and records metadata.
-- Runs teacher review / validation when in `paired` mode.
-- Captures reward statistics and drift signals.
-- Streams intermediate steps (triage, routing, teacher verdicts) into Postgres.
-
-## Adapter Telemetry Events
-
-Self-managed adapters receive an `emit_event` callback during the handshake. Emitters are awaitable callables that accept dictionaries or `AdapterTelemetryEvent` objects:
-
-```python
-await emit_event({
-    "event": "env_action",           # env_action | tool_response | progress | error
-    "payload": {"sql": "..."},
-    "reason": "Deriving answer from demo dataset.",
-    "step": 1
+await self._emit_event({
+    "event": "env_action",            # env_action | tool_response | progress | error
+    "payload": {"tool": "search", "query": q},
+    "reason": "Kick off retrieval",
+    "step": 1,
 })
 ```
 
-Atlas wraps each event into an `IntermediateStep` with type `ADAPTER_EVENT`. They flow through:
-- `ExecutionContext.event_stream` (live subscribers).
-- Console telemetry (`ADAPTER ...` lines).
-- Postgres `trajectory_events`, so exports and replay tooling see adapter-originated traces.
+Atlas wraps the payload in an `ADAPTER_EVENT` intermediate step so it reaches:
 
-The JSON envelope stored downstream contains `event`, `payload`, `reason`, `step`, `timestamp`, and optional `metadata`.
+- `ExecutionContext.event_stream` subscribers.
+- Console telemetry (`ADAPTER …` lines).
+- Postgres `trajectory_events` (and downstream exports).
 
-## Reference Example
+Include enough detail for downstream analysis (what happened, why, and any context fields your replay tooling expects).
 
-`examples/adapters.py` implements `SQLiteAdapter`, a self-managed agent that queries a small in-memory SQLite dataset, emits telemetry, and returns a final answer without Atlas prompt rewrites. The matching configuration lives at `configs/examples/adapters.yaml`:
+---
+
+## 4. Configure Atlas to Load Your Adapter
+
+Add the adapter to your Atlas configuration. Example:
 
 ```yaml
 agent:
   type: python
-  behavior: self
-  import_path: examples.adapters
+  name: adapters-sqlite-agent
+  import_path: my_project.adapters
   attribute: SQLiteAdapter
+  behavior: self          # prefer adapter-managed mode
+  tools: []
+
+student:
+  prompts:
+    planner: "{base_prompt}"
+    executor: "{base_prompt}"
+    synthesizer: "{base_prompt}"
 ```
 
-Run it with a short script:
+If you need to force Atlas-managed prompts (e.g., for comparison runs), set `behavior: atlas` without changing code.
+
+---
+
+## 5. Inspect Negotiated Capabilities from the CLI
+
+Use the CLI helper to verify the handshake for any config:
+
+```bash
+atlas adapters describe --config configs/examples/adapters.yaml --task "demo"
+```
+
+The command prints the capabilities negotiated via `aopen_session`, letting you confirm routing before launching a full run.
+
+---
+
+## 6. End-to-End Example
+
+The repo ships a working integration that you can adapt:
+
+- Code: `examples/adapters.py` (`SQLiteAdapter`)
+- Config: `configs/examples/adapters.yaml`
+- Test: `tests/unit/test_adapters.py`
+
+Try it with:
 
 ```python
 from atlas import core
@@ -101,16 +182,20 @@ result = core.run(
     task="List the active Atlas SDK projects and their velocity.",
     config_path="configs/examples/adapters.yaml",
 )
-
 print(result.final_answer)
 ```
 
-You’ll see adapter events streamed in the console while the outer loop continues to triage, route, and capture reward stats.
+During the run you’ll see adapter telemetry on the console and the resulting session metadata will include your capability payload and emitted events.
 
-## Operational Notes
+---
 
-- Handshake failures surface as `AdapterError` to make debugging explicit.
-- If a self-managed adapter incorrectly reports `supports_stepwise=False` but later tries to emit step-level retries, Atlas still honours the single-shot contract.
-- Telemetry emitters must be awaited; the runtime warns and drops malformed events instead of failing the session.
+## Troubleshooting
 
-The design keeps stateless adapters untouched, while enabling adapter-managed partners to bring their own orchestration without losing Atlas governance or learning signals.
+| Symptom | Likely Cause | Fix |
+|---------|--------------|-----|
+| Adapter still runs step-by-step under Atlas control. | `control_loop` returned `"atlas"` or YAML override set to `atlas`. | Return `"self"` in `AdapterCapabilities` and remove the override. |
+| Adapter events missing from exports. | Not emitting telemetry or `telemetry_stream=False`. | Ensure `telemetry_stream=True` and call `emit_event`. |
+| Handshake raises `AdapterError`. | Capabilities payload fails validation. | Return an `AdapterCapabilities` instance or dict with the expected keys/values. |
+| Teacher retry logic appears in your run. | `supports_stepwise=True` or lane override requires validation (paired mode). | Set `supports_stepwise=False` to stay in single-shot lanes or disable retries in config. |
+
+If you run into edge cases, open an issue referencing the handshake contract so we can extend the schema safely.
