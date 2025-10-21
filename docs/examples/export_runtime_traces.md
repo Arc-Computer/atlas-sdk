@@ -48,8 +48,7 @@ Each line in `traces.jsonl` is an `AtlasSessionTrace`. The layout mirrors the da
   - `validation` results from the Teacher and `guidance` history.
   - `context.prior_results` containing outputs from prior steps.
   - `metadata` with retry attempt payloads and dependency hints.
-  - `adapter_session_id`, `adapter_usage`, and `adapter_events` for each step.
-- `session_metadata` – includes persisted metadata, execution status, timestamps, and the ordered list of trajectory events recorded during orchestration. The `adapter_session` payload mirrors the per-step metrics and is keyed by the runtime session ID.
+- `session_metadata` – includes persisted metadata, execution status, timestamps, and the ordered list of trajectory events recorded during orchestration.
 - `reward_stats` – rolling statistics captured when the session reward was logged (score mean/stddev, uncertainty).
 - `reward_audit` – raw prompts, responses, and reasoning metadata returned by each judge/arbiter invocation so teams can audit reward decisions.
 - `review_status` / `review_notes` – human-in-the-loop guardrail metadata.
