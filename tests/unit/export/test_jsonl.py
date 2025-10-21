@@ -22,6 +22,7 @@ class FakeDatabase:
                 "id": 1,
                 "task": "demo task",
                 "status": "succeeded",
+                "review_status": "approved",
                 "metadata": {"dataset": "demo"},
                 "created_at": None,
                 "completed_at": None,
@@ -34,6 +35,7 @@ class FakeDatabase:
             "id": 1,
             "task": "demo task",
             "status": "succeeded",
+            "review_status": "approved",
             "metadata": {
                 "dataset": "demo",
                 "adaptive_summary": {"adaptive_mode": "coach", "confidence": 0.72},
@@ -56,6 +58,16 @@ class FakeDatabase:
                 ]
             },
             "reward": json.dumps({"score": 0.91, "rationale": "Judge average"}),
+            "reward_stats": {"score": 0.91, "score_stddev": 0.04, "sample_count": 3},
+            "reward_audit": [
+                {
+                    "stage": "tier1",
+                    "model": "demo-model",
+                    "temperature": 0.2,
+                    "messages": [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}],
+                    "response": "{\"score\": 0.9}",
+                }
+            ],
             "student_learning": "Refine executive tone.",
             "teacher_learning": "Flag missing citations.",
             "created_at": None,
@@ -154,11 +166,14 @@ def test_exporter_writes_expected_jsonl(monkeypatch, tmp_path: Path):
     assert record["task"] == "demo task"
     assert record["final_answer"] == "done"
     assert isinstance(record["plan"], dict) and record["plan"]["steps"][0]["description"] == "collect data"
+    assert record["review_status"] == "approved"
+    assert record["reward_stats"]["score"] == pytest.approx(0.91)
     assert record["session_metadata"]["status"] == "succeeded"
     assert record["adaptive_summary"]["adaptive_mode"] == "coach"
     assert record.get("learning_history", {}).get("count") == 2
     assert record.get("learning_key") == "demo-learning-key"
     assert record["session_reward"]["score"] == pytest.approx(0.91)
+    assert record["reward_audit"][0]["stage"] == "tier1"
     assert record["student_learning"] == "Refine executive tone."
     assert record["teacher_learning"] == "Flag missing citations."
     assert record["trajectory_events"][0]["type"] == "TASK_START"

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
-from statistics import pstdev
+from dataclasses import dataclass, field
+from statistics import fmean, pstdev
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from atlas.config.models import RIMConfig
@@ -55,6 +55,8 @@ class RewardEvaluation:
     reward: AtlasRewardBreakdown
     student_learning: str
     teacher_learning: Optional[str]
+    statistics: Dict[str, Any] = field(default_factory=dict)
+    audit: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -106,28 +108,36 @@ class Evaluator:
 
     async def aevaluate_session(self, trajectory: SessionTrajectory) -> RewardEvaluation:
         focus_prompt = trajectory.focus_prompt or self._default_focus_prompt
-        samples = await self._collect_samples(trajectory, focus_prompt)
+        samples, audit_entries = await self._collect_samples(trajectory, focus_prompt)
         escalated = False
         escalation_reason: Optional[str] = None
 
         if samples and self._should_escalate(samples):
-            arbiter_sample = await self._escalate_session(trajectory, samples, focus_prompt)
+            arbiter_sample, arbiter_audit = await self._escalate_session(trajectory, samples, focus_prompt)
             if arbiter_sample is not None:
                 samples = [arbiter_sample]
                 escalated = True
                 escalation_reason = "tier1_variance_or_uncertainty"
+            if arbiter_audit:
+                audit_entries.append(arbiter_audit)
 
         if not samples:
             samples = [self._empty_sample(focus_prompt)]
 
-        reward_breakdown, student_learning, teacher_learning = self._aggregate_samples(
+        reward_breakdown, student_learning, teacher_learning, statistics = self._aggregate_samples(
             samples,
             trajectory,
             escalated=escalated,
             escalation_reason=escalation_reason,
             focus_prompt=focus_prompt,
         )
-        return RewardEvaluation(reward_breakdown, student_learning, teacher_learning)
+        return RewardEvaluation(
+            reward_breakdown,
+            student_learning,
+            teacher_learning,
+            statistics,
+            audit_entries,
+        )
 
     def evaluate_session(self, trajectory: SessionTrajectory) -> RewardEvaluation:
         try:
@@ -140,44 +150,69 @@ class Evaluator:
         self,
         trajectory: SessionTrajectory,
         focus_prompt: str | None,
-    ) -> List[SessionSample]:
+    ) -> Tuple[List[SessionSample], List[Dict[str, Any]]]:
         tasks = [
             self._sample_session(trajectory, focus_prompt, temperature)
             for temperature in self._temperatures
         ]
         results = await asyncio.gather(*tasks)
-        samples = [sample for sample in results if sample is not None]
-        return samples
+        samples: List[SessionSample] = []
+        audit_entries: List[Dict[str, Any]] = []
+        for sample, audit in results:
+            if audit:
+                audit_entries.append(audit)
+            if sample is not None:
+                samples.append(sample)
+        return samples, audit_entries
 
     async def _sample_session(
         self,
         trajectory: SessionTrajectory,
         focus_prompt: str | None,
         temperature: float,
-    ) -> SessionSample | None:
+    ) -> Tuple[SessionSample | None, Dict[str, Any] | None]:
         messages = self._build_session_messages(trajectory, focus_prompt)
         exec_context = ExecutionContext.get()
         exec_context.metadata["active_actor"] = "reward"
         exec_context.metadata["_reasoning_origin"] = ("reward", "sample")
+        audit_entry: Dict[str, Any] | None = None
         try:
             response = await self._small_client.acomplete(
                 messages,
                 response_format={"type": "json_object"},
                 overrides={"temperature": temperature},
             )
-        except Exception:
+            audit_entry = {
+                "stage": "tier1",
+                "model": self._small_client.model,
+                "temperature": temperature,
+                "messages": messages,
+                "response": response.content,
+                "reasoning": response.reasoning or {},
+                "raw_response": response.raw,
+            }
+        except Exception as exc:
             exec_context.metadata.setdefault("_llm_reasoning_queue", [])
             exec_context.metadata["_llm_reasoning_queue"].clear()
-            return None
+            audit_entry = {
+                "stage": "tier1",
+                "model": self._small_client.model,
+                "temperature": temperature,
+                "messages": messages,
+                "error": repr(exc),
+            }
+            return None, audit_entry
 
         payload = self._try_parse_json(response.content)
-        self._consume_reasoning_metadata("reward", "sample")
+        reasoning_queue = self._consume_reasoning_metadata("reward", "sample")
+        if audit_entry is not None and reasoning_queue:
+            audit_entry["reasoning_queue"] = reasoning_queue
 
         if payload is None:
-            return None
+            return None, audit_entry
         parsed = self._parse_session_payload(payload)
         if parsed is None:
-            return None
+            return None, audit_entry
 
         return SessionSample(
             score=parsed["score"],
@@ -186,7 +221,7 @@ class Evaluator:
             principles=parsed["principles"],
             student_learning=parsed["student_learning"],
             teacher_learning=parsed["teacher_learning"],
-        )
+        ), audit_entry
 
     def _should_escalate(self, samples: Sequence[SessionSample]) -> bool:
         if len(samples) < 2:
@@ -202,7 +237,7 @@ class Evaluator:
         trajectory: SessionTrajectory,
         samples: Sequence[SessionSample],
         focus_prompt: str | None,
-    ) -> SessionSample | None:
+    ) -> Tuple[SessionSample | None, Dict[str, Any] | None]:
         tier1_summaries = []
         for index, sample in enumerate(samples, start=1):
             tier1_summaries.append(
@@ -233,6 +268,7 @@ class Evaluator:
         exec_context.metadata["active_actor"] = "reward"
         exec_context.metadata["_reasoning_origin"] = ("reward", "escalation")
         response = None
+        audit_entry: Dict[str, Any] | None = None
         try:
             response = await self._arbiter_client.acomplete(
                 messages=[{"role": "user", "content": meta_prompt}],
@@ -240,8 +276,22 @@ class Evaluator:
                 overrides={"temperature": 0.3},
             )
             payload = self._try_parse_json(response.content)
+            audit_entry = {
+                "stage": "arbiter",
+                "model": self._arbiter_client.model,
+                "messages": [{"role": "user", "content": meta_prompt}],
+                "response": response.content,
+                "reasoning": response.reasoning or {},
+                "raw_response": response.raw,
+            }
         except Exception:
             payload = None
+            audit_entry = {
+                "stage": "arbiter",
+                "model": self._arbiter_client.model,
+                "messages": [{"role": "user", "content": meta_prompt}],
+                "error": "exception_during_arbiter_call",
+            }
 
         reasoning_queue = self._consume_reasoning_metadata("reward", "escalation")
         reasoning = response.reasoning if payload is not None and response else None
@@ -250,12 +300,17 @@ class Evaluator:
                 reasoning = {"response": reasoning, "queue": reasoning_queue}
             else:
                 reasoning = {"queue": reasoning_queue}
+        if audit_entry is not None:
+            if reasoning is not None:
+                audit_entry.setdefault("reasoning", reasoning)
+            if reasoning_queue:
+                audit_entry.setdefault("reasoning_queue", reasoning_queue)
 
         if payload is None:
-            return None
+            return None, audit_entry
         parsed = self._parse_session_payload(payload)
         if parsed is None:
-            return None
+            return None, audit_entry
 
         return SessionSample(
             score=parsed["score"],
@@ -264,7 +319,7 @@ class Evaluator:
             principles=parsed["principles"],
             student_learning=parsed["student_learning"],
             teacher_learning=parsed["teacher_learning"],
-        )
+        ), audit_entry
 
     def _aggregate_samples(
         self,
@@ -311,6 +366,10 @@ class Evaluator:
             "teacher_intervened": trajectory.teacher_intervened,
             "focus_prompt": focus_prompt,
         }
+        score_stddev = pstdev(scores) if len(scores) > 1 else 0.0
+        uncertainty_values = [sample.uncertainty for sample in samples if sample.uncertainty is not None]
+        uncertainty_mean = fmean(uncertainty_values) if uncertainty_values else None
+        uncertainty_stddev = pstdev(uncertainty_values) if len(uncertainty_values) > 1 else (0.0 if uncertainty_values else None)
         reward = AtlasRewardBreakdown(
             score=aggregated_score,
             judges=[judge_breakdown],
@@ -328,7 +387,17 @@ class Evaluator:
             else:
                 teacher_learning = None
 
-        return reward, student_learning, teacher_learning
+        stats = {
+            "score": aggregated_score,
+            "score_mean": aggregated_score,
+            "score_stddev": score_stddev,
+            "sample_count": len(scores),
+            "uncertainty_mean": uncertainty_mean,
+            "uncertainty_stddev": uncertainty_stddev,
+            "best_uncertainty": best_sample.uncertainty,
+        }
+
+        return reward, student_learning, teacher_learning, stats
 
     def _build_session_messages(
         self,

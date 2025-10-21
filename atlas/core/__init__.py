@@ -5,18 +5,21 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import os
 import sys
 import json
+from datetime import datetime, timezone
 from statistics import fmean
 from typing import Any
 from typing import Dict
 from typing import List
+from typing import Optional
 from typing import Protocol
 from importlib import import_module
 
 from atlas.connectors.factory import create_from_atlas_config
 from atlas.config.loader import load_config
-from atlas.config.models import AdaptiveTeachingConfig, AtlasConfig, RewardObjectiveConfig
+from atlas.config.models import AdaptiveTeachingConfig, AtlasConfig, RewardObjectiveConfig, RuntimeSafetyConfig
 from atlas.prompts import (
     RewrittenStudentPrompts,
     RewrittenTeacherPrompts,
@@ -30,6 +33,7 @@ from atlas.evaluation.evaluator import Evaluator
 from atlas.personas.student import Student
 from atlas.personas.teacher import Teacher
 from atlas.runtime.storage.database import Database
+from atlas.runtime.learning.drift import RewardDriftDetector
 from atlas.runtime.telemetry import ConsoleTelemetryStreamer
 from atlas.runtime.telemetry.langchain_callback import configure_langchain_callbacks
 from atlas.runtime.learning_history import DEFAULT_HISTORY_LIMIT, aggregate_learning_history
@@ -147,7 +151,14 @@ async def arun(
         )
         result = await orchestrator.arun(task)
         if database and session_id is not None:
-            await _persist_results(database, session_id, execution_context, result, events)
+            await _persist_results(
+                database,
+                session_id,
+                execution_context,
+                result,
+                events,
+                runtime_safety=config.runtime_safety,
+            )
             await database.finalize_session(session_id, result.final_answer, "succeeded")
             if publisher is not None:
                 publisher.publish_control_event(
@@ -164,6 +175,7 @@ async def arun(
     except Exception as exc:
         if database and session_id is not None:
             await _persist_events(database, session_id, events)
+            await _persist_failure_metadata(database, session_id, execution_context)
             await database.finalize_session(session_id, "", "failed")
             if publisher is not None:
                 publisher.publish_control_event(
@@ -316,6 +328,8 @@ async def _persist_results(
     context: ExecutionContext,
     result: Result,
     events: List,
+    *,
+    runtime_safety: RuntimeSafetyConfig | None = None,
 ) -> None:
     await database.log_plan(session_id, result.plan)
     steps_metadata = context.metadata.get("steps", {})
@@ -327,13 +341,92 @@ async def _persist_results(
     session_reward = context.metadata.get("session_reward")
     student_learning = context.metadata.get("session_student_learning")
     teacher_learning = context.metadata.get("session_teacher_learning")
+    reward_stats = context.metadata.get("session_reward_stats") if isinstance(context.metadata, dict) else None
+    reward_audit = context.metadata.get("session_reward_audit") if isinstance(context.metadata, dict) else None
+    reward_audit = context.metadata.get("session_reward_audit") if isinstance(context.metadata, dict) else None
+    reward_audit = context.metadata.get("session_reward_audit") if isinstance(context.metadata, dict) else None
+    reward_audit = context.metadata.get("session_reward_audit") if isinstance(context.metadata, dict) else None
+    reward_audit = context.metadata.get("session_reward_audit") if isinstance(context.metadata, dict) else None
+    stats_payload: dict[str, Any] | None = None
+    audit_payload: list[dict[str, Any]] | None = None
+    if isinstance(reward_stats, dict):
+        stats_payload = dict(reward_stats)
+        stats_payload.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+        context.metadata["session_reward_stats"] = stats_payload
+    if isinstance(reward_audit, list):
+        audit_payload = [dict(entry) for entry in reward_audit]
+        context.metadata["session_reward_audit"] = audit_payload
     if session_reward is not None or student_learning is not None or teacher_learning is not None:
         await database.log_session_reward(
             session_id,
             session_reward,
             student_learning,
             teacher_learning,
+            stats_payload,
+            audit_payload,
         )
+    drift_result = None
+    drift_cfg = runtime_safety.drift if runtime_safety is not None else None
+    drift_enabled = True
+    drift_window = 50
+    drift_threshold = 3.0
+    drift_min_baseline = 5
+    if drift_cfg is not None:
+        drift_enabled = bool(drift_cfg.enabled)
+        drift_window = drift_cfg.window
+        drift_threshold = drift_cfg.z_threshold
+        drift_min_baseline = drift_cfg.min_baseline
+    env_enabled = os.getenv("ATLAS_DRIFT_ENABLED")
+    if env_enabled is not None:
+        drift_enabled = env_enabled.strip().lower() not in {"0", "false", "off"}
+    env_window = os.getenv("ATLAS_DRIFT_WINDOW")
+    if env_window:
+        try:
+            drift_window = max(int(env_window), 1)
+        except ValueError:
+            logger.warning("Invalid ATLAS_DRIFT_WINDOW value '%s'; using %s", env_window, drift_window)
+    env_threshold = os.getenv("ATLAS_DRIFT_Z_THRESHOLD")
+    if env_threshold:
+        try:
+            drift_threshold = max(float(env_threshold), 0.0)
+        except ValueError:
+            logger.warning("Invalid ATLAS_DRIFT_Z_THRESHOLD value '%s'; using %s", env_threshold, drift_threshold)
+    env_min_baseline = os.getenv("ATLAS_DRIFT_MIN_BASELINE")
+    if env_min_baseline:
+        try:
+            drift_min_baseline = max(int(env_min_baseline), 0)
+        except ValueError:
+            logger.warning(
+                "Invalid ATLAS_DRIFT_MIN_BASELINE value '%s'; using %s",
+                env_min_baseline,
+                drift_min_baseline,
+            )
+
+    if drift_enabled and stats_payload is not None:
+        drift_detector = RewardDriftDetector(
+            window=drift_window,
+            z_threshold=drift_threshold,
+            min_baseline=drift_min_baseline,
+        )
+        session_meta = context.metadata.setdefault("session_metadata", {})
+        learning_key = session_meta.get("learning_key") or context.metadata.get("learning_key")
+        drift_result = await drift_detector.assess(
+            database,
+            learning_key=learning_key,
+            current_stats=stats_payload,
+        )
+        if drift_result is not None:
+            drift_payload = drift_result.to_dict()
+            session_meta["drift"] = drift_payload
+            session_meta["drift_alert"] = drift_payload.get("drift_alert", False)
+            if drift_result.alert:
+                await database.update_session_review_status(session_id, "pending")
+                drift_payload.setdefault("message", f"Reward drift alert ({drift_result.reason or 'threshold'})")
+        context.metadata["session_metadata"] = session_meta
+    if audit_payload is not None:
+        session_meta = context.metadata.setdefault("session_metadata", {})
+        session_meta["reward_audit"] = audit_payload
+        context.metadata["session_metadata"] = session_meta
     await _update_session_metadata(database, session_id, context, result)
     await _persist_events(database, session_id, events)
 
@@ -343,11 +436,23 @@ async def _persist_events(database: Database, session_id: int, events: List) -> 
         await database.log_intermediate_step(session_id, event)
 
 
+async def _persist_failure_metadata(database: Database, session_id: int, context: ExecutionContext) -> None:
+    base_metadata = context.metadata.get("session_metadata") or {}
+    if not isinstance(base_metadata, dict):
+        base_metadata = {}
+    insights = _collect_session_insights(context, None)
+    if not insights and not base_metadata:
+        return
+    merged = {**base_metadata, **insights}
+    context.metadata["session_metadata"] = merged
+    await database.update_session_metadata(session_id, merged)
+
+
 async def _update_session_metadata(
     database: Database,
     session_id: int,
     context: ExecutionContext,
-    result: Result,
+    result: Result | None,
 ) -> None:
     base_metadata = context.metadata.get("session_metadata") or {}
     if not isinstance(base_metadata, dict):
@@ -360,7 +465,7 @@ async def _update_session_metadata(
     await database.update_session_metadata(session_id, merged)
 
 
-def _collect_session_insights(context: ExecutionContext, result: Result) -> dict[str, Any]:
+def _collect_session_insights(context: ExecutionContext, result: Result | None) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     triage = context.metadata.get("triage", {}).get("dossier") if isinstance(context.metadata, dict) else None
     if triage:
@@ -373,6 +478,12 @@ def _collect_session_insights(context: ExecutionContext, result: Result) -> dict
     if session_reward is not None:
         reward_payload = session_reward.to_dict() if hasattr(session_reward, "to_dict") else session_reward
         payload["session_reward"] = reward_payload
+    reward_stats = context.metadata.get("session_reward_stats") if isinstance(context.metadata, dict) else None
+    reward_audit = context.metadata.get("session_reward_audit") if isinstance(context.metadata, dict) else None
+    if isinstance(reward_stats, dict):
+        payload["reward_stats"] = dict(reward_stats)
+    if isinstance(reward_audit, list):
+        payload["reward_audit"] = [dict(entry) for entry in reward_audit if isinstance(entry, dict)]
     student_learning = context.metadata.get("session_student_learning") if isinstance(context.metadata, dict) else None
     if isinstance(student_learning, str) and student_learning.strip():
         payload["student_learning"] = student_learning
@@ -380,13 +491,24 @@ def _collect_session_insights(context: ExecutionContext, result: Result) -> dict
     if isinstance(teacher_learning, str) and teacher_learning.strip():
         payload["teacher_learning"] = teacher_learning
     session_reward_payload = payload.get("session_reward")
+    reward_summary: dict[str, Any] | None = None
     if session_reward_payload:
         raw_score = None
         if isinstance(session_reward_payload, dict):
             raw_score = session_reward_payload.get("score")
-        payload["reward_summary"] = {"score": raw_score}
-    else:
-        payload["reward_summary"] = _collect_reward_summary(result)
+        reward_summary = {"score": raw_score}
+    elif result is not None:
+        reward_summary = _collect_reward_summary(result)
+    if reward_summary is not None:
+        if isinstance(reward_stats, dict):
+            reward_summary.setdefault("score", reward_stats.get("score"))
+            if reward_stats.get("score_stddev") is not None:
+                reward_summary["score_stddev"] = reward_stats.get("score_stddev")
+            if reward_stats.get("uncertainty_mean") is not None:
+                reward_summary["uncertainty_mean"] = reward_stats.get("uncertainty_mean")
+            if reward_stats.get("uncertainty_stddev") is not None:
+                reward_summary["uncertainty_stddev"] = reward_stats.get("uncertainty_stddev")
+        payload["reward_summary"] = reward_summary
     history_snapshot = context.metadata.get("learning_history") if isinstance(context.metadata, dict) else None
     if isinstance(history_snapshot, dict):
         payload["learning_history"] = history_snapshot
@@ -396,6 +518,9 @@ def _collect_session_insights(context: ExecutionContext, result: Result) -> dict
     teacher_notes = _extract_teacher_notes(context)
     if teacher_notes:
         payload["teacher_notes"] = teacher_notes
+    adapter_session = context.metadata.get("adapter_session") if isinstance(context.metadata, dict) else None
+    if isinstance(adapter_session, dict) and adapter_session:
+        payload["adapter_session"] = adapter_session
     return payload
 
 

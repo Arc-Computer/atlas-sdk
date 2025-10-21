@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from statistics import fmean, median, pstdev
 from typing import Any, Dict, Iterable, List, Optional
 
 try:
@@ -79,13 +80,26 @@ class Database:
             evaluation_payload = result.evaluation
         serialized_evaluation = self._serialize_json(evaluation_payload)
         serialized_metadata = self._serialize_json(result.metadata) if getattr(result, "metadata", None) else None
+        adapter_session_id = None
+        adapter_usage_json = None
+        adapter_events_json = None
+        if isinstance(result.metadata, dict):
+            adapter_session_id = result.metadata.get("adapter_session_id")
+            usage_payload = result.metadata.get("usage")
+            events_payload = result.metadata.get("adapter_events")
+            if usage_payload is not None:
+                adapter_usage_json = self._serialize_json(usage_payload)
+            if events_payload is not None:
+                adapter_events_json = self._serialize_json(events_payload)
         async with pool.acquire() as connection:
             await connection.execute(
-                "INSERT INTO step_results(session_id, step_id, trace, output, evaluation, attempts, metadata)"
-                " VALUES ($1, $2, $3, $4, $5, $6, $7)"
+                "INSERT INTO step_results(session_id, step_id, trace, output, evaluation, attempts, metadata, adapter_session_id, adapter_usage, adapter_events)"
+                " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
                 " ON CONFLICT (session_id, step_id) DO UPDATE SET"
                 " trace = EXCLUDED.trace, output = EXCLUDED.output, evaluation = EXCLUDED.evaluation,"
-                " attempts = EXCLUDED.attempts, metadata = EXCLUDED.metadata",
+                " attempts = EXCLUDED.attempts, metadata = EXCLUDED.metadata,"
+                " adapter_session_id = EXCLUDED.adapter_session_id,"
+                " adapter_usage = EXCLUDED.adapter_usage, adapter_events = EXCLUDED.adapter_events",
                 session_id,
                 result.step_id,
                 result.trace,
@@ -93,6 +107,9 @@ class Database:
                 serialized_evaluation,
                 result.attempts,
                 serialized_metadata,
+                adapter_session_id,
+                adapter_usage_json,
+                adapter_events_json,
             )
 
     async def log_step_attempts(
@@ -159,15 +176,21 @@ class Database:
         reward: AtlasRewardBreakdown | Dict[str, Any] | None,
         student_learning: Optional[str],
         teacher_learning: Optional[str],
+        reward_stats: Optional[Dict[str, Any]] = None,
+        reward_audit: Optional[Iterable[Dict[str, Any]]] = None,
     ) -> None:
         pool = self._require_pool()
         serialized_reward = self._serialize_json(reward.to_dict() if hasattr(reward, "to_dict") else reward) if reward else None
+        serialized_stats = self._serialize_json(reward_stats) if reward_stats else None
+        serialized_audit = self._serialize_json(list(reward_audit)) if reward_audit else None
         async with pool.acquire() as connection:
             await connection.execute(
-                "UPDATE sessions SET reward = $1, student_learning = $2, teacher_learning = $3 WHERE id = $4",
+                "UPDATE sessions SET reward = $1, student_learning = $2, teacher_learning = $3, reward_stats = $4, reward_audit = $5 WHERE id = $6",
                 serialized_reward,
                 student_learning,
                 teacher_learning,
+                serialized_stats,
+                serialized_audit,
                 session_id,
             )
 
@@ -175,7 +198,7 @@ class Database:
         pool = self._require_pool()
         async with pool.acquire() as connection:
             rows = await connection.fetch(
-                "SELECT id, task, status, metadata, final_answer, reward, student_learning, teacher_learning, created_at, completed_at"
+                "SELECT id, task, status, review_status, review_notes, metadata, adapter_session_id, adapter_usage, adapter_events, final_answer, reward, reward_stats, reward_audit, student_learning, teacher_learning, created_at, completed_at"
                 " FROM sessions ORDER BY created_at DESC LIMIT $1 OFFSET $2",
                 limit,
                 offset,
@@ -186,7 +209,7 @@ class Database:
         pool = self._require_pool()
         async with pool.acquire() as connection:
             row = await connection.fetchrow(
-                "SELECT id, task, status, metadata, final_answer, reward, student_learning, teacher_learning, created_at, completed_at"
+                "SELECT id, task, status, review_status, review_notes, metadata, adapter_session_id, adapter_usage, adapter_events, final_answer, reward, reward_stats, reward_audit, student_learning, teacher_learning, created_at, completed_at"
                 " FROM sessions WHERE id = $1",
                 session_id,
             )
@@ -199,6 +222,70 @@ class Database:
         session = dict(row)
         session["plan"] = plan_row["plan"] if plan_row else None
         return session
+
+    async def list_sessions_by_status(self, review_status: str, limit: int = 50, offset: int = 0) -> List[dict[str, Any]]:
+        pool = self._require_pool()
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(
+                "SELECT id, task, status, review_status, review_notes, metadata, adapter_session_id, adapter_usage, adapter_events, final_answer, reward, reward_stats, reward_audit, student_learning, teacher_learning, created_at, completed_at"
+                " FROM sessions WHERE review_status = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+                review_status,
+                limit,
+                offset,
+            )
+        return [dict(row) for row in rows]
+
+    async def update_session_review_status(
+        self,
+        session_id: int,
+        review_status: str,
+        notes: Optional[str] = None,
+    ) -> None:
+        pool = self._require_pool()
+        async with pool.acquire() as connection:
+            if notes is None:
+                await connection.execute(
+                    "UPDATE sessions SET review_status = $1 WHERE id = $2",
+                    review_status,
+                    session_id,
+                )
+            else:
+                await connection.execute(
+                    "UPDATE sessions SET review_status = $1, review_notes = $2 WHERE id = $3",
+                    review_status,
+                    notes,
+                    session_id,
+                )
+
+    async def fetch_reward_baseline(
+        self,
+        learning_key: Optional[str] = None,
+        *,
+        window: int = 50,
+    ) -> dict[str, Any]:
+        pool = self._require_pool()
+        constraints: list[str] = ["reward_stats IS NOT NULL"]
+        params: list[Any] = []
+        if learning_key:
+            constraints.append("(metadata ->> 'learning_key') = $" + str(len(params) + 1))
+            params.append(learning_key)
+        limit_index = len(params) + 1
+        params.append(max(window, 1))
+        where_clause = " AND ".join(constraints)
+        query = (
+            "SELECT reward_stats FROM sessions"
+            f" WHERE {where_clause}"
+            " ORDER BY created_at DESC LIMIT $" + str(limit_index)
+        )
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(query, *params)
+        stats_payloads: list[dict[str, Any]] = []
+        for row in rows:
+            raw_stats = row.get("reward_stats")
+            payload = self._deserialize_json(raw_stats)
+            if isinstance(payload, dict):
+                stats_payloads.append(payload)
+        return self._aggregate_reward_baseline(stats_payloads, window=window)
 
     async def _initialize_schema(self, connection: "asyncpg.connection.Connection") -> None:
         if self._schema_initialized:
@@ -215,7 +302,7 @@ class Database:
         pool = self._require_pool()
         async with pool.acquire() as connection:
             step_rows = await connection.fetch(
-                "SELECT step_id, trace, output, evaluation, attempts, metadata"
+                "SELECT step_id, trace, output, evaluation, attempts, metadata, adapter_session_id, adapter_usage, adapter_events"
                 " FROM step_results WHERE session_id = $1 ORDER BY step_id",
                 session_id,
             )
@@ -248,6 +335,9 @@ class Database:
                     "evaluation": row["evaluation"],
                     "attempts": row["attempts"],
                     "metadata": row["metadata"],
+                    "adapter_session_id": row.get("adapter_session_id"),
+                    "adapter_usage": row.get("adapter_usage"),
+                    "adapter_events": row.get("adapter_events"),
                     "attempt_details": attempts_by_step.get(step_id, []),
                     "guidance_notes": guidance_by_step.get(step_id, []),
                 }
@@ -295,12 +385,80 @@ class Database:
         """Replace metadata payload for a session."""
         pool = self._require_pool()
         payload = self._serialize_json(metadata) if metadata is not None else None
+        adapter_session_id = None
+        adapter_usage_json = None
+        adapter_events_json = None
+        if isinstance(metadata, dict):
+            adapter_meta = metadata.get("adapter_session")
+            if isinstance(adapter_meta, dict):
+                adapter_session_id = adapter_meta.get("adapter_session_id")
+                usage_payload = adapter_meta.get("usage")
+                events_payload = adapter_meta.get("events")
+                if usage_payload is not None:
+                    adapter_usage_json = self._serialize_json(usage_payload)
+                if events_payload is not None:
+                    adapter_events_json = self._serialize_json(events_payload)
         async with pool.acquire() as connection:
             await connection.execute(
-                "UPDATE sessions SET metadata = $2 WHERE id = $1",
+                "UPDATE sessions SET metadata = $2, adapter_session_id = $3, adapter_usage = $4, adapter_events = $5 WHERE id = $1",
                 session_id,
                 payload,
+                adapter_session_id,
+                adapter_usage_json,
+                adapter_events_json,
             )
+
+    @staticmethod
+    def _aggregate_reward_baseline(
+        entries: Iterable[Dict[str, Any]],
+        *,
+        window: int,
+    ) -> dict[str, Any]:
+        snapshots = list(entries)
+        sample_count = len(snapshots)
+        score_values: list[float] = []
+        uncertainty_values: list[float] = []
+        best_uncertainties: list[float] = []
+        for snapshot in snapshots:
+            score_value = Database._coerce_float(
+                snapshot.get("score_mean", snapshot.get("score"))
+            )
+            if score_value is not None:
+                score_values.append(score_value)
+            uncertainty_mean = Database._coerce_float(snapshot.get("uncertainty_mean"))
+            if uncertainty_mean is not None:
+                uncertainty_values.append(uncertainty_mean)
+            best_uncertainty = Database._coerce_float(
+                snapshot.get("best_uncertainty", snapshot.get("min_uncertainty"))
+            )
+            if best_uncertainty is not None:
+                best_uncertainties.append(best_uncertainty)
+        baseline: dict[str, Any] = {
+            "window": window,
+            "sample_count": sample_count,
+            "score_mean": fmean(score_values) if score_values else None,
+            "score_median": median(score_values) if score_values else None,
+            "score_stddev": pstdev(score_values) if len(score_values) > 1 else (0.0 if score_values else None),
+            "uncertainty_mean": fmean(uncertainty_values) if uncertainty_values else None,
+            "uncertainty_median": median(uncertainty_values) if uncertainty_values else None,
+            "uncertainty_stddev": pstdev(uncertainty_values) if len(uncertainty_values) > 1 else (0.0 if uncertainty_values else None),
+            "best_uncertainty_mean": fmean(best_uncertainties) if best_uncertainties else None,
+            "best_uncertainty_median": median(best_uncertainties) if best_uncertainties else None,
+            "best_uncertainty_stddev": pstdev(best_uncertainties) if len(best_uncertainties) > 1 else (0.0 if best_uncertainties else None),
+            "scores": score_values,
+            "uncertainties": uncertainty_values,
+            "best_uncertainties": best_uncertainties,
+        }
+        return baseline
+
+    @staticmethod
+    def _coerce_float(value: Any) -> float | None:
+        try:
+            if value is None:
+                return None
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     def _require_pool(self) -> asyncpg.Pool:
         if self._pool is None:

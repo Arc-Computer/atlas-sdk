@@ -66,6 +66,8 @@ Then run the script:
 python run_quickstart.py
 ```
 
+> **Tip for local development:** the runtime now gates exports on approved sessions. If you are experimenting locally and don’t want to run the review CLI every time, set `ATLAS_REVIEW_REQUIRE_APPROVAL=0` in your shell before exporting traces. Production deployments should keep approval enabled.
+
 ---
 
 ## 📹 Video Walkthrough
@@ -102,9 +104,25 @@ The README hits the highlights. For the complete guide—including configuration
 4. Orchestrator.arun()        # executes steps, applies guidance, records telemetry
 5. Evaluator.ajudge()         # aggregates reward signals (process/helpfulness/custom)
 6. Database.log_*()           # optional persistence of plans, attempts, trajectory events
+7. Review + export guards     # reward stats + drift alerts gate training exports until approved
 ```
 
-Trajectory events stream through `ExecutionContext.event_stream`, enabling live console streaming and durable storage via `atlas/runtime/storage/database.py` and `atlas/runtime/storage/schema.sql`.
+Trajectory events stream through `ExecutionContext.event_stream`, enabling live console streaming and durable storage via `atlas/runtime/storage/database.py` and `atlas/runtime/storage/schema.sql`. Every persisted session now carries `reward_stats`, a `drift` payload, and a `review_status` (`pending`, `approved`, or `quarantined`). The `arc-atlas review ...` commands surface drift deltas and let operators approve or quarantine traces before `arc-atlas` exports them (approved runs remain the default filter).
+
+Add a `runtime_safety` block to tune guardrails without touching code:
+
+```yaml
+runtime_safety:
+  drift:
+    window: 75            # number of prior sessions in the baseline
+    z_threshold: 2.5      # sensitivity for score/uncertainty drift
+    min_baseline: 10      # minimum history before alerts fire
+  review:
+    require_approval: true
+    default_export_statuses: ["approved"]
+```
+
+Environment knobs (`ATLAS_DRIFT_WINDOW`, `ATLAS_DRIFT_Z_THRESHOLD`, `ATLAS_DRIFT_MIN_BASELINE`, `ATLAS_REVIEW_DEFAULT_EXPORT_STATUSES`, `ATLAS_REVIEW_REQUIRE_APPROVAL`) override the YAML for quick local experiments.
 
 ---
 

@@ -5,14 +5,30 @@ CREATE TABLE IF NOT EXISTS sessions (
     metadata JSONB,
     final_answer TEXT,
     reward JSONB,
+    reward_stats JSONB,
+    reward_audit JSONB,
     student_learning TEXT,
     teacher_learning TEXT,
+    review_status TEXT NOT NULL DEFAULT 'pending',
+    review_notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS sessions_learning_key_idx
     ON sessions ((metadata ->> 'learning_key'));
+
+ALTER TABLE sessions
+    ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'pending';
+
+ALTER TABLE sessions
+    ADD COLUMN IF NOT EXISTS review_notes TEXT;
+
+ALTER TABLE sessions
+    ADD COLUMN IF NOT EXISTS reward_stats JSONB;
+
+ALTER TABLE sessions
+    ADD COLUMN IF NOT EXISTS reward_audit JSONB;
 
 CREATE TABLE IF NOT EXISTS plans (
     session_id INTEGER PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,

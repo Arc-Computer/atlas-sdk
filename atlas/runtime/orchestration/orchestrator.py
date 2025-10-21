@@ -763,6 +763,8 @@ class Orchestrator:
             evaluation.reward,
             student_learning=evaluation.student_learning,
             teacher_learning=evaluation.teacher_learning,
+            stats=evaluation.statistics,
+            audit=evaluation.audit,
         )
 
     def _build_session_trajectory(self, task: str, plan: Plan, result: Result) -> SessionTrajectory:

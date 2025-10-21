@@ -72,14 +72,42 @@ def populated_store():
         ],
     }
     second_reward = dict(reward_payload, score=0.82)
+    reward_stats_payload = {
+        "score": 0.91,
+        "score_stddev": 0.03,
+        "sample_count": 3,
+        "uncertainty_mean": 0.11,
+    }
+    reward_audit_payload = [
+        {
+            "stage": "tier1",
+            "model": "gpt-small",
+            "temperature": 0.2,
+            "messages": [
+                {"role": "system", "content": "system"},
+                {"role": "user", "content": "user"},
+            ],
+            "response": "{\"score\": 0.9}",
+        }
+    ]
+    drift_payload = {
+        "alert": False,
+        "drift_alert": False,
+        "score_delta": 0.04,
+        "uncertainty_delta": -0.01,
+        "reason": "score_z",
+    }
 
     sessions = [
         {
             "id": 1,
             "task": "Process paperwork",
             "status": "succeeded",
-            "metadata": json.dumps({"source": "unit-test"}),
+            "review_status": "approved",
+            "metadata": json.dumps({"source": "unit-test", "drift": drift_payload}),
             "final_answer": "Completed",
+            "reward_stats": json.dumps(reward_stats_payload),
+            "reward_audit": json.dumps(reward_audit_payload),
             "created_at": datetime(2025, 1, 2, 12, 0, tzinfo=timezone.utc),
             "completed_at": datetime(2025, 1, 2, 12, 5, tzinfo=timezone.utc),
         }
@@ -147,6 +175,11 @@ def test_export_sessions_writes_expected_payload(populated_store, tmp_path):
     record = json.loads(contents[0])
 
     assert record["task"] == "Process paperwork"
+    assert record["review_status"] == "approved"
+    assert record["reward_stats"]["score"] == pytest.approx(0.91)
+    assert record["reward_audit"][0]["stage"] == "tier1"
+    assert record["drift"]["score_delta"] == pytest.approx(0.04)
+    assert record["drift_alert"] is False
     assert record["plan"]["steps"][0]["description"] == "Collect supporting documents"
     assert record["steps"][0]["description"] == "Collect supporting documents"
     assert record["steps"][0]["reward"]["score"] == pytest.approx(0.91)
@@ -181,6 +214,7 @@ def test_export_sessions_filters_session_ids(populated_store, tmp_path):
             "id": 2,
             "task": "Secondary",
             "status": "succeeded",
+            "review_status": "approved",
             "metadata": None,
             "final_answer": "",
             "created_at": datetime.now(timezone.utc),
@@ -199,3 +233,24 @@ def test_export_sessions_filters_session_ids(populated_store, tmp_path):
     assert stats.sessions == 1
     record = json.loads(output_path.read_text(encoding="utf-8").strip())
     assert record["session_metadata"]["session_id"] == 2
+
+
+def test_export_sessions_pending_excluded_until_included(populated_store, tmp_path):
+    populated_store._sessions[0]["review_status"] = "pending"
+    populated_store._session_details[1]["review_status"] = "pending"
+
+    output_path = tmp_path / "pending_default.jsonl"
+    stats_default = asyncio.run(export_sessions(populated_store, output_path))
+    assert stats_default.sessions == 0
+
+    output_override = tmp_path / "pending_override.jsonl"
+    stats_override = asyncio.run(
+        export_sessions(
+            populated_store,
+            output_override,
+            review_status_filters=["approved", "pending"],
+        )
+    )
+    assert stats_override.sessions == 1
+    record = json.loads(output_override.read_text(encoding="utf-8").strip())
+    assert record["review_status"] == "pending"

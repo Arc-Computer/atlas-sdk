@@ -32,6 +32,10 @@ class LLMClient:
     def __init__(self, parameters: LLMParameters) -> None:
         self._params = parameters
 
+    @property
+    def model(self) -> str:
+        return self._params.model
+
     async def acomplete(
         self,
         messages: Sequence[Dict[str, Any]],
