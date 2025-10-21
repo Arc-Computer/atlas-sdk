@@ -19,6 +19,7 @@ from atlas.runtime.models import InvocationNode
 from atlas.utils.reactive.subject import Subject
 
 if typing.TYPE_CHECKING:
+    from atlas.connectors.registry import AgentSession
     from atlas.types import StepEvaluation
     from atlas.utils.triage import TriageDossier
 
@@ -40,6 +41,7 @@ class ExecutionContextState(metaclass=_Singleton):
         self._active_function: ContextVar[InvocationNode | None] = ContextVar("active_function", default=None)
         self._active_span_id_stack: ContextVar[list[str] | None] = ContextVar("active_span_id_stack", default=None)
         self._metadata: ContextVar[dict[str, typing.Any] | None] = ContextVar("execution_metadata", default=None)
+        self._adapter_session: ContextVar["AgentSession | None"] = ContextVar("adapter_session", default=None)
 
     @property
     def event_stream(self) -> ContextVar[Subject[IntermediateStep]]:
@@ -64,6 +66,10 @@ class ExecutionContextState(metaclass=_Singleton):
         if self._metadata.get() is None:
             self._metadata.set({})
         return typing.cast(ContextVar[dict[str, typing.Any]], self._metadata)
+
+    @property
+    def adapter_session(self) -> ContextVar["AgentSession | None"]:
+        return typing.cast(ContextVar["AgentSession | None"], self._adapter_session)
 
     @staticmethod
     def get() -> ExecutionContextState:
@@ -102,11 +108,19 @@ class ExecutionContext:
     def event_stream(self) -> Subject[IntermediateStep]:
         return self._state.event_stream.get()
 
+    @property
+    def adapter_session(self) -> "AgentSession | None":
+        return self._state.adapter_session.get()
+
+    def set_adapter_session(self, session: "AgentSession | None") -> None:
+        self._state.adapter_session.set(session)
+
     def reset(self) -> None:
         self._state.metadata.set({})
         self._state.event_stream.set(Subject())
         self._state.active_function.set(InvocationNode(function_id="root", function_name="root"))
         self._state.active_span_id_stack.set(["root"])
+        self._state.adapter_session.set(None)
 
     def _step_metadata(self, step_id: int) -> dict:
         metadata = self._state.metadata.get()

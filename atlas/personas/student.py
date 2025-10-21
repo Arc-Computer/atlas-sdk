@@ -5,8 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
+from typing import AsyncIterator
 from typing import Dict
 from typing import List
 from typing import Sequence
@@ -18,6 +21,9 @@ from langchain_core.messages import SystemMessage
 from langchain_core.messages import BaseMessage
 
 from atlas.connectors.registry import AgentAdapter
+from atlas.connectors.registry import AgentSession
+from atlas.connectors.registry import SessionContext
+from atlas.connectors.registry import StatelessSession
 from atlas.runtime.models.intermediate_step import IntermediateStepPayload
 from atlas.runtime.models.intermediate_step import IntermediateStepType
 from atlas.runtime.models.intermediate_step import StreamEventData
@@ -56,6 +62,10 @@ class _GraphNodeDetails:
 
 
 class Student:
+    _SESSION_OPEN_RETRIES = 3
+    _SESSION_EVENTS_LIMIT = 50
+    _SESSION_BACKOFF_BASE = 0.4
+
     def __init__(
         self,
         adapter: AgentAdapter,
@@ -79,6 +89,206 @@ class Student:
             return_direct=None,
         )
         self._llm_stream_state: Dict[str, Dict[str, Any]] = {}
+
+    def _build_session_context(
+        self,
+        execution_context: ExecutionContext,
+        task: str,
+        execution_mode: str,
+        *,
+        user_context: Dict[str, Any] | None = None,
+    ) -> SessionContext:
+        tool_overview = [tool for tool in self._tools]
+        tool_metadata = [
+            {
+                "name": tool.name,
+                "description": getattr(tool, "description", ""),
+            }
+            for tool in tool_overview
+        ]
+        runtime_meta = execution_context.metadata
+        raw_session_id = None
+        session_meta = runtime_meta.get("session_metadata") if isinstance(runtime_meta, dict) else None
+        if isinstance(session_meta, dict):
+            raw_session_id = session_meta.get("session_id")
+        context = SessionContext(
+            task_id=str(raw_session_id or uuid4()),
+            execution_mode=execution_mode,
+            tool_metadata={"tools": tool_metadata},
+            user_context=user_context or {},
+        )
+        context.extra["task"] = task
+        context.extra["adapter_name"] = self._adapter.__class__.__name__
+        return context
+
+    def _ensure_session_metadata(
+        self,
+        execution_context: ExecutionContext,
+        session: AgentSession,
+    ) -> Dict[str, Any]:
+        metadata = execution_context.metadata.setdefault(
+            "adapter_session",
+            {
+                "adapter_session_id": session.session_id,
+                "adapter": self._adapter.__class__.__name__,
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0},
+                "events": [],
+            },
+        )
+        metadata.setdefault("adapter_session_id", session.session_id)
+        metadata.setdefault("adapter", self._adapter.__class__.__name__)
+        metadata.setdefault("metadata", dict(session.metadata))
+        metadata.setdefault("usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0})
+        metadata.setdefault("events", [])
+        return metadata
+
+    def _normalise_events(self, events: Any) -> List[Dict[str, Any]]:
+        if events is None:
+            return []
+        if isinstance(events, list):
+            sequence = events
+        else:
+            sequence = [events]
+        cleaned: List[Dict[str, Any]] = []
+        for entry in sequence:
+            if isinstance(entry, dict):
+                cleaned.append(entry)
+            else:
+                cleaned.append({"value": entry})
+        return cleaned
+
+    def _track_adapter_telemetry(
+        self,
+        usage: Dict[str, int] | None,
+        events: List[Dict[str, Any]],
+        session_id: str | None,
+    ) -> None:
+        context = ExecutionContext.get()
+        session_meta = context.metadata.setdefault("adapter_session", {})
+        if session_id:
+            session_meta["adapter_session_id"] = session_id
+        usage_totals = session_meta.setdefault(
+            "usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0}
+        )
+        usage_totals["calls"] = int(usage_totals.get("calls", 0)) + 1
+        if usage:
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                if usage.get(key) is not None:
+                    usage_totals[key] = int(usage_totals.get(key, 0)) + int(usage[key] or 0)
+        if events:
+            existing = session_meta.setdefault("events", [])
+            existing.extend(events)
+            if len(existing) > self._SESSION_EVENTS_LIMIT:
+                del existing[: len(existing) - self._SESSION_EVENTS_LIMIT]
+            pending = session_meta.setdefault("pending_events", [])
+            pending.extend(events)
+            if len(pending) > self._SESSION_EVENTS_LIMIT:
+                del pending[: len(pending) - self._SESSION_EVENTS_LIMIT]
+
+    async def _adapter_step(
+        self,
+        prompt: str,
+        *,
+        metadata: Dict[str, Any] | None = None,
+    ) -> tuple[Any, Dict[str, int] | None, List[Dict[str, Any]], str | None]:
+        context = ExecutionContext.get()
+        session = context.adapter_session
+        call_metadata = dict(metadata or {})
+        session_id: str | None = None
+        if session is not None:
+            session_id = session.session_id
+            call_metadata.setdefault("adapter_session_id", session_id)
+            response = await session.step(prompt, metadata=call_metadata)
+        else:
+            response = await self._adapter.ainvoke(prompt, metadata=call_metadata)
+        usage_payload = getattr(response, "usage", None)
+        if usage_payload is None and isinstance(response, dict):
+            usage_payload = response.get("usage")
+        normalised_usage = self._apply_usage_payload(usage_payload)
+        events_payload = getattr(response, "events", None)
+        if events_payload is None and isinstance(response, dict):
+            events_payload = response.get("events")
+        normalised_events = self._normalise_events(events_payload)
+        self._track_adapter_telemetry(normalised_usage, normalised_events, session_id)
+        return response, normalised_usage, normalised_events, session_id
+
+    @asynccontextmanager
+    async def session_scope(
+        self,
+        task: str,
+        execution_mode: str,
+        *,
+        user_context: Dict[str, Any] | None = None,
+    ) -> AsyncIterator[AgentSession]:
+        context = ExecutionContext.get()
+        session_context = self._build_session_context(context, task, execution_mode, user_context=user_context)
+        manager = context.intermediate_step_manager
+        session: AgentSession | None = None
+        start = time.perf_counter()
+        last_error: Exception | None = None
+        for attempt in range(1, self._SESSION_OPEN_RETRIES + 1):
+            try:
+                session = await self._adapter.open_session(session_context)
+                break
+            except Exception as exc:  # pragma: no cover - defensive
+                last_error = exc
+                logger.warning(
+                    "Student: adapter session open attempt %d failed (%s)",
+                    attempt,
+                    exc,
+                )
+                await asyncio.sleep(min(self._SESSION_BACKOFF_BASE * attempt, 2.0))
+        if session is None:
+            logger.error("Student: falling back to stateless adapter session after failures")
+            session = StatelessSession(self._adapter, session_context)
+        context.set_adapter_session(session)
+        self._ensure_session_metadata(context, session)
+        opened_ms = (time.perf_counter() - start) * 1000.0
+        manager.push_intermediate_step(
+            IntermediateStepPayload(
+                event_type=IntermediateStepType.SESSION_OPENED,
+                name="adapter_session",
+                data=StreamEventData(output={
+                    "adapter": self._adapter.__class__.__name__,
+                    "session_id": session.session_id,
+                    "open_ms": opened_ms,
+                    "error": str(last_error) if last_error else None,
+                }),
+            )
+        )
+        close_reason: str | None = None
+        try:
+            yield session
+        except Exception as exc:
+            close_reason = str(exc)
+            raise
+        finally:
+            close_started = time.perf_counter()
+            close_payload: Dict[str, Any] | None = None
+            try:
+                result = await session.close(reason=close_reason)
+                if isinstance(result, dict):
+                    close_payload = dict(result)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning("Student: adapter session close failed: %s", exc)
+            close_ms = (time.perf_counter() - close_started) * 1000.0
+            metadata = context.metadata.setdefault("adapter_session", {})
+            if close_payload:
+                metadata.setdefault("close_metadata", close_payload)
+            manager.push_intermediate_step(
+                IntermediateStepPayload(
+                    event_type=IntermediateStepType.SESSION_CLOSED,
+                    name="adapter_session",
+                    data=StreamEventData(output={
+                        "adapter": self._adapter.__class__.__name__,
+                        "session_id": session.session_id,
+                        "close_ms": close_ms,
+                        "reason": close_reason,
+                        "metadata": close_payload,
+                    }),
+                )
+            )
+            context.set_adapter_session(None)
 
     def _apply_usage_payload(self, usage: Any) -> Dict[str, int] | None:
         normalised = normalise_usage_payload(usage)
@@ -150,9 +360,11 @@ class Student:
         context.metadata["active_actor"] = "student"
         prompt = self._compose_planner_prompt(task)
         try:
-            response = await self._adapter.ainvoke(prompt, metadata={"mode": "planning"})
-            self._apply_usage_payload(getattr(response, "usage", None))
-            response = self._unwrap_adapter_payload(response)
+            response_payload, _, _, session_id = await self._adapter_step(
+                prompt,
+                metadata={"mode": "planning", "task": task},
+            )
+            response = self._unwrap_adapter_payload(response_payload)
             if isinstance(response, (dict, list)):
                 payload = response
             else:
@@ -190,6 +402,11 @@ class Student:
             )
         )
         self._consume_reasoning_metadata("student", "plan")
+        session_meta_snapshot = ExecutionContext.get().metadata.get("adapter_session")
+        if isinstance(session_meta_snapshot, dict):
+            session_meta_snapshot["pending_events"] = []
+        if session_id:
+            ExecutionContext.get().metadata.setdefault("adapter_session", {})["adapter_session_id"] = session_id
         return plan
 
     async def aexecute_step(
@@ -283,6 +500,18 @@ class Student:
             metadata["reason"] = guidance_reason
         if raw_text is not None:
             metadata["text"] = raw_text
+        session_meta = execution_context.metadata.get("adapter_session", {})
+        if isinstance(session_meta, dict):
+            pending_events = session_meta.get("pending_events")
+            if isinstance(pending_events, list) and pending_events:
+                metadata["adapter_events"] = list(pending_events[-self._SESSION_EVENTS_LIMIT :])
+                session_meta["pending_events"] = []
+            adapter_session_id = session_meta.get("adapter_session_id")
+            if adapter_session_id:
+                metadata["adapter_session_id"] = adapter_session_id
+        active_session = execution_context.adapter_session
+        if active_session is not None:
+            metadata["adapter_session_id"] = active_session.session_id
         output_payload = raw_text if isinstance(raw_text, str) else json.dumps(structured_output, ensure_ascii=False)
         return StudentStepResult(
             trace=trace,
@@ -308,9 +537,11 @@ class Student:
         )
         prompt = self._compose_synthesis_prompt(task, step_results)
         try:
-            response = await self._adapter.ainvoke(prompt, metadata={"mode": "synthesis"})
-            self._apply_usage_payload(getattr(response, "usage", None))
-            response = self._unwrap_adapter_payload(response)
+            response_payload, _, _, session_id = await self._adapter_step(
+                prompt,
+                metadata={"mode": "synthesis", "task": task},
+            )
+            response = self._unwrap_adapter_payload(response_payload)
             if isinstance(response, str):
                 final_answer = response
             else:
@@ -333,6 +564,11 @@ class Student:
                 data=StreamEventData(output=final_answer),
             )
         )
+        session_meta_snapshot = ExecutionContext.get().metadata.get("adapter_session")
+        if isinstance(session_meta_snapshot, dict):
+            session_meta_snapshot["pending_events"] = []
+        if session_id:
+            ExecutionContext.get().metadata.setdefault("adapter_session", {})["adapter_session_id"] = session_id
         return final_answer
 
     def create_plan(self, task: str) -> Plan:

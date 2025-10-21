@@ -10,6 +10,11 @@ from atlas.runtime.storage.database import Database
 from atlas.types import Plan, Step, StepEvaluation, StepResult
 
 
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
 class FakeConnection:
     def __init__(self):
         self.commands = []
@@ -58,7 +63,7 @@ class FakePool:
         pass
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio("asyncio")
 async def test_database_logs_plan_steps(monkeypatch):
     pool = FakePool()
     import asyncpg

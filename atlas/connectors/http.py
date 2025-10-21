@@ -25,8 +25,12 @@ class HTTPAdapter(AgentAdapter):
     def _build_payload(self, prompt: str, metadata: Dict[str, Any] | None) -> Dict[str, Any]:
         payload = copy.deepcopy(self._config.payload_template)
         payload.setdefault("prompt", prompt)
-        if metadata:
-            payload.setdefault("metadata", metadata)
+        adapter_meta: Dict[str, Any] = dict(metadata or {})
+        session_id = adapter_meta.get("adapter_session_id")
+        if session_id is not None:
+            payload.setdefault("session_id", session_id)
+        if adapter_meta:
+            payload.setdefault("metadata", {}).update(adapter_meta)
         return payload
 
     def _extract_result(self, data: Any) -> str:

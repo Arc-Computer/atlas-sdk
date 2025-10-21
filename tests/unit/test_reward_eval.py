@@ -19,6 +19,11 @@ from scripts.eval_reward_models import (
 )
 
 
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
 def test_load_reward_dataset_shapes():
     records = load_reward_dataset(path=Path("atlas/data/reward_eval_trajectories.jsonl"))
     assert len(records) >= 6
@@ -96,7 +101,7 @@ class _StubEvaluator:
         )
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio("asyncio")
 async def test_evaluate_combo_and_aggregate_with_stub(monkeypatch):
     records = load_reward_dataset(Path("atlas/data/reward_eval_trajectories.jsonl"))[:2]
     config = load_config("configs/examples/openai_agent.yaml")

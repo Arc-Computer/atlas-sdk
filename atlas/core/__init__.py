@@ -164,6 +164,7 @@ async def arun(
     except Exception as exc:
         if database and session_id is not None:
             await _persist_events(database, session_id, events)
+            await _persist_failure_metadata(database, session_id, execution_context)
             await database.finalize_session(session_id, "", "failed")
             if publisher is not None:
                 publisher.publish_control_event(
@@ -343,11 +344,23 @@ async def _persist_events(database: Database, session_id: int, events: List) -> 
         await database.log_intermediate_step(session_id, event)
 
 
+async def _persist_failure_metadata(database: Database, session_id: int, context: ExecutionContext) -> None:
+    base_metadata = context.metadata.get("session_metadata") or {}
+    if not isinstance(base_metadata, dict):
+        base_metadata = {}
+    insights = _collect_session_insights(context, None)
+    if not insights and not base_metadata:
+        return
+    merged = {**base_metadata, **insights}
+    context.metadata["session_metadata"] = merged
+    await database.update_session_metadata(session_id, merged)
+
+
 async def _update_session_metadata(
     database: Database,
     session_id: int,
     context: ExecutionContext,
-    result: Result,
+    result: Result | None,
 ) -> None:
     base_metadata = context.metadata.get("session_metadata") or {}
     if not isinstance(base_metadata, dict):
@@ -360,7 +373,7 @@ async def _update_session_metadata(
     await database.update_session_metadata(session_id, merged)
 
 
-def _collect_session_insights(context: ExecutionContext, result: Result) -> dict[str, Any]:
+def _collect_session_insights(context: ExecutionContext, result: Result | None) -> dict[str, Any]:
     payload: dict[str, Any] = {}
     triage = context.metadata.get("triage", {}).get("dossier") if isinstance(context.metadata, dict) else None
     if triage:
@@ -385,7 +398,7 @@ def _collect_session_insights(context: ExecutionContext, result: Result) -> dict
         if isinstance(session_reward_payload, dict):
             raw_score = session_reward_payload.get("score")
         payload["reward_summary"] = {"score": raw_score}
-    else:
+    elif result is not None:
         payload["reward_summary"] = _collect_reward_summary(result)
     history_snapshot = context.metadata.get("learning_history") if isinstance(context.metadata, dict) else None
     if isinstance(history_snapshot, dict):
@@ -396,6 +409,9 @@ def _collect_session_insights(context: ExecutionContext, result: Result) -> dict
     teacher_notes = _extract_teacher_notes(context)
     if teacher_notes:
         payload["teacher_notes"] = teacher_notes
+    adapter_session = context.metadata.get("adapter_session") if isinstance(context.metadata, dict) else None
+    if isinstance(adapter_session, dict) and adapter_session:
+        payload["adapter_session"] = adapter_session
     return payload
 
 

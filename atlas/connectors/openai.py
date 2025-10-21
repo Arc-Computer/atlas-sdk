@@ -173,6 +173,13 @@ class OpenAIAdapter(AgentAdapter):
         messages = self._build_messages(prompt, metadata)
         kwargs = self._base_kwargs()
         kwargs["messages"] = messages
+        metadata_payload = dict(metadata or {})
+        session_id = metadata_payload.get("adapter_session_id")
+        if session_id:
+            headers = dict(kwargs.get("extra_headers") or {})
+            headers.setdefault("X-Atlas-Session-Id", str(session_id))
+            kwargs["extra_headers"] = headers
+            metadata_payload.setdefault("session_id", session_id)
         try:
             response = await acompletion(**kwargs)
         except Exception as exc:

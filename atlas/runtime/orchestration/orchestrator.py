@@ -140,39 +140,48 @@ class Orchestrator:
         )
         self._emit_adaptive_route_event(context, decision, reason=decision.source)
 
+        session_user_context = None
+        existing_session_meta = context.metadata.get("session_metadata")
+        if isinstance(existing_session_meta, dict):
+            session_user_context = existing_session_meta
+        result: Result | None = None
         if mode in {"auto", "paired"}:
-            plan = self._build_direct_plan(task)
-            context.metadata["plan"] = plan.model_dump()
-            result = await self._run_single_shot(
-                task,
-                plan,
-                require_validation=(mode == "paired"),
-                allow_retry=(mode == "paired"),
-            )
-            await self._evaluate_session_reward(task, plan, result)
-        else:
-            initial_plan = await self._student.acreate_plan(task)
-            reviewed_plan = await self._teacher.areview_plan(task, initial_plan)
-            plan_payload = reviewed_plan.model_dump()
-            context.metadata["original_plan"] = plan_payload
-            if mode == "coach":
-                final_plan = self._convert_to_single_shot_plan(task, reviewed_plan)
-                context.metadata["single_shot"] = True
-            else:
-                final_plan = self._ensure_stepwise_plan(reviewed_plan, context)
-                context.metadata.pop("single_shot", None)
-            context.metadata["plan"] = final_plan.model_dump()
-            if mode == "coach":
+            async with self._student.session_scope(task, mode, user_context=session_user_context):
+                plan = self._build_direct_plan(task)
+                context.metadata["plan"] = plan.model_dump()
                 result = await self._run_single_shot(
                     task,
-                    final_plan,
-                    require_validation=True,
-                    allow_retry=True,
+                    plan,
+                    require_validation=(mode == "paired"),
+                    allow_retry=(mode == "paired"),
                 )
-                await self._evaluate_session_reward(task, final_plan, result)
-            else:
-                result = await self._run_stepwise(task, final_plan)
-                await self._evaluate_session_reward(task, final_plan, result)
+                await self._evaluate_session_reward(task, plan, result)
+        else:
+            async with self._student.session_scope(task, mode, user_context=session_user_context):
+                initial_plan = await self._student.acreate_plan(task)
+                reviewed_plan = await self._teacher.areview_plan(task, initial_plan)
+                plan_payload = reviewed_plan.model_dump()
+                context.metadata["original_plan"] = plan_payload
+                if mode == "coach":
+                    final_plan = self._convert_to_single_shot_plan(task, reviewed_plan)
+                    context.metadata["single_shot"] = True
+                else:
+                    final_plan = self._ensure_stepwise_plan(reviewed_plan, context)
+                    context.metadata.pop("single_shot", None)
+                context.metadata["plan"] = final_plan.model_dump()
+                if mode == "coach":
+                    result = await self._run_single_shot(
+                        task,
+                        final_plan,
+                        require_validation=True,
+                        allow_retry=True,
+                    )
+                    await self._evaluate_session_reward(task, final_plan, result)
+                else:
+                    result = await self._run_stepwise(task, final_plan)
+                    await self._evaluate_session_reward(task, final_plan, result)
+        if result is None:
+            raise RuntimeError("Student session did not produce a result")
 
         manager.push_intermediate_step(
             IntermediateStepPayload(
@@ -698,22 +707,18 @@ class Orchestrator:
                         )
                         _store_outcome(step, outcome)
                 else:
-                    tasks = [
-                        self._run_step(
-                            task,
-                            step,
-                            dict(context_outputs),
-                            context,
-                            require_validation=True,
-                            allow_retry=True,
-                        )
-                        for step in steps
-                    ]
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-                    captured_exception: Exception | None = None
-                    for step, outcome in zip(steps, results):
-                        if isinstance(outcome, Exception):
-                            evaluation = self._build_error_evaluation(str(outcome))
+                    for step in steps:
+                        try:
+                            outcome = await self._run_step(
+                                task,
+                                step,
+                                dict(context_outputs),
+                                context,
+                                require_validation=True,
+                                allow_retry=True,
+                            )
+                        except Exception as exc:
+                            evaluation = self._build_error_evaluation(str(exc))
                             step_summaries.append(
                                 {
                                     "step_id": step.id,
@@ -721,7 +726,7 @@ class Orchestrator:
                                     "output": "",
                                     "trace": "",
                                     "evaluation": evaluation.to_dict(),
-                                    "metadata": {},
+                                    "metadata": {"error": str(exc)},
                                     "attempts": 0,
                                 }
                             )
@@ -732,16 +737,11 @@ class Orchestrator:
                                     output="",
                                     evaluation=evaluation,
                                     attempts=0,
-                                    metadata={},
+                                    metadata={"error": str(exc)},
                                 )
                             )
-                            if captured_exception is None:
-                                captured_exception = outcome
                             continue
-
                         _store_outcome(step, outcome)
-                    if captured_exception is not None:
-                        raise captured_exception
 
         organized_results = self._teacher.collect_results(step_summaries)
         final_answer = await self._student.asynthesize_final_answer(task, organized_results)

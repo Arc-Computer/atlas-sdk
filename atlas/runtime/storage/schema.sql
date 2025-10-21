@@ -3,6 +3,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     task TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'running',
     metadata JSONB,
+    adapter_session_id TEXT,
+    adapter_usage JSONB,
+    adapter_events JSONB,
     final_answer TEXT,
     reward JSONB,
     student_learning TEXT,
@@ -27,6 +30,9 @@ CREATE TABLE IF NOT EXISTS step_results (
     evaluation JSONB,
     attempts INTEGER,
     metadata JSONB,
+    adapter_session_id TEXT,
+    adapter_usage JSONB,
+    adapter_events JSONB,
     PRIMARY KEY (session_id, step_id)
 );
 

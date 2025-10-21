@@ -348,6 +348,18 @@ def _enrich_session_metadata(
         session_metadata["created_at"] = _format_timestamp(created_at)
     if completed_at is not None and not session_metadata.get("completed_at"):
         session_metadata["completed_at"] = _format_timestamp(completed_at)
+    adapter_session_id = session_row.get("adapter_session_id")
+    adapter_usage = _coerce_json(session_row.get("adapter_usage"))
+    adapter_events = _coerce_json(session_row.get("adapter_events"))
+    if adapter_session_id is not None or adapter_usage or adapter_events:
+        adapter_meta = session_metadata.setdefault("adapter_session", {})
+        if isinstance(adapter_meta, dict):
+            if adapter_session_id is not None and "adapter_session_id" not in adapter_meta:
+                adapter_meta["adapter_session_id"] = adapter_session_id
+            if adapter_usage and "usage" not in adapter_meta:
+                adapter_meta["usage"] = adapter_usage
+            if adapter_events and "events" not in adapter_meta:
+                adapter_meta["events"] = adapter_events
 
     normalised_events = [_normalise_event(event) for event in reversed(events)]
     if normalised_events:
@@ -391,6 +403,15 @@ def _build_step_payload(
             attempts = len(attempt_details) or len(guidance) or 0
 
     metadata = _coerce_metadata(step_row.get("metadata"))
+    adapter_session_id = step_row.get("adapter_session_id")
+    adapter_usage = _coerce_json(step_row.get("adapter_usage"))
+    adapter_events = _coerce_json(step_row.get("adapter_events"))
+    if adapter_session_id and "adapter_session_id" not in metadata:
+        metadata["adapter_session_id"] = adapter_session_id
+    if adapter_usage and "usage" not in metadata:
+        metadata["usage"] = adapter_usage
+    if adapter_events and "adapter_events" not in metadata:
+        metadata["adapter_events"] = adapter_events
     if attempt_details:
         metadata.setdefault("attempt_history", attempt_details)
         metadata.setdefault("attempt_details", attempt_details)

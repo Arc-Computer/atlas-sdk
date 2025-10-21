@@ -26,6 +26,7 @@ class IntermediateStepCategory(str, Enum):
     FUNCTION = "FUNCTION"
     CUSTOM = "CUSTOM"
     SPAN = "SPAN"
+    SESSION = "SESSION"
 
 
 class IntermediateStepType(str, Enum):
@@ -45,6 +46,8 @@ class IntermediateStepType(str, Enum):
     SPAN_START = "SPAN_START"
     SPAN_CHUNK = "SPAN_CHUNK"
     SPAN_END = "SPAN_END"
+    SESSION_OPENED = "SESSION_OPENED"
+    SESSION_CLOSED = "SESSION_CLOSED"
 
 
 class IntermediateStepState(str, Enum):
@@ -134,6 +137,8 @@ class IntermediateStepPayload(BaseModel):
             IntermediateStepType.SPAN_START: IntermediateStepCategory.SPAN,
             IntermediateStepType.SPAN_CHUNK: IntermediateStepCategory.SPAN,
             IntermediateStepType.SPAN_END: IntermediateStepCategory.SPAN,
+            IntermediateStepType.SESSION_OPENED: IntermediateStepCategory.SESSION,
+            IntermediateStepType.SESSION_CLOSED: IntermediateStepCategory.SESSION,
         }
         return mapping[self.event_type]
 
@@ -156,6 +161,8 @@ class IntermediateStepPayload(BaseModel):
             IntermediateStepType.SPAN_START: IntermediateStepState.START,
             IntermediateStepType.SPAN_CHUNK: IntermediateStepState.CHUNK,
             IntermediateStepType.SPAN_END: IntermediateStepState.END,
+            IntermediateStepType.SESSION_OPENED: IntermediateStepState.START,
+            IntermediateStepType.SESSION_CLOSED: IntermediateStepState.END,
         }
         return mapping[self.event_type]
 

@@ -6,7 +6,7 @@ import pytest
 
 from langchain_core.messages import AIMessage
 
-from atlas.connectors.registry import build_adapter
+from atlas.connectors.registry import AdapterError, build_adapter
 from atlas.connectors.utils import AdapterResponse
 from atlas.config.models import (
     AdapterType,
@@ -118,7 +118,16 @@ def test_student_plan_execute_and_synthesize_live():
             raise
         assert final_answer.strip()
 
-    asyncio.run(runner())
+    try:
+        asyncio.run(runner())
+    except AdapterError as exc:
+        details = " ".join(
+            part for part in (str(exc), str(getattr(exc, "__cause__", "") or "")) if part
+        )
+        lowered = details.lower()
+        if "connection error" in lowered or "timed out" in lowered:
+            pytest.skip(f"OpenAI connectivity unavailable: {details}")
+        raise
 
 
 def test_student_extracts_reasoning_metadata():

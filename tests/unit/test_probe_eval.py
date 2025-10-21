@@ -11,6 +11,11 @@ from scripts import export_probe_dataset as probe_export
 from scripts.eval_probe_models import ProbeResult, ProbeSample, summarise_results
 
 
+@pytest.fixture
+def anyio_backend() -> str:
+    return "asyncio"
+
+
 def test_load_dataset_sample() -> None:
     path = Path("atlas/data/sample_probe_payloads.jsonl")
     samples = probe_eval.load_dataset(path)
@@ -27,7 +32,7 @@ def test_build_parameters_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     assert params.provider.value == "google"
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio("asyncio")
 async def test_evaluate_model_with_stub(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_arun(self, *, task, dossier, execution_metadata):
         class Decision:
@@ -73,7 +78,7 @@ def test_export_helpers_extract_learning_key() -> None:
     assert probe_export._expected_mode({"adaptive_summary": {"adaptive_mode": "auto"}}) == "auto"
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio("asyncio")
 async def test_export_probe_dataset_writes_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeDatabase:
         call_counts = 0

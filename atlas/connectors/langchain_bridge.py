@@ -34,8 +34,43 @@ from pydantic import create_model
 from atlas.connectors.registry import AgentAdapter
 from atlas.connectors.utils import normalise_usage_payload
 from atlas.config.models import ToolDefinition
+from atlas.runtime.orchestration.execution_context import ExecutionContext
 
 logger = logging.getLogger(__name__)
+
+SESSION_EVENTS_LIMIT = 50
+
+
+def _update_session_metrics(
+    usage: Dict[str, Any] | None,
+    events: Sequence[Dict[str, Any]] | None,
+    session_id: str | None,
+) -> None:
+    try:
+        context = ExecutionContext.get()
+    except Exception:  # pragma: no cover - fallback when no context exists
+        return
+    session_meta = context.metadata.setdefault("adapter_session", {})
+    if session_id:
+        session_meta["adapter_session_id"] = session_id
+    usage_meta = session_meta.setdefault(
+        "usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0}
+    )
+    usage_meta["calls"] = int(usage_meta.get("calls", 0)) + 1
+    if usage:
+        for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            value = usage.get(key)
+            if value is not None:
+                usage_meta[key] = int(usage_meta.get(key, 0)) + int(value)
+    if events:
+        bucket = session_meta.setdefault("events", [])
+        bucket.extend(events)
+        if len(bucket) > SESSION_EVENTS_LIMIT:
+            del bucket[:-SESSION_EVENTS_LIMIT]
+        pending = session_meta.setdefault("pending_events", [])
+        pending.extend(events)
+        if len(pending) > SESSION_EVENTS_LIMIT:
+            del pending[:-SESSION_EVENTS_LIMIT]
 
 def _python_type_for_schema(schema_entry: Dict[str, Any]):
     type_name = schema_entry.get("type")
@@ -79,7 +114,20 @@ def _build_tool(adapter: AgentAdapter, tool: ToolDefinition) -> BaseTool:
 
     async def _async_tool(**kwargs):
         payload = {"tool": {"name": tool.name, "arguments": kwargs}}
-        return await adapter.ainvoke(json.dumps(payload), metadata=payload)
+        metadata = dict(payload)
+        metadata["tool_metadata"] = _summarize_tool(tool)
+        try:
+            session = ExecutionContext.get().adapter_session
+        except Exception:
+            session = None
+        if session is not None:
+            metadata.setdefault("adapter_session_id", session.session_id)
+            result = await session.step(json.dumps(payload), metadata=metadata)
+            _update_session_metrics(None, [{"type": "tool_execution", "tool": tool.name, "arguments": kwargs}], session.session_id)
+            return result
+        result = await adapter.ainvoke(json.dumps(payload), metadata=metadata)
+        _update_session_metrics(None, [{"type": "tool_execution", "tool": tool.name, "arguments": kwargs}], None)
+        return result
 
     return StructuredTool.from_function(
         func=_sync_tool,
@@ -201,8 +249,27 @@ class BYOABridgeLLM(BaseChatModel):
         return ChatResult(generations=[generation])
     async def _agenerate(self, messages: Sequence[BaseMessage], stop: Sequence[str] | None = None, **kwargs: Any) -> ChatResult:
         prompt = self._render_prompt(messages)
-        response = await self._adapter.ainvoke(prompt)
+        metadata = {"messages": [self._serialize_message(message) for message in messages]}
+        metadata["tool_metadata"] = self._tool_metadata
+        try:
+            context = ExecutionContext.get()
+            session = context.adapter_session
+        except Exception:
+            session = None
+        if session is not None:
+            metadata.setdefault("adapter_session_id", session.session_id)
+            response = await session.step(prompt, metadata=metadata)
+        else:
+            response = await self._adapter.ainvoke(prompt, metadata=metadata)
         content, tool_calls, usage = self._parse_response(response)
+        events: List[Dict[str, Any]] = []
+        if content:
+            events.append({"type": "completion", "text": str(content)[:200]})
+        if tool_calls:
+            for call in tool_calls:
+                events.append({"type": "tool_call_request", "name": call.name, "id": call.id})
+        session_id = session.session_id if session else None
+        _update_session_metrics(usage, events, session_id)
         return self._to_chat_result(content, tool_calls, usage)
     def _generate(self, messages: Sequence[BaseMessage], stop: Sequence[str] | None = None, **kwargs: Any) -> ChatResult:
         try:

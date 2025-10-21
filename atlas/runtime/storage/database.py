@@ -79,13 +79,26 @@ class Database:
             evaluation_payload = result.evaluation
         serialized_evaluation = self._serialize_json(evaluation_payload)
         serialized_metadata = self._serialize_json(result.metadata) if getattr(result, "metadata", None) else None
+        adapter_session_id = None
+        adapter_usage_json = None
+        adapter_events_json = None
+        if isinstance(result.metadata, dict):
+            adapter_session_id = result.metadata.get("adapter_session_id")
+            usage_payload = result.metadata.get("usage")
+            events_payload = result.metadata.get("adapter_events")
+            if usage_payload is not None:
+                adapter_usage_json = self._serialize_json(usage_payload)
+            if events_payload is not None:
+                adapter_events_json = self._serialize_json(events_payload)
         async with pool.acquire() as connection:
             await connection.execute(
-                "INSERT INTO step_results(session_id, step_id, trace, output, evaluation, attempts, metadata)"
-                " VALUES ($1, $2, $3, $4, $5, $6, $7)"
+                "INSERT INTO step_results(session_id, step_id, trace, output, evaluation, attempts, metadata, adapter_session_id, adapter_usage, adapter_events)"
+                " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
                 " ON CONFLICT (session_id, step_id) DO UPDATE SET"
                 " trace = EXCLUDED.trace, output = EXCLUDED.output, evaluation = EXCLUDED.evaluation,"
-                " attempts = EXCLUDED.attempts, metadata = EXCLUDED.metadata",
+                " attempts = EXCLUDED.attempts, metadata = EXCLUDED.metadata,"
+                " adapter_session_id = EXCLUDED.adapter_session_id,"
+                " adapter_usage = EXCLUDED.adapter_usage, adapter_events = EXCLUDED.adapter_events",
                 session_id,
                 result.step_id,
                 result.trace,
@@ -93,6 +106,9 @@ class Database:
                 serialized_evaluation,
                 result.attempts,
                 serialized_metadata,
+                adapter_session_id,
+                adapter_usage_json,
+                adapter_events_json,
             )
 
     async def log_step_attempts(
@@ -175,7 +191,7 @@ class Database:
         pool = self._require_pool()
         async with pool.acquire() as connection:
             rows = await connection.fetch(
-                "SELECT id, task, status, metadata, final_answer, reward, student_learning, teacher_learning, created_at, completed_at"
+                "SELECT id, task, status, metadata, adapter_session_id, adapter_usage, adapter_events, final_answer, reward, student_learning, teacher_learning, created_at, completed_at"
                 " FROM sessions ORDER BY created_at DESC LIMIT $1 OFFSET $2",
                 limit,
                 offset,
@@ -186,7 +202,7 @@ class Database:
         pool = self._require_pool()
         async with pool.acquire() as connection:
             row = await connection.fetchrow(
-                "SELECT id, task, status, metadata, final_answer, reward, student_learning, teacher_learning, created_at, completed_at"
+                "SELECT id, task, status, metadata, adapter_session_id, adapter_usage, adapter_events, final_answer, reward, student_learning, teacher_learning, created_at, completed_at"
                 " FROM sessions WHERE id = $1",
                 session_id,
             )
@@ -215,7 +231,7 @@ class Database:
         pool = self._require_pool()
         async with pool.acquire() as connection:
             step_rows = await connection.fetch(
-                "SELECT step_id, trace, output, evaluation, attempts, metadata"
+                "SELECT step_id, trace, output, evaluation, attempts, metadata, adapter_session_id, adapter_usage, adapter_events"
                 " FROM step_results WHERE session_id = $1 ORDER BY step_id",
                 session_id,
             )
@@ -248,6 +264,9 @@ class Database:
                     "evaluation": row["evaluation"],
                     "attempts": row["attempts"],
                     "metadata": row["metadata"],
+                    "adapter_session_id": row.get("adapter_session_id"),
+                    "adapter_usage": row.get("adapter_usage"),
+                    "adapter_events": row.get("adapter_events"),
                     "attempt_details": attempts_by_step.get(step_id, []),
                     "guidance_notes": guidance_by_step.get(step_id, []),
                 }
@@ -295,11 +314,27 @@ class Database:
         """Replace metadata payload for a session."""
         pool = self._require_pool()
         payload = self._serialize_json(metadata) if metadata is not None else None
+        adapter_session_id = None
+        adapter_usage_json = None
+        adapter_events_json = None
+        if isinstance(metadata, dict):
+            adapter_meta = metadata.get("adapter_session")
+            if isinstance(adapter_meta, dict):
+                adapter_session_id = adapter_meta.get("adapter_session_id")
+                usage_payload = adapter_meta.get("usage")
+                events_payload = adapter_meta.get("events")
+                if usage_payload is not None:
+                    adapter_usage_json = self._serialize_json(usage_payload)
+                if events_payload is not None:
+                    adapter_events_json = self._serialize_json(events_payload)
         async with pool.acquire() as connection:
             await connection.execute(
-                "UPDATE sessions SET metadata = $2 WHERE id = $1",
+                "UPDATE sessions SET metadata = $2, adapter_session_id = $3, adapter_usage = $4, adapter_events = $5 WHERE id = $1",
                 session_id,
                 payload,
+                adapter_session_id,
+                adapter_usage_json,
+                adapter_events_json,
             )
 
     def _require_pool(self) -> asyncpg.Pool:
