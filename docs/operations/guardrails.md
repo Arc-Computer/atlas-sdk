@@ -64,8 +64,8 @@ Notes are stored in `review_notes`, while the drift payload remains in `session_
 `arc-atlas` now exports **only approved sessions**. Pending or quarantined runs are ignored unless you explicitly request them:
 
 ```bash
-# Default: approved only
-arc-atlas --database-url ... --output traces.jsonl
+# Default: approved only (uses runtime_safety.review defaults when --config is supplied)
+arc-atlas --config configs/atlas.yaml --database-url ... --output traces.jsonl
 
 # Include additional queues when triaging
 arc-atlas --database-url ... --output traces.jsonl --include-status pending
@@ -100,5 +100,7 @@ runtime_safety:
     require_approval: true
     default_export_statuses: ["approved"]
 ```
+
+When `require_approval` is set to `false`, Atlas automatically marks sessions as `approved` once they finish (drift alerts still return them to `pending`). Pass `--config` to `arc-atlas` so the exporter loads these defaults, and use `ATLAS_REVIEW_REQUIRE_APPROVAL=0` or `ATLAS_REVIEW_DEFAULT_EXPORT_STATUSES="approved,pending"` for quick one-off overrides.
 
 Set `ATLAS_DRIFT_WINDOW`, `ATLAS_DRIFT_Z_THRESHOLD`, or `ATLAS_DRIFT_MIN_BASELINE` to experiment without editing config. `ATLAS_REVIEW_DEFAULT_EXPORT_STATUSES="approved,pending"` relaxes the default export gate for developer workflows, and `ATLAS_REVIEW_REQUIRE_APPROVAL=0` disables the auto-approval requirement entirely (use with care in production).

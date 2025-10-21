@@ -331,6 +331,39 @@ async def _persist_results(
     *,
     runtime_safety: RuntimeSafetyConfig | None = None,
 ) -> None:
+    review_cfg = runtime_safety.review if runtime_safety is not None else None
+    require_review_approval = True
+    default_export_statuses: list[str] = ["approved"]
+    include_all_default_statuses = False
+    if review_cfg is not None:
+        require_review_approval = bool(review_cfg.require_approval)
+        configured_statuses = [
+            str(status).strip().lower()
+            for status in getattr(review_cfg, "default_export_statuses", []) or []
+            if str(status).strip()
+        ]
+        if configured_statuses:
+            default_export_statuses = configured_statuses
+        else:
+            include_all_default_statuses = True
+    env_review_required = os.getenv("ATLAS_REVIEW_REQUIRE_APPROVAL")
+    if env_review_required is not None:
+        require_review_approval = env_review_required.strip().lower() not in {"0", "false", "off"}
+    env_default_statuses = os.getenv("ATLAS_REVIEW_DEFAULT_EXPORT_STATUSES")
+    if env_default_statuses:
+        tokens = [token.strip().lower() for token in env_default_statuses.split(",") if token.strip()]
+        if any(token in {"*", "all"} for token in tokens):
+            include_all_default_statuses = True
+            default_export_statuses = []
+        elif tokens:
+            include_all_default_statuses = False
+            default_export_statuses = tokens
+    session_meta = context.metadata.setdefault("session_metadata", {})
+    review_meta = session_meta.setdefault("review", {})
+    review_meta["require_approval"] = require_review_approval
+    review_meta["default_export_statuses"] = list(default_export_statuses)
+    review_meta["include_all_statuses"] = include_all_default_statuses
+
     await database.log_plan(session_id, result.plan)
     steps_metadata = context.metadata.get("steps", {})
     for step_result in result.step_results:
@@ -404,7 +437,6 @@ async def _persist_results(
             z_threshold=drift_threshold,
             min_baseline=drift_min_baseline,
         )
-        session_meta = context.metadata.setdefault("session_metadata", {})
         learning_key = session_meta.get("learning_key") or context.metadata.get("learning_key")
         drift_result = await drift_detector.assess(
             database,
@@ -416,8 +448,21 @@ async def _persist_results(
             session_meta["drift"] = drift_payload
             session_meta["drift_alert"] = drift_payload.get("drift_alert", False)
             if drift_result.alert:
-                await database.update_session_review_status(session_id, "pending")
                 drift_payload.setdefault("message", f"Reward drift alert ({drift_result.reason or 'threshold'})")
+        context.metadata["session_metadata"] = session_meta
+    review_status_update: str | None = None
+    review_notes_update: str | None = None
+    if drift_result is not None and drift_result.alert:
+        review_status_update = "pending"
+        review_notes_update = session_meta.get("drift", {}).get("message") or (drift_result.reason or None)
+    elif not require_review_approval:
+        review_status_update = "approved"
+        review_notes_update = "Auto-approved (review gating disabled)."
+    if review_status_update is not None:
+        await database.update_session_review_status(session_id, review_status_update, review_notes_update)
+        session_meta["review_status"] = review_status_update
+        if review_notes_update:
+            session_meta["review_notes"] = review_notes_update
         context.metadata["session_metadata"] = session_meta
     if audit_payload is not None:
         session_meta = context.metadata.setdefault("session_metadata", {})

@@ -13,7 +13,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Iterable, Sequence
 
-from atlas.cli.export import add_export_arguments, configure_logging
+from atlas.cli.export import add_export_arguments, configure_logging, resolve_review_filters
 from atlas.cli.jsonl_writer import ExportRequest, export_sessions_sync
 
 _TRAIN_HELP = "Export runtime traces and launch the Atlas Core training pipeline."
@@ -210,6 +210,12 @@ def _cmd_train(args: argparse.Namespace) -> int:
             )
             return 2
         configure_logging(args.quiet)
+        review_status_filters, include_all = resolve_review_filters(
+            args.config,
+            args.include_review_statuses,
+            args.include_all_statuses,
+        )
+
         request = ExportRequest(
             database_url=database_url,
             output_path=export_path,
@@ -217,6 +223,8 @@ def _cmd_train(args: argparse.Namespace) -> int:
             limit=args.limit,
             offset=args.offset,
             status_filters=args.statuses,
+            review_status_filters=review_status_filters,
+            include_all_review_statuses=include_all,
             trajectory_event_limit=args.trajectory_event_limit,
             batch_size=args.batch_size,
         )

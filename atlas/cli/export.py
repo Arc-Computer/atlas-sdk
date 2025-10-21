@@ -15,6 +15,83 @@ from atlas.cli.review import ReviewClient, ReviewSession, format_review_groups, 
 from atlas.utils.env import load_dotenv_if_available
 
 
+def load_review_defaults(config_path: str | None) -> tuple[bool | None, list[str] | None, bool]:
+    config_require_approval: bool | None = None
+    config_statuses: list[str] | None = None
+    config_include_all = False
+    if not config_path:
+        return config_require_approval, config_statuses, config_include_all
+    try:
+        from atlas.config.loader import load_config  # local import to avoid heavy import at module load
+
+        config = load_config(config_path)
+        runtime_safety = getattr(config, "runtime_safety", None)
+        review_cfg = getattr(runtime_safety, "review", None)
+        if review_cfg is not None:
+            config_require_approval = bool(getattr(review_cfg, "require_approval", True))
+            raw_statuses = getattr(review_cfg, "default_export_statuses", []) or []
+            tokens: list[str] = []
+            for item in raw_statuses:
+                token = str(item).strip()
+                if not token:
+                    continue
+                if token.lower() in {"*", "all"}:
+                    config_include_all = True
+                else:
+                    tokens.append(token.lower())
+            if tokens:
+                config_statuses = tokens
+            elif config_include_all:
+                config_statuses = []
+    except Exception as exc:  # pragma: no cover - defensive guard around config load
+        logging.warning("Failed to load config '%s': %s", config_path, exc)
+    return config_require_approval, config_statuses, config_include_all
+
+
+def resolve_review_filters(
+    config_path: str | None,
+    include_status_overrides: Sequence[str] | None,
+    include_all_override: bool,
+) -> tuple[list[str] | None, bool]:
+    config_require_approval, config_statuses, config_include_all = load_review_defaults(config_path)
+    env_statuses = os.getenv("ATLAS_REVIEW_DEFAULT_EXPORT_STATUSES")
+    env_require = os.getenv("ATLAS_REVIEW_REQUIRE_APPROVAL")
+
+    require_approval = config_require_approval if config_require_approval is not None else True
+    if env_require is not None:
+        require_approval = env_require.strip().lower() not in {"0", "false", "off"}
+
+    default_statuses: list[str] = list(config_statuses) if config_statuses is not None else ["approved"]
+    include_all_default = config_include_all
+    if env_statuses:
+        tokens = [token.strip().lower() for token in env_statuses.split(",") if token.strip()]
+        if any(token in {"*", "all"} for token in tokens):
+            include_all_default = True
+            default_statuses = []
+        elif tokens:
+            include_all_default = False
+            default_statuses = tokens
+    elif config_statuses is None and not require_approval:
+        default_statuses = ["approved", "pending"]
+
+    if include_all_override or include_all_default:
+        return None, True
+
+    ordered_statuses: list[str] = []
+    seen: set[str] = set()
+    sources = list(default_statuses)
+    if include_status_overrides:
+        sources.extend(include_status_overrides)
+    for status in sources:
+        normalized = str(status).lower()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            ordered_statuses.append(normalized)
+    review_filters = ordered_statuses or None
+    include_all = review_filters is None
+    return review_filters, include_all
+
+
 def add_export_arguments(
     parser: argparse.ArgumentParser,
     *,
@@ -32,6 +109,10 @@ def add_export_arguments(
         required=require_database_url,
         default=database_url_default,
         help=database_help or "PostgreSQL connection URL.",
+    )
+    parser.add_argument(
+        "--config",
+        help="Optional Atlas config used to load runtime_safety.review defaults.",
     )
     parser.add_argument(
         "--output",
@@ -183,39 +264,11 @@ def _run_export(args: Sequence[str] | None) -> int:
     parsed = parser.parse_args(args)
     configure_logging(parsed.quiet)
 
-    env_statuses = os.getenv("ATLAS_REVIEW_DEFAULT_EXPORT_STATUSES")
-    env_require = os.getenv("ATLAS_REVIEW_REQUIRE_APPROVAL")
-
-    require_approval = True
-    if env_require is not None:
-        require_approval = env_require.strip().lower() not in {"0", "false", "off"}
-
-    default_statuses: list[str] = ["approved"]
-    include_all_default = False
-    if env_statuses:
-        tokens = [token.strip().lower() for token in env_statuses.split(",") if token.strip()]
-        if any(token in {"*", "all"} for token in tokens):
-            include_all_default = True
-            default_statuses = []
-        elif tokens:
-            default_statuses = tokens
-    elif not require_approval:
-        # When approval gating is relaxed, include pending by default unless overridden.
-        default_statuses = ["approved", "pending"]
-
-    if parsed.include_all_statuses or include_all_default:
-        review_status_filters = None
-        include_all = True
-    else:
-        ordered_statuses: list[str] = []
-        seen: set[str] = set()
-        for status in [*default_statuses, *(parsed.include_review_statuses or [])]:
-            normalized = str(status).lower()
-            if normalized and normalized not in seen:
-                seen.add(normalized)
-                ordered_statuses.append(normalized)
-        review_status_filters = ordered_statuses or None
-        include_all = review_status_filters is None
+    review_status_filters, include_all = resolve_review_filters(
+        parsed.config,
+        parsed.include_review_statuses,
+        parsed.include_all_statuses,
+    )
 
     request = ExportRequest(
         database_url=parsed.database_url,

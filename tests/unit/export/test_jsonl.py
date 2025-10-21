@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -201,3 +202,45 @@ def test_exporter_handles_empty_results(monkeypatch, tmp_path: Path):
     assert summary.sessions == 0
     assert summary.steps == 0
     assert output_path.read_text(encoding="utf-8") == ""
+
+
+def test_run_export_uses_config_defaults(monkeypatch, tmp_path: Path):
+    from atlas.cli import export as export_cli
+
+    monkeypatch.delenv("ATLAS_REVIEW_DEFAULT_EXPORT_STATUSES", raising=False)
+    monkeypatch.delenv("ATLAS_REVIEW_REQUIRE_APPROVAL", raising=False)
+
+    captured_request: SimpleNamespace | None = None
+
+    def fake_export(request):
+        nonlocal captured_request
+        captured_request = request
+        return SimpleNamespace(sessions=1, steps=10)
+
+    monkeypatch.setattr(export_cli, "export_sessions_sync", fake_export)
+    monkeypatch.setattr(export_cli, "configure_logging", lambda quiet: None)
+    monkeypatch.setattr(
+        "atlas.config.loader.load_config",
+        lambda path: SimpleNamespace(
+            runtime_safety=SimpleNamespace(
+                review=SimpleNamespace(require_approval=False, default_export_statuses=["approved", "pending"])
+            )
+        ),
+    )
+
+    exit_code = export_cli._run_export(
+        [
+            "--config",
+            "configs/runtime.yaml",
+            "--database-url",
+            "postgresql://stub",
+            "--output",
+            str(tmp_path / "traces.jsonl"),
+            "--quiet",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured_request is not None
+    assert captured_request.review_status_filters == ["approved", "pending"]
+    assert captured_request.include_all_review_statuses is False

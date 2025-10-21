@@ -89,9 +89,40 @@ async def test_persist_results_flags_drift_and_updates_metadata(monkeypatch):
     assert database.logged_stats is not None
     assert "timestamp" in database.logged_stats
     assert database.logged_audit is None
-    assert database.review_updates == [(99, "pending", None)]
+    assert database.review_updates == [(99, "pending", "Reward drift alert (score_z)")]
 
     # Metadata now includes drift payload with alert flag.
     merged_metadata = database.metadata_updates[-1]
     assert merged_metadata["drift"]["drift_alert"] is True
     assert merged_metadata["drift"]["score_delta"] is not None
+
+
+@pytest.mark.asyncio
+async def test_persist_results_auto_approves_when_review_disabled(monkeypatch):
+    database = DriftAwareStubDatabase()
+    context = ExecutionContext(ExecutionContextState.get())
+    context.reset()
+    context.metadata["steps"] = {}
+    context.metadata["session_metadata"] = {}
+    plan = Plan(steps=[])
+    result = Result(final_answer="ok", plan=plan, step_results=[])
+    runtime_safety = RuntimeSafetyConfig()
+    runtime_safety.review.require_approval = False
+    runtime_safety.review.default_export_statuses = ["approved", "pending"]
+    runtime_safety.drift.enabled = False
+
+    await _persist_results(
+        database,
+        session_id=101,
+        context=context,
+        result=result,
+        events=[],
+        runtime_safety=runtime_safety,
+    )
+
+    assert database.review_updates == [(101, "approved", "Auto-approved (review gating disabled).")]
+    merged_metadata = database.metadata_updates[-1]
+    assert merged_metadata["review_status"] == "approved"
+    assert merged_metadata["review"]["require_approval"] is False
+    assert merged_metadata["review"]["default_export_statuses"] == ["approved", "pending"]
+    assert merged_metadata["review"]["include_all_statuses"] is False
