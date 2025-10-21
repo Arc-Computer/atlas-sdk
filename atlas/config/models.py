@@ -318,6 +318,35 @@ class StorageConfig(BaseModel):
     statement_timeout_seconds: float = Field(default=30.0, ge=0.0)
     apply_schema_on_connect: bool = True
 
+
+class DriftDetectionConfig(BaseModel):
+    """Rolling statistics used to detect reward drift."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    window: int = Field(default=50, ge=1)
+    z_threshold: float = Field(default=3.0, ge=0.0)
+    min_baseline: int = Field(default=5, ge=0)
+
+
+class ReviewWorkflowConfig(BaseModel):
+    """Review gating applied before exporting traces."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    require_approval: bool = True
+    default_export_statuses: List[str] = Field(default_factory=lambda: ["approved"])
+
+
+class RuntimeSafetyConfig(BaseModel):
+    """Top-level guardrail configuration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    drift: DriftDetectionConfig = Field(default_factory=DriftDetectionConfig)
+    review: ReviewWorkflowConfig = Field(default_factory=ReviewWorkflowConfig)
+
 class AtlasConfig(BaseModel):
     """Root configuration consumed by the Atlas SDK."""
 
@@ -332,3 +361,4 @@ class AtlasConfig(BaseModel):
     prompt_rewrite: PromptRewriteConfig | None = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     adaptive_teaching: AdaptiveTeachingConfig = Field(default_factory=AdaptiveTeachingConfig)
+    runtime_safety: RuntimeSafetyConfig = Field(default_factory=RuntimeSafetyConfig)

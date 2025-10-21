@@ -55,6 +55,8 @@ class ExportRequest:
     limit: int | None = None
     offset: int = 0
     status_filters: Sequence[str] | None = None
+    review_status_filters: Sequence[str] | None = None
+    include_all_review_statuses: bool = False
     trajectory_event_limit: int = DEFAULT_TRAJECTORY_LIMIT
     batch_size: int = DEFAULT_BATCH_SIZE
     min_connections: int = 1
@@ -72,12 +74,19 @@ async def export_sessions(
     batch_size: int = DEFAULT_BATCH_SIZE,
     trajectory_limit: int | None = DEFAULT_TRAJECTORY_LIMIT,
     status_filters: Sequence[str] | None = None,
+    review_status_filters: Sequence[str] | None = None,
+    include_all_review_statuses: bool = False,
 ) -> ExportSummary:
     """Export sessions from storage into newline-delimited JSON."""
 
     stats = ExportSummary()
     output_path.parent.mkdir(parents=True, exist_ok=True)
     statuses = {status.lower() for status in status_filters or []}
+    review_filters: set[str] | None
+    if include_all_review_statuses:
+        review_filters = None
+    else:
+        review_filters = {status.lower() for status in (review_status_filters or ["approved"])}
     with output_path.open("w", encoding="utf-8") as handle:
         async for payload in _iter_session_payloads(
             store,
@@ -87,6 +96,7 @@ async def export_sessions(
             batch_size=batch_size,
             trajectory_limit=trajectory_limit,
             status_filters=statuses,
+            review_status_filters=review_filters,
         ):
             if payload is None:
                 continue
@@ -106,6 +116,8 @@ async def export_sessions_to_jsonl(
     batch_size: int = DEFAULT_BATCH_SIZE,
     trajectory_limit: int | None = DEFAULT_TRAJECTORY_LIMIT,
     status_filters: Sequence[str] | None = None,
+    review_status_filters: Sequence[str] | None = None,
+    include_all_review_statuses: bool = False,
     min_connections: int = 1,
     max_connections: int = 4,
     statement_timeout_seconds: float = 30.0,
@@ -130,6 +142,8 @@ async def export_sessions_to_jsonl(
             batch_size=batch_size,
             trajectory_limit=trajectory_limit,
             status_filters=status_filters,
+            review_status_filters=review_status_filters,
+            include_all_review_statuses=include_all_review_statuses,
         )
     finally:
         await database.disconnect()
@@ -148,6 +162,8 @@ async def export_sessions_async(request: ExportRequest) -> ExportSummary:
         batch_size=request.batch_size,
         trajectory_limit=request.trajectory_event_limit,
         status_filters=request.status_filters,
+        review_status_filters=request.review_status_filters,
+        include_all_review_statuses=request.include_all_review_statuses,
         min_connections=request.min_connections,
         max_connections=request.max_connections,
         statement_timeout_seconds=request.statement_timeout_seconds,
@@ -173,6 +189,7 @@ async def _iter_session_payloads(
     batch_size: int,
     trajectory_limit: int | None,
     status_filters: set[str],
+    review_status_filters: set[str] | None,
 ):
     seen: set[int] = set()
     event_limit = (
@@ -194,6 +211,7 @@ async def _iter_session_payloads(
                 session_id,
                 trajectory_limit=event_limit,
                 status_filters=status_filters,
+                review_status_filters=review_status_filters,
             )
             if payload is not None:
                 yield payload
@@ -219,6 +237,10 @@ async def _iter_session_payloads(
                 status_value = str(row.get("status", "")).lower()
                 if status_value not in status_filters:
                     continue
+            if review_status_filters is not None:
+                review_value = str(row.get("review_status", "")).lower()
+                if review_value not in review_status_filters:
+                    continue
             seen.add(session_id)
             payload = await _assemble_session(
                 store,
@@ -226,6 +248,7 @@ async def _iter_session_payloads(
                 preloaded_session=row,
                 trajectory_limit=event_limit,
                 status_filters=status_filters,
+                review_status_filters=review_status_filters,
             )
             if payload is not None:
                 yield payload
@@ -241,6 +264,7 @@ async def _assemble_session(
     preloaded_session: dict[str, Any] | None = None,
     trajectory_limit: int | None = None,
     status_filters: set[str],
+    review_status_filters: set[str] | None,
 ) -> dict[str, Any] | None:
     session_row = preloaded_session or await store.fetch_session(session_id)
     if session_row is None:
@@ -250,6 +274,10 @@ async def _assemble_session(
     if status_filters:
         status_value = str(session_row.get("status", "")).lower()
         if status_value not in status_filters:
+            return None
+    if review_status_filters is not None:
+        review_value = str(session_row.get("review_status", "")).lower()
+        if review_value not in review_status_filters:
             return None
 
     detailed = session_row
@@ -298,6 +326,27 @@ async def _assemble_session(
         "steps": step_payloads,
         "session_metadata": session_metadata,
     }
+    review_status = detailed.get("review_status") or session_metadata.get("review_status")
+    if isinstance(review_status, str) and review_status:
+        session_payload["review_status"] = review_status
+        session_metadata.setdefault("review_status", review_status)
+    review_notes = detailed.get("review_notes")
+    if isinstance(review_notes, str) and review_notes.strip():
+        session_payload["review_notes"] = review_notes.strip()
+    reward_stats = _coerce_json(detailed.get("reward_stats")) or session_metadata.get("reward_stats")
+    if isinstance(reward_stats, dict) and reward_stats:
+        session_payload["reward_stats"] = reward_stats
+        session_metadata.setdefault("reward_stats", reward_stats)
+    reward_audit_payload = detailed.get("reward_audit")
+    reward_audit = _coerce_json(reward_audit_payload)
+    if not isinstance(reward_audit, list) or not reward_audit:
+        fallback_audit = session_metadata.get("reward_audit")
+        reward_audit = fallback_audit if isinstance(fallback_audit, list) else []
+    if reward_audit:
+        normalized_audit = [entry for entry in reward_audit if isinstance(entry, dict)]
+        if normalized_audit:
+            session_payload["reward_audit"] = normalized_audit
+            session_metadata.setdefault("reward_audit", normalized_audit)
     session_reward = _coerce_json(detailed.get("reward"))
     if isinstance(session_reward, dict) and session_reward:
         session_payload["session_reward"] = session_reward
@@ -325,6 +374,14 @@ async def _assemble_session(
     reward_summary = session_metadata.get("reward_summary")
     if isinstance(reward_summary, dict):
         session_payload["reward_summary"] = reward_summary
+    drift_payload = session_metadata.get("drift")
+    if isinstance(drift_payload, dict):
+        session_payload["drift"] = drift_payload
+    drift_alert_value = session_metadata.get("drift_alert")
+    if drift_alert_value is None and isinstance(drift_payload, dict):
+        drift_alert_value = drift_payload.get("drift_alert")
+    if drift_alert_value is not None:
+        session_payload["drift_alert"] = drift_alert_value
     if events_payload:
         session_payload["trajectory_events"] = events_payload
     return session_payload

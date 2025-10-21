@@ -159,6 +159,8 @@ class ExecutionContext:
         *,
         student_learning: str | None = None,
         teacher_learning: str | None = None,
+        stats: dict[str, typing.Any] | None = None,
+        audit: typing.Sequence[typing.Mapping[str, typing.Any]] | None = None,
     ) -> None:
         """Record session-level reward and learning payloads."""
 
@@ -176,6 +178,14 @@ class ExecutionContext:
             self.metadata["session_student_learning"] = student_learning
         if teacher_learning is not None:
             self.metadata["session_teacher_learning"] = teacher_learning
+        if stats is None:
+            self.metadata.pop("session_reward_stats", None)
+        else:
+            self.metadata["session_reward_stats"] = dict(stats)
+        if audit is None:
+            self.metadata.pop("session_reward_audit", None)
+        else:
+            self.metadata["session_reward_audit"] = [dict(entry) for entry in audit]
 
     def record_mode_decision(
         self,
