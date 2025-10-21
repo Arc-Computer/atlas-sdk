@@ -343,10 +343,6 @@ async def _persist_results(
     teacher_learning = context.metadata.get("session_teacher_learning")
     reward_stats = context.metadata.get("session_reward_stats") if isinstance(context.metadata, dict) else None
     reward_audit = context.metadata.get("session_reward_audit") if isinstance(context.metadata, dict) else None
-    reward_audit = context.metadata.get("session_reward_audit") if isinstance(context.metadata, dict) else None
-    reward_audit = context.metadata.get("session_reward_audit") if isinstance(context.metadata, dict) else None
-    reward_audit = context.metadata.get("session_reward_audit") if isinstance(context.metadata, dict) else None
-    reward_audit = context.metadata.get("session_reward_audit") if isinstance(context.metadata, dict) else None
     stats_payload: dict[str, Any] | None = None
     audit_payload: list[dict[str, Any]] | None = None
     if isinstance(reward_stats, dict):
