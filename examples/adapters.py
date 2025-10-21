@@ -1,4 +1,4 @@
-"""Example stateful adapter that manages its own control loop and streams telemetry."""
+"""Example adapter that manages its own control loop and streams telemetry."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterable, List, Sequence
 from atlas.connectors import AdapterCapabilities, AdapterError, AdapterEventEmitter, AgentAdapter
 
 
-class StatefulSQLiteAdapter(AgentAdapter):
+class SQLiteAdapter(AgentAdapter):
     """Demonstration adapter that owns the inner loop and emits telemetry events."""
 
     def __init__(self) -> None:
@@ -25,10 +25,7 @@ class StatefulSQLiteAdapter(AgentAdapter):
         emit_event: AdapterEventEmitter | None = None,
     ) -> AdapterCapabilities:
         self._emit_event = emit_event
-        await self._record_event(
-            "progress",
-            {"message": "Stateful adapter session initialised.", "task": task},
-        )
+        await self._record_event("progress", {"message": "Adapter session initialised.", "task": task})
         return AdapterCapabilities(control_loop="self", supports_stepwise=False, telemetry_stream=True)
 
     async def aplan(self, task: str, metadata: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -133,4 +130,4 @@ class StatefulSQLiteAdapter(AgentAdapter):
             raise AdapterError(f"failed to emit adapter telemetry: {exc}") from exc
 
 
-__all__ = ["StatefulSQLiteAdapter"]
+__all__ = ["SQLiteAdapter"]

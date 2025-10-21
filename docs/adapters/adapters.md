@@ -1,4 +1,4 @@
-# Stateful Adapter Handshake & Telemetry Contract
+# Adapter Handshake & Telemetry Contract
 
 Partners that already run multi-step agents were forced to let Atlas drive the inner loop. Issue #65 introduces a capability handshake that lets adapters declare whether they retain control, while Atlas continues to run the outer loop (triage, teacher review, reward capture, export guardrails). This note documents the contract and the reference implementation that shipped with the runtime.
 
@@ -62,7 +62,7 @@ Atlas still:
 
 ## Adapter Telemetry Events
 
-Stateful adapters receive an `emit_event` callback during the handshake. Emitters are awaitable callables that accept dictionaries or `AdapterTelemetryEvent` objects:
+Self-managed adapters receive an `emit_event` callback during the handshake. Emitters are awaitable callables that accept dictionaries or `AdapterTelemetryEvent` objects:
 
 ```python
 await emit_event({
@@ -82,14 +82,14 @@ The JSON envelope stored downstream contains `event`, `payload`, `reason`, `step
 
 ## Reference Example
 
-`examples/adapters.py` implements `StatefulSQLiteAdapter`, a self-managed agent that queries a small in-memory SQLite dataset, emits telemetry, and returns a final answer without Atlas prompt rewrites. The matching configuration lives at `configs/examples/stateful_sqlite.yaml`:
+`examples/adapters.py` implements `SQLiteAdapter`, a self-managed agent that queries a small in-memory SQLite dataset, emits telemetry, and returns a final answer without Atlas prompt rewrites. The matching configuration lives at `configs/examples/adapters.yaml`:
 
 ```yaml
 agent:
   type: python
   behavior: self
   import_path: examples.adapters
-  attribute: StatefulSQLiteAdapter
+  attribute: SQLiteAdapter
 ```
 
 Run it with a short script:
@@ -99,7 +99,7 @@ from atlas import core
 
 result = core.run(
     task="List the active Atlas SDK projects and their velocity.",
-    config_path="configs/examples/stateful_sqlite.yaml",
+    config_path="configs/examples/adapters.yaml",
 )
 
 print(result.final_answer)
@@ -113,4 +113,4 @@ You’ll see adapter events streamed in the console while the outer loop continu
 - If a self-managed adapter incorrectly reports `supports_stepwise=False` but later tries to emit step-level retries, Atlas still honours the single-shot contract.
 - Telemetry emitters must be awaited; the runtime warns and drops malformed events instead of failing the session.
 
-The design keeps stateless adapters untouched, while enabling stateful partners to bring their own orchestration without losing Atlas governance or learning signals.
+The design keeps stateless adapters untouched, while enabling adapter-managed partners to bring their own orchestration without losing Atlas governance or learning signals.
