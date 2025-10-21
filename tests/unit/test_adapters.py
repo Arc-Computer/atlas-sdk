@@ -97,6 +97,11 @@ class _TelemetryAdapter(AgentAdapter):
         return AdapterCapabilities(control_loop="self", supports_stepwise=False, telemetry_stream=True)
 
 
+class _OverrideAdapter(AgentAdapter):
+    async def aopen_session(self, *, task, metadata=None, emit_event=None):
+        return AdapterCapabilities(control_loop="atlas", supports_stepwise=True, telemetry_stream=False)
+
+
 @pytest.mark.asyncio
 async def test_adapter_event_streams_into_execution_context():
     ExecutionContext.get().reset()
@@ -124,6 +129,39 @@ async def test_adapter_event_streams_into_execution_context():
     finally:
         subscription.unsubscribe()
     assert any(event.payload.event_type == IntermediateStepType.ADAPTER_EVENT for event in events)
+
+
+@pytest.mark.asyncio
+async def test_behavior_override_forces_stepwise_and_preserves_reported_capabilities():
+    ExecutionContext.get().reset()
+    adapter = _OverrideAdapter()
+    adapter_config = PythonAdapterConfig(
+        type=AdapterType.PYTHON,
+        name="override",
+        system_prompt="unused",
+        tools=[],
+        import_path="examples.adapters",
+        behavior="self",
+    )
+    context = ExecutionContext.get()
+    capabilities = await _open_adapter_session(
+        adapter=adapter,
+        task="demo task",
+        execution_context=context,
+        adapter_config=adapter_config,
+    )
+    assert capabilities.control_loop == "self"
+    assert capabilities.supports_stepwise is False
+    reported = context.metadata.get("adapter_capabilities_reported")
+    assert reported is not None
+    assert reported["control_loop"] == "atlas"
+    assert reported["supports_stepwise"] is True
+    effective = context.metadata.get("adapter_capabilities")
+    assert effective["control_loop"] == "self"
+    assert effective["supports_stepwise"] is False
+    session_meta = context.metadata.get("session_metadata", {})
+    assert session_meta.get("adapter_capabilities_reported") == reported
+    assert session_meta.get("adapter_capabilities") == effective
 
 
 def test_orchestrator_enforces_adapter_capabilities():

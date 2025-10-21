@@ -45,7 +45,7 @@ Key fields:
 | `supports_stepwise` | `True` only if you can participate in Atlas’ step-by-step lanes (`coach`/`escalate`). |
 | `telemetry_stream` | Set to `True` to opt into event streaming (see Section 3). |
 
-The handshake payload is stored in `ExecutionContext.metadata["adapter_capabilities"]` and exported with the session record. Operators can override the behaviour in YAML by setting `agent.behavior: atlas|self`.
+The effective handshake payload (after any config override) is stored in `ExecutionContext.metadata["adapter_capabilities"]` and exported with the session record. The adapter’s original response is available at `ExecutionContext.metadata["adapter_capabilities_reported"]` for audit trails. Operators can override the behaviour in YAML by setting `agent.behavior: atlas|self`.
 
 ---
 

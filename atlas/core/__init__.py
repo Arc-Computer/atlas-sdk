@@ -265,20 +265,29 @@ async def _open_adapter_session(
         raise
     except Exception as exc:  # pragma: no cover - defensive guard
         raise AdapterError(f"adapter handshake failed: {exc}") from exc
-    capabilities = _coerce_adapter_capabilities(raw_capabilities)
-    capabilities = _apply_behavior_override(capabilities, adapter_config.behavior)
+    reported_capabilities = _coerce_adapter_capabilities(raw_capabilities)
+    reported_dict = reported_capabilities.to_dict()
+    capabilities = _apply_behavior_override(reported_capabilities, adapter_config.behavior)
     capabilities_dict = capabilities.to_dict()
     execution_context.metadata["adapter_capabilities"] = capabilities_dict
+    execution_context.metadata["adapter_capabilities_reported"] = reported_dict
     session_meta = execution_context.metadata.setdefault("session_metadata", {})
     if isinstance(session_meta, dict):
         session_meta["adapter_capabilities"] = capabilities_dict
+        session_meta["adapter_capabilities_reported"] = reported_dict
         execution_context.metadata["session_metadata"] = session_meta
+    override_label = adapter_config.behavior or "default"
     logger.info(
-        "Adapter handshake negotiated control_loop=%s supports_stepwise=%s telemetry_stream=%s (override=%s)",
+        (
+            "Adapter handshake reported control_loop=%s supports_stepwise=%s; "
+            "effective control_loop=%s supports_stepwise=%s telemetry_stream=%s (override=%s)"
+        ),
+        reported_capabilities.control_loop,
+        reported_capabilities.supports_stepwise,
         capabilities.control_loop,
         capabilities.supports_stepwise,
         capabilities.telemetry_stream,
-        adapter_config.behavior or "default",
+        override_label,
     )
     return capabilities
 
@@ -318,6 +327,8 @@ def _apply_behavior_override(
     updates: Dict[str, Any] = {"control_loop": desired}
     if desired == "atlas":
         updates.setdefault("supports_stepwise", True)
+    else:
+        updates["supports_stepwise"] = False
     return capabilities.model_copy(update=updates)
 
 
