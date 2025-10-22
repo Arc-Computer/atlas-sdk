@@ -1,0 +1,80 @@
+# Stateful Agent Quickstart
+
+This guide shows how to onboard a self-managed, stateful agent into Atlas using
+the new `atlas env init` discovery workflow.
+
+## 1. Install the SDK
+
+```bash
+pip install arc-atlas
+```
+
+Ensure your project exports an environment and an agent. The
+`examples/stateful_agent.py` module in this repository demonstrates the
+minimal shape:
+
+```python
+from atlas import agent, environment
+from atlas.sdk.interfaces import DiscoveryContext, TelemetryEmitterProtocol
+
+@environment
+class CounterEnvironment:
+    def reset(self, task: str | None = None):
+        ...
+
+    def step(self, action):
+        ...
+
+@agent
+class CounterAgent:
+    def plan(self, task, observation, *, emit_event=None):
+        ...
+
+    def act(self, context: DiscoveryContext, *, emit_event=None):
+        ...
+
+    def summarize(self, context: DiscoveryContext, *, history=None, emit_event=None):
+        ...
+```
+
+Decorators make autodiscovery explicit. When they are absent, the CLI falls back
+to heuristics (looking for `reset/step/close` on the environment and
+`plan/act/summarize` on the agent).
+
+## 2. Discover the environment & agent
+
+Run the discovery command from the project root:
+
+```bash
+atlas env init --task "Investigate the counter task"
+```
+
+The CLI walks the project, prompts if multiple candidates are found, spins up a
+sandbox worker process, and runs a discovery loop. It writes two artefacts under
+`.atlas/`:
+
+- `discover.json` captures module hashes, inferred handshake, schema hints,
+  telemetry samples, and reward statistics.
+- `generated_config.yaml` records the discovered pair (`behavior: self`) so the
+  runtime can load them without additional configuration.
+
+By default the command also performs a full sample run and records the first
+trajectory under `.atlas/runs/` for continual learning. Disable this behaviour
+with `--skip-sample-run`.
+
+## 3. Execute tasks with the cached metadata
+
+Once discovery is complete, you can launch the agent loop without touching
+`AdapterCapabilities` or prompt plans:
+
+```bash
+atlas run --task "Summarise the telemetry captured during discovery"
+```
+
+`atlas run` validates the stored module hashes before executing. If the source
+files changed, the command errors and asks you to run `atlas env init` again so
+the metadata stays in sync.
+
+Every runtime invocation persists telemetry and reward traces to
+`.atlas/runs/*.json`, giving the learning eval pipeline the "what/how/why" data
+it needs.

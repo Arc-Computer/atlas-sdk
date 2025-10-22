@@ -1,0 +1,30 @@
+# Atlas SDK Autodiscovery
+
+Atlas now supports a Codex-style onboarding flow for self-managed, stateful agents.
+You can go from installation to a working `atlas run` session in three commands:
+
+```bash
+pip install arc-atlas
+atlas env init
+atlas run --task "Investigate the incident summary"
+```
+
+`atlas env init` scans your project for `@atlas.environment` and
+`@atlas.agent` classes, runs a discovery loop to understand how they
+interact, and persists the results under `.atlas/`. Subsequent calls to
+`atlas run` read the cached metadata, verify that the module hashes are
+still valid, and replay the same control loop while capturing telemetry
+for learning evaluation.
+
+The generated files include:
+
+- `.atlas/discover.json` – module hashes, inferred handshake, schema hints,
+  telemetry samples, and reward observations from discovery.
+- `.atlas/generated_config.yaml` – a stub runtime profile pointing to the
+  discovered environment and agent.
+- `.atlas/runs/` – JSON artefacts storing telemetry and reward traces for
+  each `atlas run` execution.
+
+If you change your environment or agent implementation, re-run
+`atlas env init` to refresh the cached metadata before calling
+`atlas run` again.
