@@ -55,7 +55,7 @@ python scripts/eval_learning.py \
 - `--summary-only` – skips per-session trajectory fetches and relies on SQL event counts; use this for large sweeps or CI.
 - `--batch-size` – max number of learning keys evaluated concurrently (default: 4).
 - `--filter-project`, `--filter-task`, `--filter-tag` – narrow the run to a specific codebase, task name, or session tags.
-- `--learning-key` – analyse explicit keys instead of querying Postgres for the top-N recent keys.
+- `--learning-key` – analyze explicit keys instead of querying Postgres for the top-N recent keys.
 - `--compare-to results/learning/index.json` – diff the current run against a previous harness export; the manifest stores per-key deltas and Markdown files append a comparison section.
 - `--no-markdown` – emit only machine-readable JSON for automation scenarios.
 

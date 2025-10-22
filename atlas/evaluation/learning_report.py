@@ -281,22 +281,7 @@ async def collect_learning_summaries(
     if max_concurrency and max_concurrency > 0:
         semaphore = asyncio.Semaphore(max_concurrency)
 
-    async def _task(key: str) -> LearningSummary:
-        if semaphore is not None:
-            async with semaphore:
-                return await _generate_learning_summary(
-                    database,
-                    key,
-                    recent_window=recent_window,
-                    baseline_window=baseline_window,
-                    discovery_limit=discovery_limit,
-                    trajectory_limit=trajectory_limit,
-                    summary_only=summary_only,
-                    session_limit=session_limit,
-                    project_root=project_root,
-                    task_filter=task_filter,
-                    tags=tags,
-                )
+    async def _summarise(key: str) -> LearningSummary:
         return await _generate_learning_summary(
             database,
             key,
@@ -310,6 +295,12 @@ async def collect_learning_summaries(
             task_filter=task_filter,
             tags=tags,
         )
+
+    async def _task(key: str) -> LearningSummary:
+        if semaphore is None:
+            return await _summarise(key)
+        async with semaphore:
+            return await _summarise(key)
 
     tasks = [_task(key) for key in learning_keys]
     results = await asyncio.gather(*tasks)
