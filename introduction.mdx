@@ -18,9 +18,17 @@ for learning evaluation. When the selected classes need constructor
 arguments, the CLI now synthesises lightweight factories via Gemini 2.5 Flash
 or Claude Haiku 4.5, stores them in `.atlas/generated_factories.py`, and defers
 side effects until you rerun with `--validate`.
+Discovery records the preferred runtime mode (`capabilities.preferred_mode`)
+and pins the orchestrator to it (`orchestration.forced_mode`) so Atlas routes
+straight to `auto` or `paired` execution without manual configuration. When
+factories signal missing prerequisites, the CLI marks the run for auto-skip,
+sets `ATLAS_DISCOVERY_VALIDATE=0`, and surfaces the preflight guidance in
+`.atlas/discover.json`.
 
 The generated files include:
 
+- `.atlas/generated_factories.py` – auto-generated factories for constructor
+  arguments that are discovered via the LLM synthesiser.
 - `.atlas/discover.json` – module hashes, inferred handshake, schema hints,
   telemetry samples, and reward observations from discovery.
 - `.atlas/generated_config.yaml` – a stub runtime profile pointing to the
@@ -30,4 +38,6 @@ The generated files include:
 
 If you change your environment or agent implementation, re-run
 `atlas env init` to refresh the cached metadata before calling
-`atlas run` again.
+`atlas run` again. The [Stateful Agent Quickstart](docs/sdk/quickstart.mdx)
+walks through the full onboarding flow and highlights how to validate the
+generated factories.

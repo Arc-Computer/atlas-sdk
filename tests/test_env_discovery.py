@@ -8,6 +8,7 @@ from atlas.cli import env as env_cli
 from atlas.cli import run as run_cli
 from atlas.cli.utils import invoke_discovery_worker
 from atlas.sdk.discovery import discover_candidates, split_candidates
+from atlas.sdk.factory_synthesis import FactorySnippet
 
 
 def test_discover_candidates_identifies_decorated_classes(stateful_project) -> None:
@@ -75,6 +76,7 @@ def test_env_init_writes_metadata_and_config(stateful_project) -> None:
     assert f"environment: {module_name}:{env_name}" in config_text
     assert f"agent: {module_name}:{agent_name}" in config_text
     assert "preferred_mode: auto" in config_text
+    assert "forced_mode: auto" in config_text
 
 
 def test_runtime_rejects_stale_metadata(stateful_project) -> None:
@@ -144,3 +146,86 @@ def test_env_init_auto_skips_heavy_environment(secrl_project) -> None:
     telemetry = metadata["telemetry"]
     assert telemetry.get("events") == []
     assert telemetry.get("agent_emitted") is False
+    config_text = (project_root / ".atlas" / "generated_config.yaml").read_text(encoding="utf-8")
+    assert "preferred_mode: paired" in config_text
+    assert "forced_mode: paired" in config_text
+
+
+def test_env_init_synthesizes_factories_with_auto_skip(monkeypatch, synthesis_project) -> None:
+    project_root, module_name, env_name, agent_name = synthesis_project
+
+    env_snippet = FactorySnippet(
+        function_name="create_environment_factory",
+        imports=[
+            "import os",
+            f"from {module_name} import {env_name}",
+        ],
+        helpers=[],
+        factory_body=(
+            "def create_environment_factory(*, db_url: str | None = None, **kwargs):\n"
+            "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':\n"
+            "        raise RuntimeError('Database not ready for validation')\n"
+            "    defaults = {'db_url': db_url or 'sqlite:///memory.db'}\n"
+            "    defaults.update(kwargs)\n"
+            f"    return {env_name}(**defaults)\n"
+        ),
+        notes=["LLM: ensured sqlite fallback"],
+        preflight=["Start the database container before validation."],
+        auto_skip=True,
+    )
+    agent_snippet = FactorySnippet(
+        function_name="create_agent_factory",
+        imports=[f"from {module_name} import {agent_name}"],
+        helpers=[],
+        factory_body=(
+            "def create_agent_factory(**kwargs):\n"
+            f"    return {agent_name}()\n"
+        ),
+        notes=[],
+        preflight=[],
+        auto_skip=False,
+    )
+
+    def fake_generate(self, role, context, *, previous_error=None):
+        return env_snippet if role == "environment" else agent_snippet
+
+    monkeypatch.setattr(env_cli.FactorySynthesizer, "_generate_snippet", fake_generate, raising=False)
+
+    args = argparse.Namespace(
+        path=str(project_root),
+        task="Investigate connectivity",
+        env_vars=[],
+        env_kwargs=[],
+        agent_kwargs=[],
+        env_fn=None,
+        agent_fn=None,
+        env_config=None,
+        agent_config=None,
+        no_run=False,
+        skip_sample_run=True,
+        validate=False,
+        force=True,
+        timeout=120,
+    )
+    exit_code = env_cli._cmd_env_init(args)
+    assert exit_code == 0
+
+    atlas_dir = project_root / ".atlas"
+    factories_path = atlas_dir / "generated_factories.py"
+    assert factories_path.exists()
+    factory_source = factories_path.read_text(encoding="utf-8")
+    assert "def create_environment_factory" in factory_source
+
+    metadata_path = atlas_dir / "discover.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["preflight"]["auto_skip"] is True
+    notes = metadata["preflight"]["notes"]
+    assert any("database container" in note.lower() for note in notes)
+    assert metadata["environment"]["factory"]["module"] == ".atlas.generated_factories"
+    assert metadata["capabilities"]["preferred_mode"] == "paired"
+    assert metadata["synthesis"]["notes"] == env_snippet.notes
+    assert "factory" not in metadata["agent"]
+
+    config_text = (atlas_dir / "generated_config.yaml").read_text(encoding="utf-8")
+    assert "preferred_mode: paired" in config_text
+    assert "forced_mode: paired" in config_text

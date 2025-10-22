@@ -91,7 +91,6 @@ class FactorySynthesizer:
         agent: Candidate | None,
         environment_kwargs: dict[str, Any],
         agent_kwargs: dict[str, Any],
-        run_requested: bool,
     ) -> SynthesisOutcome:
         outcome = SynthesisOutcome()
         snippets: dict[str, FactorySnippet] = {}
@@ -105,7 +104,7 @@ class FactorySynthesizer:
                 outcome.environment_factory = (GENERATED_MODULE, snippet.function_name)
                 outcome.preflight_notes.extend(snippet.preflight)
                 outcome.auxiliary_notes.extend(snippet.notes)
-                outcome.auto_skip = outcome.auto_skip or (snippet.auto_skip and not run_requested)
+                outcome.auto_skip = outcome.auto_skip or snippet.auto_skip
 
         if agent is not None:
             agent_needed, agent_context = self._analyse_candidate(agent, agent_kwargs)
@@ -116,7 +115,7 @@ class FactorySynthesizer:
                 outcome.agent_factory = (GENERATED_MODULE, snippet.function_name)
                 outcome.preflight_notes.extend(snippet.preflight)
                 outcome.auxiliary_notes.extend(snippet.notes)
-                outcome.auto_skip = outcome.auto_skip or (snippet.auto_skip and not run_requested)
+                outcome.auto_skip = outcome.auto_skip or snippet.auto_skip
 
         if snippets:
             self._emit_module(snippets)
@@ -191,7 +190,7 @@ class FactorySynthesizer:
             command = [
                 "rg",
                 "--no-heading",
-                "--colour",
+                "--color",
                 "never",
                 "--max-count",
                 "5",

@@ -331,7 +331,6 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
                 agent=targets.agent.candidate if targets.agent.factory is None else None,
                 environment_kwargs=targets.environment.kwargs,
                 agent_kwargs=targets.agent.kwargs,
-                run_requested=run_requested,
             )
         except CLIError as exc:
             print(f"Factory synthesis failed: {exc}", file=sys.stderr)

@@ -131,3 +131,70 @@ def secrl_project(tmp_path: Path) -> Tuple[Path, str, str, str]:
     module_path = tmp_path / "secgym_bootstrap.py"
     module_path.write_text(source, encoding="utf-8")
     return tmp_path, "secgym_bootstrap", "MockSecGymEnv", "MockSecGymAgent"
+
+
+@pytest.fixture()
+def synthesis_project(tmp_path: Path) -> Tuple[Path, str, str, str]:
+    source = textwrap.dedent(
+        """
+        from __future__ import annotations
+
+        from atlas import agent, environment
+        from atlas.sdk.interfaces import DiscoveryContext, TelemetryEmitterProtocol
+
+
+        @environment
+        class NeedsConfigEnv:
+            def __init__(self, db_url: str, *, cache_dir: str = "/tmp/cache"):
+                self._db_url = db_url
+                self._cache_dir = cache_dir
+
+            def reset(self, task: str | None = None):
+                return {"db": self._db_url, "task": task}
+
+            def step(self, action, submit: bool = False):
+                info = {"action": action, "submit": submit, "cache": self._cache_dir}
+                return {"status": "pending"}, 0.0, True, info
+
+            def close(self) -> None:
+                return None
+
+
+        @agent
+        class NeedsConfigAgent:
+            def plan(
+                self,
+                task: str,
+                observation,
+                *,
+                emit_event: TelemetryEmitterProtocol | None = None,
+            ):
+                if emit_event:
+                    emit_event.emit("analysis", {"task": task})
+                return {"goal": "probe connectivity"}
+
+            def act(
+                self,
+                context: DiscoveryContext,
+                *,
+                emit_event: TelemetryEmitterProtocol | None = None,
+            ):
+                if emit_event:
+                    emit_event.emit("analysis", {"step": context.step_index})
+                return {"ping": True}
+
+            def summarize(
+                self,
+                context: DiscoveryContext,
+                *,
+                history=None,
+                emit_event: TelemetryEmitterProtocol | None = None,
+            ):
+                if emit_event:
+                    emit_event.emit("analysis", {"summary": True})
+                return "Connectivity probe complete"
+        """
+    )
+    module_path = tmp_path / "configurable.py"
+    module_path.write_text(source, encoding="utf-8")
+    return tmp_path, "configurable", "NeedsConfigEnv", "NeedsConfigAgent"

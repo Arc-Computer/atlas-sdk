@@ -7,11 +7,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from pathlib import Path
-from typing import Dict, Iterable, Tuple
-
-import json
-from typing import Any
+from typing import Any, Dict, Iterable, Tuple
 
 try:
     import yaml
@@ -53,22 +49,31 @@ def invoke_discovery_worker(spec: dict[str, object], *, timeout: int) -> dict[st
         timeout=timeout,
         check=False,
     )
-    if process.returncode != 0:
-        stderr = process.stderr.strip()
-        stdout = process.stdout.strip()
-        message = stderr or stdout or f"discovery worker failed with exit code {process.returncode}"
-        raise CLIError(message)
-    try:
-        payload = json.loads(process.stdout or "{}")
-    except json.JSONDecodeError as exc:
-        raise CLIError(f"Failed to parse discovery worker output: {exc}") from exc
-    if payload.get("status") != "ok":
+    stdout = (process.stdout or "").strip()
+    stderr = (process.stderr or "").strip()
+    payload: dict[str, Any] | None = None
+    if stdout:
+        try:
+            candidate = json.loads(stdout)
+            if isinstance(candidate, dict):
+                payload = candidate
+        except json.JSONDecodeError:
+            payload = None
+    if payload and payload.get("status") != "ok":
         error = payload.get("error") or "unknown worker error"
         trace = payload.get("traceback")
         if trace:
             print(trace, file=sys.stderr)
         raise DiscoveryWorkerError(str(error), traceback_text=trace)
-    return payload["result"]  # type: ignore[return-value]
+    if process.returncode != 0:
+        message = stderr or stdout or f"discovery worker failed with exit code {process.returncode}"
+        raise CLIError(message)
+    if not payload:
+        raise CLIError("Discovery worker returned no payload.")
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        raise CLIError("Discovery worker result is malformed.")
+    return result
 
 
 def parse_key_value_flags(values: Iterable[str]) -> Dict[str, str]:

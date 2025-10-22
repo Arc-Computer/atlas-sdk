@@ -44,7 +44,8 @@ arguments, `atlas env init` now gathers context from your repository, calls an
 LLM (Gemini 2.5 Flash or Claude Haiku 4.5), and materialises helper factories
 under `.atlas/generated_factories.py`. These helpers merge discovered defaults
 with any `--env-arg/--agent-arg` overrides and defer heavyweight side effects
-until validation, so the initial scan remains safe.
+until validation, so the initial scan remains safe. Keep this module under
+source control; it will be regenerated whenever you rerun discovery.
 
 ## 2. Discover the environment & agent
 
@@ -63,6 +64,13 @@ loop. It writes two artefacts under
   telemetry samples, and reward statistics.
 - `generated_config.yaml` records the discovered pair (`behavior: self`) so the
   runtime can load them without additional configuration.
+
+When synthesis or preflight diagnostics flag missing dependencies, discovery
+marks `preflight.auto_skip = true`, flips `ATLAS_DISCOVERY_VALIDATE` to `0`, and
+locks the runtime into the recommended mode. The metadata exposes the choice via
+`capabilities.preferred_mode` while `.atlas/generated_config.yaml` pins
+`orchestration.forced_mode` so later `atlas run` calls route directly to `auto`
+or `paired` once you validate.
 
 By default the command also performs a full sample run and records the first
 trajectory under `.atlas/runs/` for continual learning. Disable this behaviour
@@ -99,7 +107,8 @@ incident_5 before running discovery”). When LLM-generated factories warn that
 dependencies are offline, Atlas automatically sets `ATLAS_DISCOVERY_VALIDATE=0`,
 skips the sample run, and records the notes in `.atlas/discover.json`. Re-run
 with `--validate` (or set the env var to `1`) once services are healthy to reuse
-the same factories without manual edits.
+the same factories without manual edits; the forced mode flag will remain until
+you refresh discovery.
 
 ## 3. Execute tasks with the cached metadata
 

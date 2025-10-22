@@ -306,6 +306,17 @@ def _discovery_loop(
     }
 
 
+def _empty_result_payload() -> Dict[str, Any]:
+    return {
+        "plan": None,
+        "final_answer": None,
+        "telemetry": {"events": [], "agent_emitted": False},
+        "reward": {"total": None, "last": None, "steps": 0},
+        "schema": {},
+        "history": [],
+    }
+
+
 def _import_and_build(role: str, module: str, qualname: str, *, kwargs: dict[str, Any] | None = None, project_root: Path | None = None) -> Any:
     kwargs = kwargs or {}
     attr = _resolve_attr(module, qualname, project_root=project_root)
@@ -336,14 +347,7 @@ def main() -> int:
         if skip_import:
             env_instance = None
             agent_instance = None
-            result_payload = {
-                "plan": None,
-                "final_answer": None,
-                "telemetry": {"events": [], "agent_emitted": False},
-                "reward": {"total": None, "last": None, "steps": 0},
-                "schema": {},
-                "history": [],
-            }
+            result_payload = _empty_result_payload()
             response = {"status": "ok", "result": result_payload}
             print(json.dumps(response))
             return 0
@@ -385,14 +389,7 @@ def main() -> int:
         if run_loop:
             result_payload = _discovery_loop(env_instance, agent_instance, task, emitter=emitter)
         else:
-            result_payload = {
-                "plan": None,
-                "final_answer": None,
-                "telemetry": {"events": [], "agent_emitted": False},
-                "reward": {"total": None, "last": None, "steps": 0},
-                "schema": {},
-                "history": [],
-            }
+            result_payload = _empty_result_payload()
         response = {
             "status": "ok",
             "result": result_payload,
