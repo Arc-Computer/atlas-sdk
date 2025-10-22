@@ -14,6 +14,7 @@ from types import ModuleType
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from atlas.sdk.interfaces import AtlasAgentProtocol, AtlasEnvironmentProtocol, DiscoveryContext, TelemetryEmitterProtocol
+from atlas.sdk.wrappers import StepwiseAgentAdapter
 
 
 def _load_spec() -> dict[str, Any]:
@@ -81,6 +82,24 @@ def _json_safe(value: Any, depth: int = 0) -> Any:
     return repr(value)
 
 
+def _normalize_action(action: Any) -> tuple[Any, bool, dict[str, Any]]:
+    submit = False
+    metadata: dict[str, Any] = {}
+    payload = action
+    if isinstance(action, tuple) and action:
+        payload = action[0]
+        if len(action) > 1 and isinstance(action[1], bool):
+            submit = action[1]
+        if len(action) > 2 and isinstance(action[2], dict):
+            metadata = dict(action[2])
+    elif isinstance(action, dict):
+        metadata = {k: v for k, v in action.items() if k not in {"action", "submit"}}
+        if "action" in action:
+            payload = action["action"]
+        submit = bool(action.get("submit"))
+    return payload, submit, metadata
+
+
 class TelemetryCollector(TelemetryEmitterProtocol):
     """Collect telemetry emitted during discovery and runtime."""
 
@@ -128,6 +147,8 @@ class StepRecord:
     reward: float | None
     done: bool
     info: Dict[str, Any]
+    submit: bool
+    metadata: Dict[str, Any]
 
 
 def _ensure_protocol(instance: Any, protocol: type) -> None:
@@ -165,9 +186,20 @@ def _discovery_loop(
             reward=latest_reward,
             done=False,
         )
-        action = agent.act(context, emit_event=emitter)
-        emitter.emit_internal("env_action", {"action": _json_safe(action)})
-        observation, reward, done, info = env.step(action)
+        raw_action = agent.act(context, emit_event=emitter)
+        action, submit, action_metadata = _normalize_action(raw_action)
+        emitter.emit_internal(
+            "env_action",
+            {
+                "action": _json_safe(action),
+                "submit": submit,
+                "metadata": _json_safe(action_metadata),
+            },
+        )
+        try:
+            observation, reward, done, info = env.step(action, submit=submit)
+        except TypeError:
+            observation, reward, done, info = env.step(action)
         latest_reward = float(reward) if isinstance(reward, (int, float)) else None
         if latest_reward is not None:
             reward_total += latest_reward
@@ -179,13 +211,16 @@ def _discovery_loop(
             done=done,
         )
         history.append(next_context)
+        info_payload = info if isinstance(info, dict) else {"value": info}
         records.append(
             StepRecord(
                 context=next_context,
                 action=action,
                 reward=latest_reward,
                 done=done,
-                info=_json_safe(info),
+                info=info_payload,
+                submit=submit,
+                metadata=action_metadata,
             )
         )
         step_index += 1
@@ -208,13 +243,14 @@ def _discovery_loop(
         "events": emitter.events,
         "agent_emitted": emitter.agent_emitted,
     }
+    total_reward = reward_total if records else latest_reward
     reward_payload = {
-        "total": reward_total if reward_total else latest_reward,
+        "total": total_reward,
         "last": latest_reward,
         "steps": sum(1 for record in records if record.reward is not None),
     }
     schema_payload = {
-        "observation": _schema_summary(history[0].observation),
+        "observation": _schema_summary(history[0].observation) if history else {},
         "action": _schema_summary(records[0].action) if records else {"python_type": "NoneType"},
         "reward": {"python_type": "float" if latest_reward is not None else "unknown"},
     }
@@ -225,7 +261,9 @@ def _discovery_loop(
             "action": _json_safe(record.action),
             "reward": record.reward,
             "done": record.done,
-            "info": record.info,
+            "info": _json_safe(record.info),
+            "submit": record.submit,
+            "metadata": _json_safe(record.metadata),
         }
         for record in records
     ]
@@ -239,12 +277,13 @@ def _discovery_loop(
     }
 
 
-def _import_and_build(role: str, module: str, qualname: str) -> Any:
+def _import_and_build(role: str, module: str, qualname: str, *, kwargs: dict[str, Any] | None = None) -> Any:
+    kwargs = kwargs or {}
     attr = _resolve_attr(module, qualname)
     if isinstance(attr, type):
-        return attr()
+        return attr(**kwargs)
     if callable(attr):
-        return attr()
+        return attr(**kwargs)
     raise TypeError(f"Unsupported {role} target '{module}:{qualname}' – expected class or factory callable.")
 
 
@@ -258,12 +297,58 @@ def main() -> int:
         extra_env = spec.get("env") or {}
         for key, value in extra_env.items():
             os.environ.setdefault(key, value)
-        environment_spec = spec["environment"]
-        agent_spec = spec["agent"]
+        environment_spec = spec.get("environment") or {}
+        agent_spec = spec.get("agent") or {}
+        environment_factory_spec = spec.get("environment_factory")
+        agent_factory_spec = spec.get("agent_factory")
         task = spec.get("task") or "Sample Atlas task."
         run_loop = bool(spec.get("run_discovery", True))
-        env_instance = _import_and_build("environment", environment_spec["module"], environment_spec["qualname"])
-        agent_instance = _import_and_build("agent", agent_spec["module"], agent_spec["qualname"])
+        skip_import = bool(spec.get("skip_import"))
+        if skip_import:
+            env_instance = None
+            agent_instance = None
+            result_payload = {
+                "plan": None,
+                "final_answer": None,
+                "telemetry": {"events": [], "agent_emitted": False},
+                "reward": {"total": None, "last": None, "steps": 0},
+                "schema": {},
+                "history": [],
+            }
+            response = {"status": "ok", "result": result_payload}
+            print(json.dumps(response))
+            return 0
+        env_kwargs = dict(environment_spec.get("init_kwargs") or {})
+        agent_kwargs = dict(agent_spec.get("init_kwargs") or {})
+        if environment_factory_spec:
+            env_kwargs.update(environment_factory_spec.get("kwargs") or {})
+        if agent_factory_spec:
+            agent_kwargs.update(agent_factory_spec.get("kwargs") or {})
+
+        if environment_factory_spec:
+            env_module = environment_factory_spec.get("module")
+            env_qualname = environment_factory_spec.get("qualname")
+        else:
+            env_module = environment_spec.get("module")
+            env_qualname = environment_spec.get("qualname")
+        if not env_module or not env_qualname:
+            raise ValueError("Environment module/qualname not provided in discovery specification.")
+
+        if agent_factory_spec:
+            agent_module = agent_factory_spec.get("module")
+            agent_qualname = agent_factory_spec.get("qualname")
+        else:
+            agent_module = agent_spec.get("module")
+            agent_qualname = agent_spec.get("qualname")
+        if not agent_module or not agent_qualname:
+            raise ValueError("Agent module/qualname not provided in discovery specification.")
+
+        env_instance = _import_and_build("environment", env_module, env_qualname, kwargs=env_kwargs)
+        agent_instance = _import_and_build("agent", agent_module, agent_qualname, kwargs=agent_kwargs)
+
+        if not callable(getattr(agent_instance, "plan", None)) or not callable(getattr(agent_instance, "summarize", None)):
+            agent_instance = StepwiseAgentAdapter(agent_instance)
+
         _ensure_protocol(env_instance, AtlasEnvironmentProtocol)
         _ensure_protocol(agent_instance, AtlasAgentProtocol)
         emitter = TelemetryCollector()

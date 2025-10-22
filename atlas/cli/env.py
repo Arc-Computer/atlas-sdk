@@ -5,13 +5,21 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
 
-from atlas.cli.utils import CLIError, execute_runtime, invoke_discovery_worker, parse_env_flags
-from atlas.sdk.discovery import Candidate, discover_candidates, serialize_candidate, split_candidates, write_discovery_payload
+from atlas.cli.utils import (
+    CLIError,
+    execute_runtime,
+    invoke_discovery_worker,
+    load_config_file,
+    parse_callable_reference,
+    parse_env_flags,
+    parse_key_value_flags,
+)
+from atlas.sdk.discovery import Candidate, Role, discover_candidates, serialize_candidate, split_candidates, write_discovery_payload
 
 
 DISCOVERY_FILENAME = "discover.json"
@@ -19,9 +27,49 @@ GENERATED_CONFIG_FILENAME = "generated_config.yaml"
 
 
 @dataclass(slots=True)
+class TargetSpec:
+    candidate: Candidate | None = None
+    factory: tuple[str, str] | None = None
+    kwargs: Dict[str, object] = field(default_factory=dict)
+    config: dict[str, object] | None = None
+
+    def dotted_path(self) -> str:
+        if self.candidate is not None:
+            return self.candidate.dotted_path()
+        if self.factory is not None:
+            return f"{self.factory[0]}:{self.factory[1]}"
+        return "<unspecified>"
+
+
+def _serialize_target(target: TargetSpec, project_root: Path, role: Role) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "selection": "factory" if target.candidate is None else "candidate",
+        "kwargs": target.kwargs,
+        "config": target.config,
+        "role": role,
+    }
+    if target.candidate is not None:
+        payload.update(serialize_candidate(target.candidate, project_root))
+        payload["capabilities"] = target.candidate.capabilities
+    if target.factory is not None:
+        payload.setdefault("module", target.factory[0])
+        payload.setdefault("qualname", target.factory[1])
+        payload["factory"] = {
+            "module": target.factory[0],
+            "qualname": target.factory[1],
+        }
+    # Ensure required keys exist even if no candidate was discovered.
+    payload.setdefault("module", None)
+    payload.setdefault("qualname", None)
+    payload.setdefault("file", None)
+    payload.setdefault("hash", None)
+    return payload
+
+
+@dataclass(slots=True)
 class SelectedTargets:
-    environment: Candidate
-    agent: Candidate
+    environment: TargetSpec
+    agent: TargetSpec
 
 
 def _prompt_selection(candidates: List[Candidate], role: str) -> Candidate:
@@ -32,7 +80,8 @@ def _prompt_selection(candidates: List[Candidate], role: str) -> Candidate:
     print(f"Multiple {role} candidates detected:")
     for index, candidate in enumerate(candidates, start=1):
         marker = "[decorator]" if candidate.via_decorator else "[heuristic]"
-        print(f"  {index}. {candidate.dotted_path()} {marker} score={candidate.score}")
+        capability_summary = _summarise_capabilities(candidate)
+        print(f"  {index}. {candidate.dotted_path()} {marker} score={candidate.score} {capability_summary}")
     while True:
         try:
             raw = input(f"Select {role} [1-{len(candidates)}]: ").strip()
@@ -51,9 +100,47 @@ def _prompt_selection(candidates: List[Candidate], role: str) -> Candidate:
         print(f"Selection out of range. Choose between 1 and {len(candidates)}.")
 
 
+def _summarise_capabilities(candidate: Candidate) -> str:
+    caps = candidate.capabilities or {}
+    if candidate.role == "environment":
+        ordered = [("reset", "R"), ("step", "S"), ("close", "C")]
+    else:
+        ordered = [("plan", "P"), ("act", "A"), ("summarize", "Z")]
+    flags = "".join(label if caps.get(key) else label.lower() for key, label in ordered)
+    return f"(caps:{flags})"
+
+
 def _ensure_write(path: Path, *, force: bool) -> None:
     if path.exists() and not force:
         raise FileExistsError(f"{path} already exists. Use --force to overwrite.")
+
+
+def _summarise_target(target: TargetSpec, role: str) -> str:
+    parts: list[str] = []
+    if target.candidate is not None:
+        source = "decorator" if target.candidate.via_decorator else target.candidate.reason
+        parts.append(f"candidate={target.candidate.dotted_path()} ({source})")
+        parts.append(_summarise_capabilities(target.candidate))
+    if target.factory is not None:
+        parts.append(f"factory={target.factory[0]}:{target.factory[1]}")
+    if target.kwargs:
+        parts.append(f"kwargs={len(target.kwargs)}")
+    return f"{role}: " + ", ".join(parts or ["<unspecified>"])
+
+
+def _infer_skip_reasons(targets: SelectedTargets) -> list[str]:
+    reasons: list[str] = []
+    env_path = targets.environment.dotted_path().lower()
+    agent_path = targets.agent.dotted_path().lower()
+    if "secgym" in env_path or "mysql" in env_path:
+        reasons.append("Environment references SecGym/mysql; ensure Docker containers and database are running before executing discovery.")
+    if "deepagents" in agent_path or "langgraph" in agent_path:
+        reasons.append("LangGraph/DeepAgents detected; ensure dependencies (uv/poetry) are installed before executing discovery.")
+    if targets.environment.factory and not targets.environment.candidate:
+        reasons.append("Environment instantiated via factory only; skipping automatic run until validated.")
+    if targets.agent.candidate and not targets.agent.candidate.capabilities.get("summarize"):
+        reasons.append("Agent missing summarize(); Atlas wrapper will auto-generate final answers. Validate behaviour manually before running discovery.")
+    return reasons
 
 
 def _write_generated_config(destination: Path, targets: SelectedTargets, capabilities: dict[str, object], *, force: bool) -> None:
@@ -81,6 +168,8 @@ def _compose_metadata(
     targets: SelectedTargets,
     *,
     discovery_payload: dict[str, object],
+    preflight_notes: list[str] | None = None,
+    auto_skip: bool = False,
 ) -> dict[str, object]:
     generated_at = datetime.now(timezone.utc).isoformat()
     final_answer = discovery_payload.get("final_answer")
@@ -105,8 +194,8 @@ def _compose_metadata(
         "version": 1,
         "generated_at": generated_at,
         "project_root": str(project_root),
-        "environment": serialize_candidate(targets.environment, project_root),
-        "agent": serialize_candidate(targets.agent, project_root),
+        "environment": _serialize_target(targets.environment, project_root, "environment"),
+        "agent": _serialize_target(targets.agent, project_root, "agent"),
         "capabilities": capabilities,
         "schema": discovery_payload.get("schema") or {},
         "reward": discovery_payload.get("reward") or {},
@@ -114,6 +203,10 @@ def _compose_metadata(
         "sample_history": discovery_payload.get("history") or [],
         "plan_preview": plan_preview,
         "final_answer_sample": final_answer,
+        "preflight": {
+            "notes": preflight_notes or [],
+            "auto_skip": auto_skip,
+        },
     }
     return metadata
 
@@ -122,19 +215,97 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     project_root = Path(args.path or ".").resolve()
     candidates = discover_candidates(project_root)
     env_candidates, agent_candidates = split_candidates(candidates)
-    if not env_candidates:
-        print("No environment candidates discovered. Ensure classes are decorated with @atlas.environment or expose reset/step/close.", file=sys.stderr)
-        return 1
-    if not agent_candidates:
-        print("No agent candidates discovered. Ensure classes are decorated with @atlas.agent or expose plan/act/summarize.", file=sys.stderr)
-        return 1
+
+    targets = SelectedTargets(environment=TargetSpec(), agent=TargetSpec())
+
     try:
-        env_choice = _prompt_selection(env_candidates, "environment")
-        agent_choice = _prompt_selection(agent_candidates, "agent")
-    except ValueError as exc:
+        env_kw_pairs = parse_key_value_flags(args.env_kwargs or [])
+        agent_kw_pairs = parse_key_value_flags(args.agent_kwargs or [])
+    except CLIError as exc:
         print(exc, file=sys.stderr)
         return 1
-    targets = SelectedTargets(environment=env_choice, agent=agent_choice)
+
+    env_config_payload: dict[str, object] | None = None
+    agent_config_payload: dict[str, object] | None = None
+    if args.env_config:
+        try:
+            env_config_payload = load_config_file(args.env_config)
+        except CLIError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        if not isinstance(env_config_payload, dict):
+            print(f"Environment config {args.env_config!r} must be a mapping.", file=sys.stderr)
+            return 1
+    if args.agent_config:
+        try:
+            agent_config_payload = load_config_file(args.agent_config)
+        except CLIError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+        if not isinstance(agent_config_payload, dict):
+            print(f"Agent config {args.agent_config!r} must be a mapping.", file=sys.stderr)
+            return 1
+
+    environment_kwargs: dict[str, object] = {}
+    agent_kwargs: dict[str, object] = {}
+    if env_config_payload:
+        environment_kwargs.update(env_config_payload)
+    environment_kwargs.update(env_kw_pairs)
+    if agent_config_payload:
+        agent_kwargs.update(agent_config_payload)
+    agent_kwargs.update(agent_kw_pairs)
+
+    targets.environment.kwargs = environment_kwargs
+    targets.environment.config = env_config_payload
+    targets.agent.kwargs = agent_kwargs
+    targets.agent.config = agent_config_payload
+
+    if args.env_fn:
+        try:
+            targets.environment.factory = parse_callable_reference(args.env_fn)
+        except CLIError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+    if args.agent_fn:
+        try:
+            targets.agent.factory = parse_callable_reference(args.agent_fn)
+        except CLIError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+
+    if env_candidates:
+        try:
+            targets.environment.candidate = _prompt_selection(env_candidates, "environment")
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+    elif targets.environment.factory is None:
+        print(
+            "No environment candidates discovered and no factory provided. Supply --env-fn to continue.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if agent_candidates:
+        try:
+            targets.agent.candidate = _prompt_selection(agent_candidates, "agent")
+        except ValueError as exc:
+            print(exc, file=sys.stderr)
+            return 1
+    elif targets.agent.factory is None:
+        print(
+            "No agent candidates discovered and no factory provided. Supply --agent-fn to continue.",
+            file=sys.stderr,
+        )
+        return 1
+
+    skip_reasons = _infer_skip_reasons(targets)
+    run_requested = not args.no_run
+    auto_skip = False
+    if skip_reasons and run_requested and not args.validate:
+        auto_skip = True
+        run_requested = False
+
     atlas_dir = project_root / ".atlas"
     discovery_path = atlas_dir / DISCOVERY_FILENAME
     config_path = atlas_dir / GENERATED_CONFIG_FILENAME
@@ -143,14 +314,63 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     except CLIError as exc:
         print(exc, file=sys.stderr)
         return 1
-    spec = {
+    spec: dict[str, object] = {
         "project_root": str(project_root),
-        "environment": {"module": targets.environment.module, "qualname": targets.environment.qualname},
-        "agent": {"module": targets.agent.module, "qualname": targets.agent.qualname},
         "task": args.task,
-        "run_discovery": not args.no_run,
+        "run_discovery": run_requested,
         "env": env_overrides,
     }
+
+    if targets.environment.candidate is not None:
+        env_payload: dict[str, object] = {
+            "module": targets.environment.candidate.module,
+            "qualname": targets.environment.candidate.qualname,
+        }
+        if targets.environment.kwargs:
+            env_payload["init_kwargs"] = targets.environment.kwargs
+        if targets.environment.config is not None and targets.environment.config != targets.environment.kwargs:
+            env_payload.setdefault("config", targets.environment.config)
+        spec["environment"] = env_payload
+    if targets.environment.factory is not None:
+        factory_module, factory_qualname = targets.environment.factory
+        spec["environment_factory"] = {
+            "module": factory_module,
+            "qualname": factory_qualname,
+            "kwargs": targets.environment.kwargs,
+        }
+
+    if targets.agent.candidate is not None:
+        agent_payload: dict[str, object] = {
+            "module": targets.agent.candidate.module,
+            "qualname": targets.agent.candidate.qualname,
+        }
+        if targets.agent.kwargs:
+            agent_payload["init_kwargs"] = targets.agent.kwargs
+        if targets.agent.config is not None and targets.agent.config != targets.agent.kwargs:
+            agent_payload.setdefault("config", targets.agent.config)
+        spec["agent"] = agent_payload
+    if targets.agent.factory is not None:
+        factory_module, factory_qualname = targets.agent.factory
+        spec["agent_factory"] = {
+            "module": factory_module,
+            "qualname": factory_qualname,
+            "kwargs": targets.agent.kwargs,
+        }
+
+    print("Discovery summary:")
+    print(f"  {_summarise_target(targets.environment, 'Environment')}")
+    print(f"  {_summarise_target(targets.agent, 'Agent')}")
+    if skip_reasons:
+        print("  Preflight notes:")
+        for reason in skip_reasons:
+            print(f"    - {reason}")
+        if auto_skip:
+            print("  Auto-skip enabled: discovery run deferred (use --validate to execute once prerequisites are met).")
+        elif args.validate:
+            print("  Proceeding with discovery despite preflight warnings (--validate supplied).")
+
+    if auto_skip:
+        spec["skip_import"] = True
     atlas_dir.mkdir(parents=True, exist_ok=True)
     if discovery_path.exists() and not args.force:
         print(f"{discovery_path} already exists; use --force to refresh.", file=sys.stderr)
@@ -163,7 +383,13 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     except CLIError as exc:
         print(f"Discovery worker failed: {exc}", file=sys.stderr)
         return 1
-    metadata = _compose_metadata(project_root, targets, discovery_payload=discovery_payload)
+    metadata = _compose_metadata(
+        project_root,
+        targets,
+        discovery_payload=discovery_payload,
+        preflight_notes=skip_reasons,
+        auto_skip=auto_skip,
+    )
     capabilities = metadata.get("capabilities") if isinstance(metadata.get("capabilities"), dict) else {}
     write_discovery_payload(discovery_path, metadata=metadata)
     try:
@@ -181,8 +407,13 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
             telemetry=telemetry_status,
         )
     )
-    if args.no_run:
-        print("Run skipped (--no-run supplied).")
+    if not run_requested:
+        if args.no_run:
+            print("Run skipped (--no-run supplied).")
+        elif auto_skip:
+            print("Run skipped automatically based on preflight guidance. Use `atlas env init --validate` once dependencies are ready.")
+        else:
+            print("Run skipped.")
     else:
         print("Discovery loop completed. Review .atlas/discover.json for captured telemetry.")
         if not args.skip_sample_run:
@@ -233,6 +464,43 @@ def register_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPars
         "--skip-sample-run",
         action="store_true",
         help="Skip suggesting the immediate sample run after discovery completes.",
+    )
+    init_parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Force execution of the discovery loop even if preflight diagnostics recommend skipping.",
+    )
+    init_parser.add_argument(
+        "--env-fn",
+        help="Optional factory callable (module:qualname) to instantiate the environment.",
+    )
+    init_parser.add_argument(
+        "--agent-fn",
+        help="Optional factory callable (module:qualname) to instantiate the agent.",
+    )
+    init_parser.add_argument(
+        "--env-arg",
+        dest="env_kwargs",
+        metavar="KEY=VALUE",
+        action="append",
+        default=[],
+        help="Keyword argument for the environment factory (repeatable).",
+    )
+    init_parser.add_argument(
+        "--agent-arg",
+        dest="agent_kwargs",
+        metavar="KEY=VALUE",
+        action="append",
+        default=[],
+        help="Keyword argument for the agent factory (repeatable).",
+    )
+    init_parser.add_argument(
+        "--env-config",
+        help="Path to JSON/YAML file with additional environment factory kwargs.",
+    )
+    init_parser.add_argument(
+        "--agent-config",
+        help="Path to JSON/YAML file with additional agent factory kwargs.",
     )
     init_parser.add_argument(
         "--force",

@@ -68,6 +68,24 @@ python run_quickstart.py
 
 > **Tip for local development:** the runtime now gates exports on approved sessions. If you are experimenting locally and don’t want to run the review CLI every time, set `ATLAS_REVIEW_REQUIRE_APPROVAL=0` in your shell before exporting traces. Production deployments should keep approval enabled.
 
+### Autodiscovery Onboarding
+
+The CLI now supports a Codex-style discovery flow for self-managed agents:
+
+```bash
+pip install arc-atlas
+atlas env init --task "Investigate production incident" \
+  --env-fn secrl_bootstrap:create_environment --env-arg attack=incident_38 \
+  --agent-fn langgraph_adapter:create_langgraph_agent --no-run
+atlas run --task "Investigate production incident"
+```
+
+`atlas env init` scans your codebase, captures telemetry, and writes
+`.atlas/discover.json` / `.atlas/generated_config.yaml`. When it detects heavier
+stacks (SecRL, LangGraph/DeepAgents, etc.) it records preflight notes and skips
+execution until you rerun with `--validate`. See `docs/sdk/quickstart.mdx` and
+the examples under `examples/` for end-to-end templates.
+
 ---
 
 ## 📹 Video Walkthrough

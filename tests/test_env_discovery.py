@@ -45,8 +45,15 @@ def test_env_init_writes_metadata_and_config(stateful_project) -> None:
         path=str(project_root),
         task="Sample task",
         env_vars=[],
+        env_kwargs=[],
+        agent_kwargs=[],
+        env_fn=None,
+        agent_fn=None,
+        env_config=None,
+        agent_config=None,
         no_run=False,
         skip_sample_run=True,
+        validate=False,
         force=True,
         timeout=120,
     )
@@ -74,8 +81,15 @@ def test_runtime_rejects_stale_metadata(stateful_project) -> None:
         path=str(project_root),
         task="Sample prompt",
         env_vars=[],
+        env_kwargs=[],
+        agent_kwargs=[],
+        env_fn=None,
+        agent_fn=None,
+        env_config=None,
+        agent_config=None,
         no_run=True,
         skip_sample_run=True,
+        validate=False,
         force=True,
         timeout=120,
     )
@@ -97,3 +111,34 @@ def test_runtime_rejects_stale_metadata(stateful_project) -> None:
 
     stale_exit = run_cli._cmd_run(run_args)
     assert stale_exit == 1
+
+
+def test_env_init_auto_skips_heavy_environment(secrl_project) -> None:
+    project_root, module_name, env_name, agent_name = secrl_project
+    args = argparse.Namespace(
+        path=str(project_root),
+        task="Investigate attack",
+        env_vars=[],
+        env_kwargs=["attack=incident_5", "db_url=mysql://root@localhost"],
+        agent_kwargs=[],
+        env_fn=f"{module_name}:create_environment",
+        agent_fn=f"{module_name}:create_agent",
+        env_config=None,
+        agent_config=None,
+        no_run=False,
+        skip_sample_run=True,
+        validate=False,
+        force=True,
+        timeout=120,
+    )
+    exit_code = env_cli._cmd_env_init(args)
+    assert exit_code == 0
+    metadata_path = project_root / ".atlas" / "discover.json"
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+    assert metadata["preflight"]["auto_skip"] is True
+    assert metadata["environment"]["factory"]["module"] == module_name
+    assert metadata["environment"]["kwargs"]["attack"] == "incident_5"
+    assert metadata["agent"]["factory"]["module"] == module_name
+    telemetry = metadata["telemetry"]
+    assert telemetry.get("events") == []
+    assert telemetry.get("agent_emitted") is False

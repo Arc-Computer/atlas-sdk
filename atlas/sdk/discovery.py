@@ -5,9 +5,9 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Iterator, List, Literal, Sequence
+from typing import Iterator, List, Literal, Sequence
 
 _SKIP_DIRS = {
     ".git",
@@ -37,6 +37,7 @@ class Candidate:
     score: int
     reason: str
     via_decorator: bool
+    capabilities: dict[str, bool] = field(default_factory=dict)
 
     def dotted_path(self) -> str:
         return f"{self.module}:{self.qualname}"
@@ -74,18 +75,46 @@ def _decorator_matches(node: ast.ClassDef, attr_name: str) -> bool:
     return False
 
 
-def _score_class(node: ast.ClassDef) -> tuple[Role | None, int, bool]:
+def _score_class(node: ast.ClassDef) -> tuple[Role | None, int, bool, dict[str, bool]]:
+    capabilities: dict[str, bool] = {}
     if _decorator_matches(node, "environment"):
-        return "environment", 100, True
+        capabilities.update({"decorated": True, "reset": True, "step": True, "close": True})
+        return "environment", 120, True, capabilities
     if _decorator_matches(node, "agent"):
-        return "agent", 100, True
-    env_methods = {"reset", "step", "close"}
-    if all(_has_method(node, method) for method in env_methods):
-        return "environment", 60, False
-    agent_methods = {"plan", "act", "summarize"}
-    if all(_has_method(node, method) for method in agent_methods):
-        return "agent", 60, False
-    return None, 0, False
+        capabilities.update({"decorated": True, "plan": True, "act": True, "summarize": True})
+        return "agent", 120, True, capabilities
+
+    env_caps = {
+        "reset": _has_method(node, "reset"),
+        "step": _has_method(node, "step"),
+        "close": _has_method(node, "close"),
+        "render": _has_method(node, "render"),
+    }
+    agent_caps = {
+        "plan": _has_method(node, "plan"),
+        "act": _has_method(node, "act"),
+        "summarize": _has_method(node, "summarize"),
+        "reset": _has_method(node, "reset"),
+    }
+
+    def _base_score(caps: dict[str, bool]) -> int:
+        return sum(20 for value in caps.values() if value)
+
+    if env_caps["reset"] and env_caps["step"]:
+        env_caps["heuristic"] = True
+        score = 80 + _base_score(env_caps)
+        if any(isinstance(base, ast.Name) and base.id.lower() in {"env", "environment"} for base in node.bases):
+            env_caps["gym_base"] = True
+            score += 10
+        return "environment", score, False, env_caps
+    if agent_caps["act"]:
+        agent_caps["heuristic"] = True
+        score = 60 + _base_score(agent_caps)
+        if any(isinstance(base, ast.Name) and "agent" in base.id.lower() for base in node.bases):
+            agent_caps["agent_base"] = True
+            score += 10
+        return "agent", score, False, agent_caps
+    return None, 0, False, capabilities
 
 
 def discover_candidates(root: Path) -> list[Candidate]:
@@ -106,7 +135,7 @@ def discover_candidates(root: Path) -> list[Candidate]:
         for node in tree.body:
             if not isinstance(node, ast.ClassDef):
                 continue
-            role, score, via_decorator = _score_class(node)
+            role, score, via_decorator, capabilities = _score_class(node)
             if role is None:
                 continue
             reason = "decorator" if via_decorator else "heuristic"
@@ -119,6 +148,7 @@ def discover_candidates(root: Path) -> list[Candidate]:
                     score=score,
                     reason=reason,
                     via_decorator=via_decorator,
+                    capabilities=capabilities or {},
                 )
             )
     candidates.sort(key=lambda cand: (cand.role, -cand.score, cand.module, cand.qualname))

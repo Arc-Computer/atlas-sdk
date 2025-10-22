@@ -32,6 +32,8 @@ def _validate_module_hash(project_root: Path, payload: dict[str, object], role: 
     expected_hash = payload.get("hash")
     rel_path = payload.get("file")
     module = payload.get("module")
+    if not expected_hash or not rel_path:
+        return
     if not isinstance(expected_hash, str) or not isinstance(rel_path, str):
         raise CLIError(f"Discovery metadata missing hash for {role}. Re-run `atlas env init`.")
     file_path = project_root / rel_path
@@ -57,6 +59,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     metadata_root = Path(metadata.get("project_root", project_root)).resolve()  # type: ignore[arg-type]
     env_payload = metadata.get("environment")
     agent_payload = metadata.get("agent")
+    preflight = metadata.get("preflight")
     if not isinstance(env_payload, dict) or not isinstance(agent_payload, dict):
         print("Discovery metadata missing environment/agent payloads. Re-run `atlas env init`.", file=sys.stderr)
         return 1
@@ -71,15 +74,55 @@ def _cmd_run(args: argparse.Namespace) -> int:
     except CLIError as exc:
         print(exc, file=sys.stderr)
         return 1
+    if isinstance(preflight, dict):
+        notes = preflight.get("notes")
+        if notes:
+            print("Preflight notes from discovery:")
+            for note in notes:
+                print(f"  - {note}")
     capabilities: Dict[str, object] = metadata.get("capabilities", {}) if isinstance(metadata.get("capabilities"), dict) else {}
+    def _build_target(target_payload: dict[str, object]) -> tuple[dict[str, object] | None, dict[str, object] | None]:
+        init_kwargs = target_payload.get("kwargs") or {}
+        config_payload = target_payload.get("config")
+        base_entry: dict[str, object] | None = None
+        factory_entry: dict[str, object] | None = None
+        module = target_payload.get("module")
+        qualname = target_payload.get("qualname")
+        if module and qualname:
+            base_entry = {
+                "module": module,
+                "qualname": qualname,
+            }
+            if init_kwargs:
+                base_entry["init_kwargs"] = init_kwargs
+            if config_payload is not None:
+                base_entry["config"] = config_payload
+        factory_payload = target_payload.get("factory")
+        if isinstance(factory_payload, dict):
+            factory_entry = {
+                "module": factory_payload.get("module"),
+                "qualname": factory_payload.get("qualname"),
+                "kwargs": init_kwargs,
+            }
+        return base_entry, factory_entry
+
+    env_entry, env_factory_entry = _build_target(env_payload)
+    agent_entry, agent_factory_entry = _build_target(agent_payload)
+
     spec = {
         "project_root": str(metadata_root),
-        "environment": {"module": env_payload.get("module"), "qualname": env_payload.get("qualname")},
-        "agent": {"module": agent_payload.get("module"), "qualname": agent_payload.get("qualname")},
         "task": args.task,
         "run_discovery": True,
         "env": env_overrides,
     }
+    if env_entry:
+        spec["environment"] = env_entry
+    if env_factory_entry:
+        spec["environment_factory"] = env_factory_entry
+    if agent_entry:
+        spec["agent"] = agent_entry
+    if agent_factory_entry:
+        spec["agent_factory"] = agent_factory_entry
     try:
         result, run_path = execute_runtime(
             spec,

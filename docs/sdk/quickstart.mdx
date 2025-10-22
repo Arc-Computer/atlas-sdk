@@ -62,6 +62,37 @@ By default the command also performs a full sample run and records the first
 trajectory under `.atlas/runs/` for continual learning. Disable this behaviour
 with `--skip-sample-run`.
 
+### Adapting to existing stacks (LangGraph, SecRL, …)
+
+Most production agents already expose factory helpers or require constructor
+arguments. Pass those hints directly to `atlas env init`:
+
+```bash
+atlas env init \
+  --task "Investigate incident 38" \
+  --env-fn secgym_bootstrap:create_environment \
+  --agent-fn secgym_bootstrap:create_agent \
+  --env-arg attack=incident_38 \
+  --env-arg db_url=mysql://root:admin@localhost:3310
+```
+
+Key flags (see `examples/secrl_bootstrap.py` and `examples/langgraph_adapter.py` for minimal stubs):
+
+- `--env-fn / --agent-fn` – module-qualified factories that Atlas calls instead
+  of the default zero-argument constructors.
+- `--env-arg / --agent-arg` – repeatable `KEY=VALUE` entries forwarded to the
+  factories (merge with `--env-config` / `--agent-config` when you already have
+  a JSON or YAML config file).
+- `--no-run` – only analyse the project; do not execute the discovery loop.
+- `--validate` – force execution even if the CLI recommends skipping (helpful
+  once Docker containers, databases, and API keys are ready).
+
+The CLI prints a summary of what it detected and, when it sees a heavy stack
+such as SecRL or DeepAgents, surfaces preflight notes (e.g., “start container
+incident_5 before running discovery”). When preflight warnings are present,
+Atlas automatically skips the sample run and writes the notes to
+`.atlas/discover.json` so teammates can pick up where you left off.
+
 ## 3. Execute tasks with the cached metadata
 
 Once discovery is complete, you can launch the agent loop without touching
@@ -74,6 +105,11 @@ atlas run --task "Summarise the telemetry captured during discovery"
 `atlas run` validates the stored module hashes before executing. If the source
 files changed, the command errors and asks you to run `atlas env init` again so
 the metadata stays in sync.
+
+Preflight notes recorded during discovery are replayed before the run so you can
+double-check that the required services are online. If you deferred execution
+during discovery, re-run `atlas env init --validate` once the environment is
+ready, then call `atlas run` to capture the first telemetry-rich trajectory.
 
 Every runtime invocation persists telemetry and reward traces to
 `.atlas/runs/*.json`, giving the learning eval pipeline the "what/how/why" data

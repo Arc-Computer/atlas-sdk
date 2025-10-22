@@ -7,7 +7,16 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from pathlib import Path
 from typing import Dict, Iterable, Tuple
+
+import json
+from typing import Any
+
+try:
+    import yaml
+except Exception:  # pragma: no cover - optional dependency
+    yaml = None  # type: ignore[assignment]
 
 
 class CLIError(RuntimeError):
@@ -52,6 +61,43 @@ def invoke_discovery_worker(spec: dict[str, object], *, timeout: int) -> dict[st
             print(trace, file=sys.stderr)
         raise CLIError(str(error))
     return payload["result"]  # type: ignore[return-value]
+
+
+def parse_key_value_flags(values: Iterable[str]) -> Dict[str, str]:
+    result: Dict[str, str] = {}
+    for item in values:
+        if "=" not in item:
+            raise CLIError(f"Expected KEY=VALUE format (received: {item!r})")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise CLIError("Key cannot be empty.")
+        result[key] = value
+    return result
+
+
+def parse_callable_reference(value: str) -> Tuple[str, str]:
+    if ":" not in value:
+        raise CLIError(f"Expected module:qualname format (received: {value!r})")
+    module, qualname = value.split(":", 1)
+    module = module.strip()
+    qualname = qualname.strip()
+    if not module or not qualname:
+        raise CLIError(f"Invalid callable reference: {value!r}")
+    return module, qualname
+
+
+def load_config_file(path: str) -> Dict[str, Any]:
+    file_path = Path(path).expanduser().resolve()
+    if not file_path.exists():
+        raise CLIError(f"Config file not found: {file_path}")
+    if file_path.suffix in {".json"}:
+        return json.loads(file_path.read_text(encoding="utf-8"))
+    if file_path.suffix in {".yaml", ".yml"}:
+        if yaml is None:
+            raise CLIError("PyYAML is required to load YAML configuration files.")
+        return yaml.safe_load(file_path.read_text(encoding="utf-8"))
+    raise CLIError(f"Unsupported config extension for {file_path}. Expected .json, .yaml, or .yml.")
 
 
 def write_run_record(atlas_dir: Path, payload: dict[str, object]) -> Path:
