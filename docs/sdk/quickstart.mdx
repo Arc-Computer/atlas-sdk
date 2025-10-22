@@ -140,6 +140,16 @@ Every runtime invocation persists telemetry and reward traces to
 `.atlas/runs/*.json`, giving the learning eval pipeline the "what/how/why" data
 it needs.
 
+### Paired-mode validation payloads
+
+When you run `atlas run` in paired mode, the teacher now exchanges a compact
+`validation_request` schema with the orchestrator. The payload highlights step
+metadata, current guidance, and hashes of large artefacts while the raw blobs
+are cached in the execution context. Identical retries reuse the cached verdict
+instantly and mark the corresponding telemetry event with `"cached": true`, so
+reward gating and the evaluation harness continue to observe the same structured
+signals without incurring extra LLM calls.
+
 ## 4. Evaluate learning progress (no hints required)
 
 With Postgres enabled (`STORAGE__DATABASE_URL`), the runtime writes each session to the `sessions` table—including
