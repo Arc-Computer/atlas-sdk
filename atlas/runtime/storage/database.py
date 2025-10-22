@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from statistics import fmean, median, pstdev
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 try:
     from importlib import resources as importlib_resources
@@ -138,11 +138,34 @@ class Database:
                 step_id,
             )
             records = [(session_id, step_id, index, note) for index, note in enumerate(notes, start=1)]
-            if records:
-                await connection.executemany(
-                    "INSERT INTO guidance_notes(session_id, step_id, sequence, note) VALUES ($1, $2, $3, $4)",
-                    records,
-                )
+        if records:
+            await connection.executemany(
+                "INSERT INTO guidance_notes(session_id, step_id, sequence, note) VALUES ($1, $2, $3, $4)",
+                records,
+            )
+
+    async def log_discovery_run(
+        self,
+        *,
+        project_root: str,
+        task: str,
+        payload: Dict[str, Any],
+        metadata: Dict[str, Any] | None = None,
+        source: str = "discovery",
+    ) -> int:
+        pool = self._require_pool()
+        serialized_payload = self._serialize_json(payload) or "{}"
+        serialized_metadata = self._serialize_json(metadata) if metadata else None
+        async with pool.acquire() as connection:
+            return await connection.fetchval(
+                "INSERT INTO discovery_runs(project_root, task, source, payload, metadata)"
+                " VALUES ($1, $2, $3, $4, $5) RETURNING id",
+                project_root,
+                task,
+                source,
+                serialized_payload,
+                serialized_metadata,
+            )
 
     async def finalize_session(self, session_id: int, final_answer: str, status: str) -> None:
         pool = self._require_pool()
@@ -270,6 +293,104 @@ class Database:
             if isinstance(payload, dict):
                 stats_payloads.append(payload)
         return self._aggregate_reward_baseline(stats_payloads, window=window)
+
+    async def fetch_learning_keys(
+        self,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> List[dict[str, Any]]:
+        pool = self._require_pool()
+        params: list[Any] = []
+        query = (
+            "SELECT metadata->>'learning_key' AS learning_key,"
+            " COUNT(*) AS session_count,"
+            " MIN(created_at) AS first_seen,"
+            " MAX(created_at) AS last_seen"
+            " FROM sessions"
+            " WHERE metadata->>'learning_key' IS NOT NULL"
+            " GROUP BY learning_key"
+            " ORDER BY session_count DESC, last_seen DESC"
+        )
+        if limit is not None:
+            params.append(max(int(limit), 0))
+            query += f" LIMIT ${len(params)}"
+        if offset:
+            params.append(max(int(offset), 0))
+            query += f" OFFSET ${len(params)}"
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(query, *params)
+        return [dict(row) for row in rows]
+
+    async def fetch_sessions_for_learning_key(
+        self,
+        learning_key: str,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> List[dict[str, Any]]:
+        if not learning_key:
+            return []
+        pool = self._require_pool()
+        params: list[Any] = [learning_key]
+        query = (
+            "SELECT id, task, status, review_status, metadata, final_answer,"
+            " reward, reward_stats, reward_audit, student_learning, teacher_learning,"
+            " created_at, completed_at"
+            " FROM sessions"
+            " WHERE metadata->>'learning_key' = $1"
+            " ORDER BY created_at ASC"
+        )
+        if limit is not None:
+            params.append(max(int(limit), 0))
+            query += f" LIMIT ${len(params)}"
+        if offset:
+            params.append(max(int(offset), 0))
+            query += f" OFFSET ${len(params)}"
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(query, *params)
+        return [dict(row) for row in rows]
+
+    async def fetch_discovery_runs(
+        self,
+        *,
+        project_root: str | None = None,
+        task: str | None = None,
+        source: str | Sequence[str] | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> List[dict[str, Any]]:
+        pool = self._require_pool()
+        params: list[Any] = []
+        clauses: list[str] = []
+        if project_root:
+            params.append(project_root)
+            clauses.append(f"project_root = ${len(params)}")
+        if task:
+            params.append(task)
+            clauses.append(f"task = ${len(params)}")
+        if source:
+            sources = list(source) if isinstance(source, (list, tuple, set)) else [source]
+            sources = [item for item in sources if item is not None]
+            if sources:
+                placeholders: list[str] = []
+                for value in sources:
+                    params.append(value)
+                    placeholders.append(f"${len(params)}")
+                clauses.append(f"source IN ({', '.join(placeholders)})")
+        query = "SELECT id, project_root, task, source, payload, metadata, created_at FROM discovery_runs"
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += " ORDER BY created_at DESC"
+        if limit is not None:
+            params.append(max(int(limit), 0))
+            query += f" LIMIT ${len(params)}"
+        if offset:
+            params.append(max(int(offset), 0))
+            query += f" OFFSET ${len(params)}"
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(query, *params)
+        return [dict(row) for row in rows]
 
     async def _initialize_schema(self, connection: "asyncpg.connection.Connection") -> None:
         if self._schema_initialized:

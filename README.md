@@ -19,6 +19,7 @@ With the split between SDK (runtime) and ATLAS (training) in mind, here's what o
 - **Adaptive Runtime** – Every request is triaged up front. We run a quick “can the agent handle this?” probe and pick the right lane: stay fully automated when confidence is high, ask the teacher to double-check the final answer, or run step-by-step with retries when risk is higher.
 - **Persistent Learning Memory** – After each task, we store what guidance helped and what didn’t. Helpful tips are ready for the next run, and you can plug in Postgres when you want a durable trail of persona memories.
 - **Production Telemetry & Export** – Out of the box you get a terminal feed that shows lane decisions, probe confidence, certification flags, and reward scores. Export the same telemetry to JSONL with one CLI call (`arc-atlas`) so training pipelines can consume it without extra wiring.
+- **Learning Evaluation (no hints required)** – Telemetry persisted to Postgres contains `learning_key`, reward stats, adaptive mode history, and trajectory events. Run `scripts/eval_learning.py` to generate JSON + Markdown summaries (reward deltas, mode shifts, discovery references) even before experience hints land.
 - **Bring-Your-Own-Agent Harness** – Point the SDK at whatever agent you already run, OpenAI-compatible chat, a Python function, or an HTTP endpoint. Drop your prompts and tools into the provided YAML templates and the runtime handles the rest.
 - **Lightweight Defaults** – Your first run doesn’t spin up databases or exporters. All the heavier integrations (storage, dashboards, advanced telemetry) stay optional until you explicitly enable them.
 
@@ -139,7 +140,7 @@ This video provides a complete walkthrough of installing the Atlas SDK and confi
 
 ## 📚 Full Documentation
 
-The README hits the highlights. For the complete guide—including configuration tables, orchestration deep dives, and training recipes—visit [docs.arc.computer](https://docs.arc.computer).
+The README hits the highlights. For the complete guide—including configuration tables, orchestration deep dives, and training recipes—visit [docs.arc.computer](https://docs.arc.computer). For the hint-less learning evaluation workflow, see `docs/learning_eval.md`.
 
 ---
 
