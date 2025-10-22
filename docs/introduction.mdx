@@ -1,0 +1,30 @@
+# Atlas SDK Autodiscovery
+
+Atlas now supports an onboarding flow for self-managed, stateful agents. You can go from installation to a working `atlas run` session in three commands:
+
+```bash
+pip install arc-atlas
+atlas env init
+atlas run --task "Investigate the incident summary"
+```
+
+Before you run the CLI, make sure your project’s own dependencies (DeepAgents, SecRL, database drivers, API keys, etc.) are installed alongside `arc-atlas`. Discovery is side-effect safe, but the follow-up validation step needs those services online.
+
+What `atlas env init` does:
+
+- scans for `@atlas.environment` / `@atlas.agent` classes and analyses how they interact
+- if no Atlas-ready classes are found, harvests README snippets, dependency metadata, and entry points, then asks the LLM to synthesise lightweight wrapper classes plus their factories
+- writes the resulting factories to `.atlas/generated_factories.py`, notes the selected runtime mode (`capabilities.preferred_mode` + `orchestration.forced_mode`), and records preflight guidance in `.atlas/discover.json`
+- sets `ATLAS_DISCOVERY_VALIDATE=0` and auto-skips the sample run when prerequisites are missing; rerun with `atlas env init --validate` once dependencies are satisfied to capture the baseline trajectory
+
+Wrapper synthesised by the LLM are tagged as `auto_wrapped` in `discover.json` and live alongside the other factories. They default to auto-skip until you explicitly validate them.
+
+Once discovery succeeds, `atlas run` reuses the cached metadata, verifies that the source files still match the recorded hashes, and executes the agent loop while streaming telemetry into `.atlas/runs/`.
+
+The generated files include:
+
+- `.atlas/generated_factories.py` – auto-generated factories for constructor arguments that are discovered via the LLM synthesiser
+- `.atlas/discover.json` – module hashes, inferred handshake, schema hints, telemetry samples, and reward observations from discovery
+- `.atlas/runs/` – JSON artefacts storing telemetry and reward traces for each `atlas run` execution
+
+If you change your environment or agent implementation, re-run `atlas env init` to refresh the cached metadata before calling `atlas run` again. The [Agent Quickstart](docs/sdk/quickstart.mdx) walks through the full onboarding flow and highlights how to validate the generated factories.
