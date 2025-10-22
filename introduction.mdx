@@ -14,7 +14,10 @@ atlas run --task "Investigate the incident summary"
 interact, and persists the results under `.atlas/`. Subsequent calls to
 `atlas run` read the cached metadata, verify that the module hashes are
 still valid, and replay the same control loop while capturing telemetry
-for learning evaluation.
+for learning evaluation. When the selected classes need constructor
+arguments, the CLI now synthesises lightweight factories via Gemini 2.5 Flash
+or Claude Haiku 4.5, stores them in `.atlas/generated_factories.py`, and defers
+side effects until you rerun with `--validate`.
 
 The generated files include:
 

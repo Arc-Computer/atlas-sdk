@@ -306,6 +306,7 @@ class OrchestrationConfig(BaseModel):
     step_timeout_seconds: float = Field(default=900.0, ge=0.0)
     rim_guidance_tag: str = "rim_feedback"
     emit_intermediate_steps: bool = True
+    forced_mode: AdaptiveMode | None = None
 
 class StorageConfig(BaseModel):
     """PostgreSQL connection settings."""

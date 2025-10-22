@@ -127,7 +127,11 @@ class Orchestrator:
         )
         context.metadata["task"] = task
 
-        decision = await self._determine_adaptive_mode(task, context, dossier)
+        forced_mode = getattr(self._orchestration, "forced_mode", None)
+        if forced_mode in {"auto", "paired"}:
+            decision = AdaptiveModeDecision(mode=forced_mode, confidence=1.0, source="forced")
+        else:
+            decision = await self._determine_adaptive_mode(task, context, dossier)
         mode = decision.mode or "escalate"
         context.metadata["execution_mode"] = mode
         self._store_mode_metadata(context, decision)

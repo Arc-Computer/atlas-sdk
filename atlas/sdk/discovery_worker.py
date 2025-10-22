@@ -9,6 +9,7 @@ import time
 import traceback
 from dataclasses import dataclass
 from importlib import import_module
+import importlib.util
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -24,12 +25,40 @@ def _load_spec() -> dict[str, Any]:
     return json.loads(payload)
 
 
-def _resolve_attr(module_path: str, qualname: str) -> Any:
-    module = import_module(module_path)
+def _resolve_attr(module_path: str, qualname: str, *, project_root: Path | None = None) -> Any:
+    if module_path.startswith("."):
+        if project_root is None:
+            raise ValueError("project_root is required for relative module imports")
+        module = _load_relative_module(module_path, project_root)
+    else:
+        module = import_module(module_path)
     attr: Any = module
     for part in qualname.split("."):
         attr = getattr(attr, part)
     return attr
+
+
+def _load_relative_module(module_path: str, project_root: Path) -> ModuleType:
+    parts = [fragment for fragment in module_path.split(".") if fragment]
+    if not parts:
+        raise ValueError(f"Invalid relative module path: {module_path}")
+    parts[0] = f".{parts[0]}"
+    target_path = project_root.joinpath(*parts)
+    if target_path.is_dir():
+        file_path = target_path / "__init__.py"
+    else:
+        file_path = target_path.with_suffix(".py")
+    if not file_path.exists():
+        raise FileNotFoundError(f"Generated factory module not found at {file_path}")
+    module_name = f"atlas_autogen_{abs(hash(file_path))}"
+    spec = importlib.util.spec_from_file_location(module_name, file_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load module from {file_path}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    sys.modules[module_path] = module
+    return module
 
 
 def _schema_summary(value: Any) -> Dict[str, Any]:
@@ -277,9 +306,9 @@ def _discovery_loop(
     }
 
 
-def _import_and_build(role: str, module: str, qualname: str, *, kwargs: dict[str, Any] | None = None) -> Any:
+def _import_and_build(role: str, module: str, qualname: str, *, kwargs: dict[str, Any] | None = None, project_root: Path | None = None) -> Any:
     kwargs = kwargs or {}
-    attr = _resolve_attr(module, qualname)
+    attr = _resolve_attr(module, qualname, project_root=project_root)
     if isinstance(attr, type):
         return attr(**kwargs)
     if callable(attr):
@@ -343,8 +372,8 @@ def main() -> int:
         if not agent_module or not agent_qualname:
             raise ValueError("Agent module/qualname not provided in discovery specification.")
 
-        env_instance = _import_and_build("environment", env_module, env_qualname, kwargs=env_kwargs)
-        agent_instance = _import_and_build("agent", agent_module, agent_qualname, kwargs=agent_kwargs)
+        env_instance = _import_and_build("environment", env_module, env_qualname, kwargs=env_kwargs, project_root=project_root)
+        agent_instance = _import_and_build("agent", agent_module, agent_qualname, kwargs=agent_kwargs, project_root=project_root)
 
         if not callable(getattr(agent_instance, "plan", None)) or not callable(getattr(agent_instance, "summarize", None)):
             agent_instance = StepwiseAgentAdapter(agent_instance)

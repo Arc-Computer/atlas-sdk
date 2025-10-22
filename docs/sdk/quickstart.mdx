@@ -39,7 +39,12 @@ class CounterAgent:
 
 Decorators make autodiscovery explicit. When they are absent, the CLI falls back
 to heuristics (looking for `reset/step/close` on the environment and
-`plan/act/summarize` on the agent).
+`plan/act/summarize` on the agent). If the selected classes require constructor
+arguments, `atlas env init` now gathers context from your repository, calls an
+LLM (Gemini 2.5 Flash or Claude Haiku 4.5), and materialises helper factories
+under `.atlas/generated_factories.py`. These helpers merge discovered defaults
+with any `--env-arg/--agent-arg` overrides and defer heavyweight side effects
+until validation, so the initial scan remains safe.
 
 ## 2. Discover the environment & agent
 
@@ -50,7 +55,8 @@ atlas env init --task "Investigate the counter task"
 ```
 
 The CLI walks the project, prompts if multiple candidates are found, spins up a
-sandbox worker process, and runs a discovery loop. It writes two artefacts under
+sandbox worker process, synthesises any missing factories, and runs a discovery
+loop. It writes two artefacts under
 `.atlas/`:
 
 - `discover.json` captures module hashes, inferred handshake, schema hints,
@@ -89,9 +95,11 @@ Key flags (see `examples/secrl_bootstrap.py` and `examples/langgraph_adapter.py`
 
 The CLI prints a summary of what it detected and, when it sees a heavy stack
 such as SecRL or DeepAgents, surfaces preflight notes (e.g., “start container
-incident_5 before running discovery”). When preflight warnings are present,
-Atlas automatically skips the sample run and writes the notes to
-`.atlas/discover.json` so teammates can pick up where you left off.
+incident_5 before running discovery”). When LLM-generated factories warn that
+dependencies are offline, Atlas automatically sets `ATLAS_DISCOVERY_VALIDATE=0`,
+skips the sample run, and records the notes in `.atlas/discover.json`. Re-run
+with `--validate` (or set the env var to `1`) once services are healthy to reuse
+the same factories without manual edits.
 
 ## 3. Execute tasks with the cached metadata
 

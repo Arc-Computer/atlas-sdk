@@ -68,11 +68,13 @@ def test_env_init_writes_metadata_and_config(stateful_project) -> None:
     assert metadata["environment"]["module"] == module_name
     assert metadata["agent"]["qualname"] == agent_name
     assert metadata["capabilities"]["control_loop"] == "self"
+    assert metadata["capabilities"]["preferred_mode"] == "auto"
     assert metadata["telemetry"]["agent_emitted"] is True
     config_text = config_path.read_text(encoding="utf-8")
     assert "behavior: self" in config_text
     assert f"environment: {module_name}:{env_name}" in config_text
     assert f"agent: {module_name}:{agent_name}" in config_text
+    assert "preferred_mode: auto" in config_text
 
 
 def test_runtime_rejects_stale_metadata(stateful_project) -> None:

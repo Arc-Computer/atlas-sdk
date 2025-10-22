@@ -23,6 +23,14 @@ class CLIError(RuntimeError):
     """Raised when a CLI helper encounters a recoverable error."""
 
 
+class DiscoveryWorkerError(CLIError):
+    """Raised when the discovery worker reports an error."""
+
+    def __init__(self, message: str, *, traceback_text: str | None = None) -> None:
+        super().__init__(message)
+        self.traceback = traceback_text
+
+
 def parse_env_flags(values: Iterable[str]) -> Dict[str, str]:
     result: Dict[str, str] = {}
     for item in values:
@@ -59,7 +67,7 @@ def invoke_discovery_worker(spec: dict[str, object], *, timeout: int) -> dict[st
         trace = payload.get("traceback")
         if trace:
             print(trace, file=sys.stderr)
-        raise CLIError(str(error))
+        raise DiscoveryWorkerError(str(error), traceback_text=trace)
     return payload["result"]  # type: ignore[return-value]
 
 

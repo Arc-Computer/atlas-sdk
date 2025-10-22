@@ -12,6 +12,7 @@ from typing import Dict, List
 
 from atlas.cli.utils import (
     CLIError,
+    DiscoveryWorkerError,
     execute_runtime,
     invoke_discovery_worker,
     load_config_file,
@@ -20,6 +21,7 @@ from atlas.cli.utils import (
     parse_key_value_flags,
 )
 from atlas.sdk.discovery import Candidate, Role, discover_candidates, serialize_candidate, split_candidates, write_discovery_payload
+from atlas.sdk.factory_synthesis import FactorySynthesizer, ENV_VALIDATE_FLAG
 
 
 DISCOVERY_FILENAME = "discover.json"
@@ -147,6 +149,7 @@ def _write_generated_config(destination: Path, targets: SelectedTargets, capabil
     _ensure_write(destination, force=force)
     control_loop = capabilities.get("control_loop", "self")
     supports_stepwise = bool(capabilities.get("supports_stepwise", False))
+    preferred_mode = capabilities.get("preferred_mode", "auto")
     plan_description = capabilities.get("plan_description") or ""
     payload = "\n".join(
         [
@@ -156,10 +159,12 @@ def _write_generated_config(destination: Path, targets: SelectedTargets, capabil
             f"  agent: {targets.agent.dotted_path()}",
             f"  control_loop: {control_loop}",
             f"  supports_stepwise: {str(supports_stepwise).lower()}",
+            f"  preferred_mode: {preferred_mode}",
         ]
     )
     if plan_description:
         payload += f"\n  plan_description: |\n    {plan_description.replace(chr(10), chr(10) + '    ')}"
+    payload += "\norchestration:\n  forced_mode: {mode}".format(mode=preferred_mode)
     destination.write_text(payload + "\n", encoding="utf-8")
 
 
@@ -170,6 +175,7 @@ def _compose_metadata(
     discovery_payload: dict[str, object],
     preflight_notes: list[str] | None = None,
     auto_skip: bool = False,
+    synthesis_notes: list[str] | None = None,
 ) -> dict[str, object]:
     generated_at = datetime.now(timezone.utc).isoformat()
     final_answer = discovery_payload.get("final_answer")
@@ -182,13 +188,15 @@ def _compose_metadata(
         pretty_plan = ""
     else:
         pretty_plan = str(plan_preview)
+    control_loop = "self" if has_final_answer else "tool"
     capabilities = {
-        "control_loop": "self" if has_final_answer else "tool",
+        "control_loop": control_loop,
         "supports_stepwise": False if has_final_answer else bool(history),
         "plan_description": pretty_plan,
         "telemetry_agent_emitted": bool(
             (discovery_payload.get("telemetry") or {}).get("agent_emitted")
         ),
+        "preferred_mode": "auto" if control_loop == "self" else "paired",
     }
     metadata = {
         "version": 1,
@@ -208,6 +216,8 @@ def _compose_metadata(
             "auto_skip": auto_skip,
         },
     }
+    if synthesis_notes:
+        metadata["synthesis"] = {"notes": synthesis_notes}
     return metadata
 
 
@@ -299,14 +309,55 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         )
         return 1
 
-    skip_reasons = _infer_skip_reasons(targets)
+    atlas_dir = project_root / ".atlas"
     run_requested = not args.no_run
+
+    synthesis_notes: list[str] = []
+    synthesis_preflight: list[str] = []
+    synthesis_auto_skip = False
+    synthesizer: FactorySynthesizer | None = None
+    synthesis_used = False
+
+    needs_synthesis = (
+        (targets.environment.factory is None and targets.environment.candidate is not None)
+        or (targets.agent.factory is None and targets.agent.candidate is not None)
+    )
+
+    if needs_synthesis:
+        try:
+            synthesizer = FactorySynthesizer(project_root, atlas_dir)
+            outcome = synthesizer.synthesise(
+                environment=targets.environment.candidate if targets.environment.factory is None else None,
+                agent=targets.agent.candidate if targets.agent.factory is None else None,
+                environment_kwargs=targets.environment.kwargs,
+                agent_kwargs=targets.agent.kwargs,
+                run_requested=run_requested,
+            )
+        except CLIError as exc:
+            print(f"Factory synthesis failed: {exc}", file=sys.stderr)
+            return 1
+        if outcome.environment_factory:
+            targets.environment.factory = outcome.environment_factory
+            synthesis_used = True
+        if outcome.agent_factory:
+            targets.agent.factory = outcome.agent_factory
+            synthesis_used = True
+        synthesis_preflight = outcome.preflight_notes
+        synthesis_notes = outcome.auxiliary_notes
+        synthesis_auto_skip = outcome.auto_skip
+
+    skip_reasons = _infer_skip_reasons(targets)
+    if synthesis_preflight:
+        skip_reasons.extend(synthesis_preflight)
+
     auto_skip = False
-    if skip_reasons and run_requested and not args.validate:
+    if synthesis_auto_skip and run_requested and not args.validate:
+        auto_skip = True
+        run_requested = False
+    elif skip_reasons and run_requested and not args.validate:
         auto_skip = True
         run_requested = False
 
-    atlas_dir = project_root / ".atlas"
     discovery_path = atlas_dir / DISCOVERY_FILENAME
     config_path = atlas_dir / GENERATED_CONFIG_FILENAME
     try:
@@ -314,6 +365,7 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     except CLIError as exc:
         print(exc, file=sys.stderr)
         return 1
+    env_overrides.setdefault(ENV_VALIDATE_FLAG, "1" if run_requested else "0")
     spec: dict[str, object] = {
         "project_root": str(project_root),
         "task": args.task,
@@ -360,6 +412,10 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     print("Discovery summary:")
     print(f"  {_summarise_target(targets.environment, 'Environment')}")
     print(f"  {_summarise_target(targets.agent, 'Agent')}")
+    if synthesis_notes:
+        print("  Synthesis notes:")
+        for note in synthesis_notes:
+            print(f"    - {note}")
     if skip_reasons:
         print("  Preflight notes:")
         for reason in skip_reasons:
@@ -378,10 +434,22 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     if config_path.exists() and not args.force:
         print(f"{config_path} already exists; use --force to refresh.", file=sys.stderr)
         return 1
-    try:
-        discovery_payload = invoke_discovery_worker(spec, timeout=args.timeout or 180)
-    except CLIError as exc:
-        print(f"Discovery worker failed: {exc}", file=sys.stderr)
+    discovery_payload: dict[str, object] | None = None
+    attempts = 2 if synthesis_used and synthesizer is not None else 1
+    for attempt in range(attempts):
+        try:
+            discovery_payload = invoke_discovery_worker(spec, timeout=args.timeout or 180)
+            break
+        except DiscoveryWorkerError as exc:
+            if synthesizer is not None and synthesis_used and attempt < attempts - 1:
+                synthesizer.retry_with_error(exc.traceback or str(exc))
+                continue
+            print(f"Discovery worker failed: {exc}", file=sys.stderr)
+            return 1
+        except CLIError as exc:
+            print(f"Discovery worker failed: {exc}", file=sys.stderr)
+            return 1
+    if discovery_payload is None:
         return 1
     metadata = _compose_metadata(
         project_root,
@@ -389,6 +457,7 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         discovery_payload=discovery_payload,
         preflight_notes=skip_reasons,
         auto_skip=auto_skip,
+        synthesis_notes=synthesis_notes,
     )
     capabilities = metadata.get("capabilities") if isinstance(metadata.get("capabilities"), dict) else {}
     write_discovery_payload(discovery_path, metadata=metadata)
