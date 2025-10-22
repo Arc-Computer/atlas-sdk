@@ -50,11 +50,22 @@ python scripts/eval_learning.py \
   --limit 5
 ```
 
+### Key options
+
+- `--summary-only` – skips per-session trajectory fetches and relies on SQL event counts; use this for large sweeps or CI.
+- `--batch-size` – max number of learning keys evaluated concurrently (default: 4).
+- `--filter-project`, `--filter-task`, `--filter-tag` – narrow the run to a specific codebase, task name, or session tags.
+- `--learning-key` – analyse explicit keys instead of querying Postgres for the top-N recent keys.
+- `--compare-to results/learning/index.json` – diff the current run against a previous harness export; the manifest stores per-key deltas and Markdown files append a comparison section.
+- `--no-markdown` – emit only machine-readable JSON for automation scenarios.
+
+Summary mode is ideal for nightly or CI jobs where you just need reward deltas and model trends. Run the full-detail mode (default) when you want trajectory event counts sampled per session and are comfortable with additional database reads.
+
 Outputs:
 
 - `results/learning/<slug>_summary.json` – machine-readable payload (sessions, reward windows, discovery references).
-- `results/learning/<slug>_summary.md` – human-friendly digest highlighting reward deltas and adaptive behaviour.
-- `results/learning/index.json` – manifest listing every generated artifact.
+- `results/learning/<slug>_summary.md` – human-friendly digest highlighting reward deltas, adaptive behaviour, and model breakdowns.
+- `results/learning/index.json` – manifest listing every generated artifact, plus the comparison/aggregate tables when `--compare-to` is provided.
 
 Pass `--learning-key ...` to target specific keys or `--no-markdown` when you only need JSON.
 
@@ -63,8 +74,10 @@ Pass `--learning-key ...` to target specific keys or `--no-markdown` when you on
 Each summary provides:
 
 - **Reward momentum** – recent mean, baseline mean, and delta so you can spot positive/negative drift.
+- **Window context** – recent/baseline window sizes so you can reason about sample counts.
 - **Execution modes** – distribution of `execution_mode` values (auto, paired, coach, escalate) for the evaluated window.
 - **Review state** – counts per `review_status` to ensure you compare approved vs pending runs intentionally.
+- **Model performance** – per-role model breakdowns (session counts, reward averages, latest score) extracted from adapter telemetry so you can see which students/teachers are learning fastest.
 - **Discovery context** – pointers to matching discovery/runtime telemetry (`discovery_runs`) for the same task so you
   can replay the original traces.
 - **Latest sessions** – compact view of recent runs with reward/uncertainty snapshots and trajectory event counts.
@@ -75,7 +88,17 @@ Because everything keys off `learning_key`, you can join the summary back to:
 - `discovery_runs` (discovery/runtime captures recorded via the CLI)
 - `learning_registry` (current pamphlet state, when enabled)
 
-## 5. Automate & Test
+## 5. Compare Runs Over Time
+
+When you pass `--compare-to`, the harness looks up the previous `index.json`, loads each saved summary, and computes deltas for:
+
+- Reward trends (recent mean, latest score)
+- Session counts per learning key
+- Model-level utilisation and reward mean changes
+
+The new manifest includes `comparisons` and aggregate leaderboards (best/worst deltas), while each Markdown report gains a “Comparison vs previous run” section.
+
+## 6. Automate & Test
 
 - The evaluation script ships with unit tests that stub database access and external LLM calls, so `pytest` covers the
   new entry points without touching live services.

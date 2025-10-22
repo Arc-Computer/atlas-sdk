@@ -299,16 +299,36 @@ class Database:
         *,
         limit: int | None = None,
         offset: int = 0,
+        project_root: str | None = None,
+        task: str | None = None,
+        tags: Sequence[str] | None = None,
     ) -> List[dict[str, Any]]:
         pool = self._require_pool()
         params: list[Any] = []
+        constraints: list[str] = ["metadata->>'learning_key' IS NOT NULL"]
+        if project_root:
+            params.append(project_root)
+            constraints.append(f"(metadata ->> 'project_root') = ${len(params)}")
+        if task:
+            params.append(task)
+            constraints.append(f"task = ${len(params)}")
+        if tags:
+            filtered_tags = [tag for tag in tags if tag]
+            for tag_value in filtered_tags:
+                params.append(tag_value)
+                constraints.append(
+                    f"EXISTS (SELECT 1 FROM jsonb_array_elements_text(metadata->'tags') AS tag WHERE tag = ${len(params)})"
+                )
         query = (
             "SELECT metadata->>'learning_key' AS learning_key,"
             " COUNT(*) AS session_count,"
             " MIN(created_at) AS first_seen,"
             " MAX(created_at) AS last_seen"
             " FROM sessions"
-            " WHERE metadata->>'learning_key' IS NOT NULL"
+        )
+        if constraints:
+            query += " WHERE " + " AND ".join(constraints)
+        query += (
             " GROUP BY learning_key"
             " ORDER BY session_count DESC, last_seen DESC"
         )
@@ -341,6 +361,56 @@ class Database:
             " WHERE metadata->>'learning_key' = $1"
             " ORDER BY created_at ASC"
         )
+        if limit is not None:
+            params.append(max(int(limit), 0))
+            query += f" LIMIT ${len(params)}"
+        if offset:
+            params.append(max(int(offset), 0))
+            query += f" OFFSET ${len(params)}"
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(query, *params)
+        return [dict(row) for row in rows]
+
+    async def fetch_learning_sessions(
+        self,
+        *,
+        learning_key: str | None = None,
+        project_root: str | None = None,
+        task: str | None = None,
+        tags: Sequence[str] | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+        order: str = "asc",
+    ) -> List[dict[str, Any]]:
+        pool = self._require_pool()
+        params: list[Any] = []
+        clauses: list[str] = []
+        if learning_key:
+            params.append(learning_key)
+            clauses.append(f"(metadata ->> 'learning_key') = ${len(params)}")
+        if project_root:
+            params.append(project_root)
+            clauses.append(f"(metadata ->> 'project_root') = ${len(params)}")
+        if task:
+            params.append(task)
+            clauses.append(f"task = ${len(params)}")
+        if tags:
+            filtered_tags = [tag for tag in tags if tag]
+            for tag_value in filtered_tags:
+                params.append(tag_value)
+                clauses.append(
+                    f"EXISTS (SELECT 1 FROM jsonb_array_elements_text(metadata->'tags') AS tag WHERE tag = ${len(params)})"
+                )
+        ordering = "ASC" if str(order).lower() != "desc" else "DESC"
+        query = (
+            "SELECT id, task, status, review_status, metadata, reward, reward_stats, reward_audit,"
+            " student_learning, teacher_learning, created_at, completed_at,"
+            " metadata->>'learning_key' AS learning_key"
+            " FROM sessions"
+        )
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+        query += f" ORDER BY created_at {ordering}"
         if limit is not None:
             params.append(max(int(limit), 0))
             query += f" LIMIT ${len(params)}"
@@ -391,6 +461,20 @@ class Database:
         async with pool.acquire() as connection:
             rows = await connection.fetch(query, *params)
         return [dict(row) for row in rows]
+
+    async def fetch_trajectory_event_counts(self, session_ids: Sequence[int]) -> Dict[int, int]:
+        if not session_ids:
+            return {}
+        pool = self._require_pool()
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(
+                "SELECT session_id, COUNT(*) AS event_count"
+                " FROM trajectory_events"
+                " WHERE session_id = ANY($1::int[])"
+                " GROUP BY session_id",
+                session_ids,
+            )
+        return {int(row["session_id"]): int(row["event_count"]) for row in rows}
 
     async def _initialize_schema(self, connection: "asyncpg.connection.Connection") -> None:
         if self._schema_initialized:
