@@ -139,3 +139,19 @@ ready, then call `atlas run` to capture the first telemetry-rich trajectory.
 Every runtime invocation persists telemetry and reward traces to
 `.atlas/runs/*.json`, giving the learning eval pipeline the "what/how/why" data
 it needs.
+
+## 4. Evaluate learning progress (no hints required)
+
+With Postgres enabled (`STORAGE__DATABASE_URL`), the runtime writes each session to the `sessions` table—including
+`learning_key`, reward stats, adaptive mode history, and trajectory events. Run the evaluation helper whenever you want
+to compare recent sessions against historical baselines:
+
+```bash
+python scripts/eval_learning.py \
+  --database-url postgresql://atlas:atlas@localhost:5433/atlas \
+  --recent-window 10 \
+  --baseline-window 50
+```
+
+The script emits Markdown/JSON digests per learning key in `results/learning/` and cross-links relevant discovery runs.
+See `docs/learning_eval.md` for the full workflow.

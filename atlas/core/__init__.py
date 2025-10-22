@@ -578,6 +578,17 @@ def _collect_session_insights(context: ExecutionContext, result: Result | None) 
     if adaptive_summary:
         context.metadata["adaptive_summary"] = adaptive_summary
         payload["adaptive_summary"] = adaptive_summary
+    execution_mode = None
+    if isinstance(context.metadata, dict):
+        raw_mode = context.metadata.get("execution_mode")
+        if isinstance(raw_mode, str) and raw_mode.strip():
+            execution_mode = raw_mode.strip()
+    if execution_mode is None and adaptive_summary:
+        summary_mode = adaptive_summary.get("adaptive_mode")
+        if isinstance(summary_mode, str) and summary_mode.strip():
+            execution_mode = summary_mode.strip()
+    if execution_mode:
+        payload["execution_mode"] = execution_mode
     session_reward = context.metadata.get("session_reward") if isinstance(context.metadata, dict) else None
     if session_reward is not None:
         reward_payload = session_reward.to_dict() if hasattr(session_reward, "to_dict") else session_reward

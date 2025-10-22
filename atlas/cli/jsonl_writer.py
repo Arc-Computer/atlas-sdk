@@ -326,6 +326,13 @@ async def _assemble_session(
         "steps": step_payloads,
         "session_metadata": session_metadata,
     }
+    execution_mode = session_metadata.get("execution_mode")
+    if isinstance(execution_mode, str) and execution_mode:
+        session_payload["execution_mode"] = execution_mode
+    elif isinstance(session_metadata.get("adaptive_summary"), dict):
+        summary_mode = session_metadata["adaptive_summary"].get("adaptive_mode")
+        if isinstance(summary_mode, str) and summary_mode:
+            session_payload["execution_mode"] = summary_mode
     review_status = detailed.get("review_status") or session_metadata.get("review_status")
     if isinstance(review_status, str) and review_status:
         session_payload["review_status"] = review_status

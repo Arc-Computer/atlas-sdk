@@ -172,6 +172,7 @@ def test_exporter_writes_expected_jsonl(monkeypatch, tmp_path: Path):
     assert record["final_answer"] == "done"
     assert isinstance(record["plan"], dict) and record["plan"]["steps"][0]["description"] == "collect data"
     assert record["review_status"] == "approved"
+    assert record["execution_mode"] == "coach"
     assert record["reward_stats"]["score"] == pytest.approx(0.91)
     assert record["session_metadata"]["status"] == "succeeded"
     assert record["adaptive_summary"]["adaptive_mode"] == "coach"
