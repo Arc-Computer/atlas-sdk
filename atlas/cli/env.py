@@ -34,6 +34,7 @@ class TargetSpec:
     factory: tuple[str, str] | None = None
     kwargs: Dict[str, object] = field(default_factory=dict)
     config: dict[str, object] | None = None
+    auto_wrapped: bool = False
 
     def dotted_path(self) -> str:
         if self.candidate is not None:
@@ -60,6 +61,7 @@ def _serialize_target(target: TargetSpec, project_root: Path, role: Role) -> dic
             "module": target.factory[0],
             "qualname": target.factory[1],
         }
+    payload["auto_wrapped"] = target.auto_wrapped
     # Ensure required keys exist even if no candidate was discovered.
     payload.setdefault("module", None)
     payload.setdefault("qualname", None)
@@ -127,6 +129,8 @@ def _summarise_target(target: TargetSpec, role: str) -> str:
         parts.append(f"factory={target.factory[0]}:{target.factory[1]}")
     if target.kwargs:
         parts.append(f"kwargs={len(target.kwargs)}")
+    if target.auto_wrapped:
+        parts.append("auto_wrapped")
     return f"{role}: " + ", ".join(parts or ["<unspecified>"])
 
 
@@ -283,6 +287,9 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
             print(exc, file=sys.stderr)
             return 1
 
+    env_wrapper_required = False
+    agent_wrapper_required = False
+
     if env_candidates:
         try:
             targets.environment.candidate = _prompt_selection(env_candidates, "environment")
@@ -290,11 +297,7 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
             print(exc, file=sys.stderr)
             return 1
     elif targets.environment.factory is None:
-        print(
-            "No environment candidates discovered and no factory provided. Supply --env-fn to continue.",
-            file=sys.stderr,
-        )
-        return 1
+        env_wrapper_required = True
 
     if agent_candidates:
         try:
@@ -303,11 +306,7 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
             print(exc, file=sys.stderr)
             return 1
     elif targets.agent.factory is None:
-        print(
-            "No agent candidates discovered and no factory provided. Supply --agent-fn to continue.",
-            file=sys.stderr,
-        )
-        return 1
+        agent_wrapper_required = True
 
     atlas_dir = project_root / ".atlas"
     run_requested = not args.no_run
@@ -318,19 +317,44 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     synthesizer: FactorySynthesizer | None = None
     synthesis_used = False
 
-    needs_synthesis = (
-        (targets.environment.factory is None and targets.environment.candidate is not None)
-        or (targets.agent.factory is None and targets.agent.candidate is not None)
+    env_needs_factory = targets.environment.factory is None and (
+        targets.environment.candidate is not None or env_wrapper_required
     )
+    agent_needs_factory = targets.agent.factory is None and (
+        targets.agent.candidate is not None or agent_wrapper_required
+    )
+    needs_synthesis = env_needs_factory or agent_needs_factory
 
     if needs_synthesis:
+        environment_summary = None
+        agent_summary = None
         try:
             synthesizer = FactorySynthesizer(project_root, atlas_dir)
+            if env_wrapper_required:
+                environment_summary = synthesizer.prepare_repository_summary(
+                    "environment",
+                    provided_kwargs=targets.environment.kwargs,
+                )
+            if agent_wrapper_required:
+                agent_summary = synthesizer.prepare_repository_summary(
+                    "agent",
+                    provided_kwargs=targets.agent.kwargs,
+                )
             outcome = synthesizer.synthesise(
-                environment=targets.environment.candidate if targets.environment.factory is None else None,
-                agent=targets.agent.candidate if targets.agent.factory is None else None,
+                environment=(
+                    targets.environment.candidate
+                    if targets.environment.candidate is not None and not env_wrapper_required
+                    else None
+                ),
+                agent=(
+                    targets.agent.candidate
+                    if targets.agent.candidate is not None and not agent_wrapper_required
+                    else None
+                ),
                 environment_kwargs=targets.environment.kwargs,
                 agent_kwargs=targets.agent.kwargs,
+                environment_summary=environment_summary,
+                agent_summary=agent_summary,
             )
         except CLIError as exc:
             print(f"Factory synthesis failed: {exc}", file=sys.stderr)
@@ -338,14 +362,34 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         if outcome.environment_factory:
             targets.environment.factory = outcome.environment_factory
             synthesis_used = True
+        elif env_wrapper_required:
+            print("Factory synthesis did not produce an environment wrapper.", file=sys.stderr)
+            return 1
         if outcome.agent_factory:
             targets.agent.factory = outcome.agent_factory
             synthesis_used = True
+        elif agent_wrapper_required:
+            print("Factory synthesis did not produce an agent wrapper.", file=sys.stderr)
+            return 1
         synthesis_preflight = outcome.preflight_notes
         synthesis_notes = outcome.auxiliary_notes
         synthesis_auto_skip = outcome.auto_skip
+        if outcome.environment_auto_wrapped:
+            targets.environment.auto_wrapped = True
+            synthesis_notes.insert(0, "Auto-generated Atlas environment wrapper from repository context.")
+        if outcome.agent_auto_wrapped:
+            targets.agent.auto_wrapped = True
+            synthesis_notes.insert(0, "Auto-generated Atlas agent wrapper from repository context.")
 
     skip_reasons = _infer_skip_reasons(targets)
+    if targets.environment.auto_wrapped:
+        skip_reasons.append(
+            "Environment wrapper synthesized automatically; review generated factory before validation."
+        )
+    if targets.agent.auto_wrapped:
+        skip_reasons.append(
+            "Agent wrapper synthesized automatically; review generated factory before validation."
+        )
     if synthesis_preflight:
         skip_reasons.extend(synthesis_preflight)
 

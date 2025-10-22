@@ -334,6 +334,9 @@ def main() -> int:
         spec = _load_spec()
         project_root = Path(spec["project_root"]).resolve()
         sys.path.insert(0, str(project_root))
+        src_dir = project_root / "src"
+        if src_dir.exists():
+            sys.path.insert(1, str(src_dir))
         extra_env = spec.get("env") or {}
         for key, value in extra_env.items():
             os.environ.setdefault(key, value)

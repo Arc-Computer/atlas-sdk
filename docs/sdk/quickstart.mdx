@@ -72,6 +72,12 @@ locks the runtime into the recommended mode. The metadata exposes the choice via
 `orchestration.forced_mode` so later `atlas run` calls route directly to `auto`
 or `paired` once you validate.
 
+If the scan finds no viable environment or agent definitions, the CLI gathers
+repository hints (README excerpts, entrypoints, dependency lists) and asks the
+LLM to mint lightweight wrapper classes plus their factories. These generated
+wrappers are tagged as `auto_wrapped` in `.atlas/discover.json`, default to
+auto-skip, and inherit the same validation flow once dependencies are in place.
+
 By default the command also performs a full sample run and records the first
 trajectory under `.atlas/runs/` for continual learning. Disable this behaviour
 with `--skip-sample-run`.

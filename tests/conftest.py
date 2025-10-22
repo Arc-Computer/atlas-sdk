@@ -198,3 +198,43 @@ def synthesis_project(tmp_path: Path) -> Tuple[Path, str, str, str]:
     module_path = tmp_path / "configurable.py"
     module_path.write_text(source, encoding="utf-8")
     return tmp_path, "configurable", "NeedsConfigEnv", "NeedsConfigAgent"
+
+
+@pytest.fixture()
+def wrapper_only_project(tmp_path: Path) -> Path:
+    readme = textwrap.dedent(
+        """
+        # Wrapper Only Project
+
+        This repo only exposes helper functions like `build_environment` and `build_agent`.
+        Deep integrations live inside the `session` module, which expects `create_runtime`
+        to be called with API keys.
+        """
+    )
+    (tmp_path / "README.md").write_text(readme, encoding="utf-8")
+    module_source = textwrap.dedent(
+        """
+        from __future__ import annotations
+
+        import json
+
+
+        def build_environment(config_path: str, *, attack: str):
+            \"\"\"Construct an external environment graph.\"\"\"
+            return {"config": config_path, "attack": attack}
+
+
+        class SessionAgent:
+            def __init__(self, model: str):
+                self._model = model
+
+            def invoke(self, payload):
+                return {"model": self._model, "payload": payload}
+
+
+        def build_agent(model: str = "gpt-4.1-mini"):
+            return SessionAgent(model=model)
+        """
+    )
+    (tmp_path / "runtime.py").write_text(module_source, encoding="utf-8")
+    return tmp_path

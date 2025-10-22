@@ -8,7 +8,7 @@ from atlas.cli import env as env_cli
 from atlas.cli import run as run_cli
 from atlas.cli.utils import invoke_discovery_worker
 from atlas.sdk.discovery import discover_candidates, split_candidates
-from atlas.sdk.factory_synthesis import FactorySnippet
+from atlas.sdk.factory_synthesis import FactorySnippet, RepositorySummary
 
 
 def test_discover_candidates_identifies_decorated_classes(stateful_project) -> None:
@@ -71,6 +71,8 @@ def test_env_init_writes_metadata_and_config(stateful_project) -> None:
     assert metadata["capabilities"]["control_loop"] == "self"
     assert metadata["capabilities"]["preferred_mode"] == "auto"
     assert metadata["telemetry"]["agent_emitted"] is True
+    assert metadata["environment"]["auto_wrapped"] is False
+    assert metadata["agent"]["auto_wrapped"] is False
     config_text = config_path.read_text(encoding="utf-8")
     assert "behavior: self" in config_text
     assert f"environment: {module_name}:{env_name}" in config_text
@@ -143,11 +145,102 @@ def test_env_init_auto_skips_heavy_environment(secrl_project) -> None:
     assert metadata["environment"]["factory"]["module"] == module_name
     assert metadata["environment"]["kwargs"]["attack"] == "incident_5"
     assert metadata["agent"]["factory"]["module"] == module_name
+    assert metadata["environment"]["auto_wrapped"] is False
+    assert metadata["agent"]["auto_wrapped"] is False
     telemetry = metadata["telemetry"]
     assert telemetry.get("events") == []
     assert telemetry.get("agent_emitted") is False
     config_text = (project_root / ".atlas" / "generated_config.yaml").read_text(encoding="utf-8")
     assert "preferred_mode: paired" in config_text
+    assert "forced_mode: paired" in config_text
+
+
+def test_env_init_auto_wraps_when_no_candidates(monkeypatch, wrapper_only_project) -> None:
+    project_root = wrapper_only_project
+    captured_contexts: list[tuple[str, object]] = []
+
+    def fake_generate(self, role, context, *, previous_error=None):
+        captured_contexts.append((role, context))
+        if role == "environment":
+            return FactorySnippet(
+                function_name="auto_environment_factory",
+                imports=["import os", "from runtime import build_environment"],
+                helpers=[
+                    "class AutoWrappedEnvironment:\n"
+                    "    def __init__(self, config_path: str, attack: str) -> None:\n"
+                    "        self._config = config_path\n"
+                    "        self._attack = attack\n"
+                    "\n"
+                    "    def reset(self, task: str | None = None):\n"
+                    "        return {\n"
+                    "            \"task\": task,\n"
+                    "            \"config\": self._config,\n"
+                    "            \"attack\": self._attack,\n"
+                    "        }\n"
+                    "\n"
+                    "    def step(self, action, submit: bool = False):\n"
+                    "        return action, 0.0, True, {\"submit\": submit}\n"
+                ],
+                factory_body=(
+                    "def auto_environment_factory(config_path: str = \"configs/runtime.yaml\", **kwargs):\n"
+                    "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':\n"
+                    "        raise RuntimeError('Environment prerequisites not ready; run with --validate once services are up.')\n"
+                    "    attack = kwargs.get('attack') or 'incident_9'\n"
+                    "    build_environment(config_path=config_path, attack=attack)\n"
+                    "    return AutoWrappedEnvironment(config_path=config_path, attack=attack)\n"
+                ),
+                notes=["Environment wrapper synthesized for validation flow."],
+                preflight=["Generated wrapper requires validate mode before execution."],
+                auto_skip=True,
+            )
+        return FactorySnippet(
+            function_name="auto_agent_factory",
+            imports=["from runtime import build_agent"],
+            factory_body=(
+                "def auto_agent_factory(model: str = \"gpt-4.1-mini\", **kwargs):\n"
+                "    agent = build_agent(model=model)\n"
+                "    return agent\n"
+            ),
+            notes=["Agent wrapper synthesized from repository helpers."],
+            preflight=["Review the generated agent wrapper before production use."],
+            auto_skip=False,
+        )
+
+    monkeypatch.setattr(env_cli.FactorySynthesizer, "_generate_snippet", fake_generate, raising=False)
+
+    args = argparse.Namespace(
+        path=str(project_root),
+        task="Wrapper bootstrap",
+        env_vars=[],
+        env_kwargs=["attack=incident_9"],
+        agent_kwargs=["model=gpt-4.1-mini"],
+        env_fn=None,
+        agent_fn=None,
+        env_config=None,
+        agent_config=None,
+        no_run=False,
+        skip_sample_run=True,
+        validate=False,
+        force=True,
+        timeout=120,
+    )
+    exit_code = env_cli._cmd_env_init(args)
+    assert exit_code == 0
+
+    assert any(isinstance(ctx, RepositorySummary) for _, ctx in captured_contexts)
+
+    atlas_dir = Path(project_root) / ".atlas"
+    factories_source = (atlas_dir / "generated_factories.py").read_text(encoding="utf-8")
+    assert "class AutoWrappedEnvironment" in factories_source
+    assert "def auto_agent_factory" in factories_source
+
+    metadata = json.loads((atlas_dir / "discover.json").read_text(encoding="utf-8"))
+    assert metadata["environment"]["auto_wrapped"] is True
+    assert metadata["agent"]["auto_wrapped"] is True
+    assert metadata["preflight"]["auto_skip"] is True
+    assert any("wrapper" in note.lower() for note in metadata["preflight"]["notes"])
+
+    config_text = (atlas_dir / "generated_config.yaml").read_text(encoding="utf-8")
     assert "forced_mode: paired" in config_text
 
 
@@ -225,6 +318,8 @@ def test_env_init_synthesizes_factories_with_auto_skip(monkeypatch, synthesis_pr
     assert metadata["capabilities"]["preferred_mode"] == "paired"
     assert metadata["synthesis"]["notes"] == env_snippet.notes
     assert "factory" not in metadata["agent"]
+    assert metadata["environment"]["auto_wrapped"] is False
+    assert metadata["agent"]["auto_wrapped"] is False
 
     config_text = (atlas_dir / "generated_config.yaml").read_text(encoding="utf-8")
     assert "preferred_mode: paired" in config_text

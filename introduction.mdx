@@ -25,6 +25,12 @@ factories signal missing prerequisites, the CLI marks the run for auto-skip,
 sets `ATLAS_DISCOVERY_VALIDATE=0`, and surfaces the preflight guidance in
 `.atlas/discover.json`.
 
+When a repository exposes no Atlas-ready classes, the CLI harvests README snippets,
+dependency metadata, and likely entrypoints, then asks the LLM to synthesise
+wrapper classes alongside their factories. These wrappers live in the same
+generated module, are flagged as `auto_wrapped` in `discover.json`, and default to
+auto-skip until you re-run with `--validate`.
+
 The generated files include:
 
 - `.atlas/generated_factories.py` – auto-generated factories for constructor
