@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List
 
+from atlas.cli.persistence import persist_discovery_run
 from atlas.cli.utils import (
     CLIError,
     DiscoveryWorkerError,
@@ -643,6 +644,13 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         preflight_notes=skip_reasons,
         auto_skip=auto_skip,
         synthesis_notes=synthesis_notes,
+    )
+    persist_discovery_run(
+        task=args.task,
+        project_root=project_root,
+        payload=discovery_payload,
+        metadata=metadata,
+        source="discovery",
     )
     capabilities = metadata.get("capabilities") if isinstance(metadata.get("capabilities"), dict) else {}
     write_discovery_payload(discovery_path, metadata=metadata)

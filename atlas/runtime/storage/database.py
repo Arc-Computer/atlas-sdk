@@ -138,11 +138,34 @@ class Database:
                 step_id,
             )
             records = [(session_id, step_id, index, note) for index, note in enumerate(notes, start=1)]
-            if records:
-                await connection.executemany(
-                    "INSERT INTO guidance_notes(session_id, step_id, sequence, note) VALUES ($1, $2, $3, $4)",
-                    records,
-                )
+        if records:
+            await connection.executemany(
+                "INSERT INTO guidance_notes(session_id, step_id, sequence, note) VALUES ($1, $2, $3, $4)",
+                records,
+            )
+
+    async def log_discovery_run(
+        self,
+        *,
+        project_root: str,
+        task: str,
+        payload: Dict[str, Any],
+        metadata: Dict[str, Any] | None = None,
+        source: str = "discovery",
+    ) -> int:
+        pool = self._require_pool()
+        serialized_payload = self._serialize_json(payload) or "{}"
+        serialized_metadata = self._serialize_json(metadata) if metadata else None
+        async with pool.acquire() as connection:
+            return await connection.fetchval(
+                "INSERT INTO discovery_runs(project_root, task, source, payload, metadata)"
+                " VALUES ($1, $2, $3, $4, $5) RETURNING id",
+                project_root,
+                task,
+                source,
+                serialized_payload,
+                serialized_metadata,
+            )
 
     async def finalize_session(self, session_id: int, final_answer: str, status: str) -> None:
         pool = self._require_pool()

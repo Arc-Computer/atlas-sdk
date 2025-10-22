@@ -69,6 +69,16 @@ CREATE TABLE IF NOT EXISTS trajectory_events (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS discovery_runs (
+    id SERIAL PRIMARY KEY,
+    project_root TEXT NOT NULL,
+    task TEXT,
+    source TEXT NOT NULL DEFAULT 'discovery',
+    payload JSONB NOT NULL,
+    metadata JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS learning_registry (
     learning_key TEXT PRIMARY KEY,
     student_learning TEXT,

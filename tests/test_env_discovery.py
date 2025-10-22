@@ -119,6 +119,45 @@ def test_runtime_rejects_stale_metadata(stateful_project) -> None:
     assert stale_exit == 1
 
 
+def test_env_init_persists_discovery_when_database_configured(monkeypatch, stateful_project) -> None:
+    project_root, module_name, env_name, agent_name = stateful_project
+    captured: list[dict[str, object]] = []
+
+    def fake_persist(**kwargs):
+        captured.append(kwargs)
+        return 7
+
+    monkeypatch.setenv("STORAGE__DATABASE_URL", "postgresql://stub")
+    monkeypatch.setattr(env_cli, "persist_discovery_run", fake_persist)
+
+    args = argparse.Namespace(
+        path=str(project_root),
+        task="Persist telemetry",
+        env_vars=[],
+        env_kwargs=[],
+        agent_kwargs=[],
+        env_fn=None,
+        agent_fn=None,
+        env_config=None,
+        agent_config=None,
+        no_run=True,
+        skip_sample_run=True,
+        validate=False,
+        force=True,
+        timeout=120,
+    )
+    exit_code = env_cli._cmd_env_init(args)
+    assert exit_code == 0
+    assert captured, "expected persistence helper to be invoked"
+    entry = captured[0]
+    assert entry["task"] == "Persist telemetry"
+    assert entry["source"] == "discovery"
+    assert entry["project_root"] == project_root
+    payload = entry["payload"]
+    assert isinstance(payload, dict)
+    assert "telemetry" in payload
+
+
 def test_env_init_auto_skips_heavy_environment(secrl_project) -> None:
     project_root, module_name, env_name, agent_name = secrl_project
     args = argparse.Namespace(

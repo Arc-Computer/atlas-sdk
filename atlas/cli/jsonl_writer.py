@@ -622,9 +622,19 @@ def _normalise_event(entry: dict[str, Any]) -> dict[str, Any]:
     event_payload = _coerce_json(payload.get("event")) or {}
     payload["event"] = event_payload
     if isinstance(event_payload, dict):
-        for key in ("type", "name"):
-            if key in event_payload and key not in payload:
-                payload[key] = event_payload[key]
+        event_type = event_payload.get("event_type") or event_payload.get("type")
+        if event_type and "type" not in payload:
+            payload["type"] = event_type
+        if event_type and "event_type" not in payload:
+            payload["event_type"] = event_type
+        name_value = event_payload.get("name")
+        if name_value and "name" not in payload:
+            payload["name"] = name_value
+        metadata_payload = event_payload.get("metadata")
+        if isinstance(metadata_payload, dict):
+            actor = metadata_payload.get("actor")
+            if actor and "actor" not in payload:
+                payload["actor"] = actor
     created_at = payload.get("created_at")
     if created_at is not None:
         payload["created_at"] = _format_timestamp(created_at)

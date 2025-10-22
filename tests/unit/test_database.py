@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 pytest.importorskip("asyncpg")
@@ -98,4 +100,37 @@ async def test_database_logs_plan_steps(monkeypatch):
     assert any("INSERT INTO trajectory_events" in command[0] for command in commands)
     step_insert = next(cmd for cmd in commands if "INSERT INTO step_results" in cmd[0])
     assert "metadata" in step_insert[0].lower()
+    await database.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_database_logs_discovery_run(monkeypatch):
+    pool = FakePool()
+    import asyncpg
+
+    async def fake_create_pool(**_):
+        return pool
+
+    monkeypatch.setattr(asyncpg, "create_pool", fake_create_pool)
+    config = StorageConfig(database_url="postgresql://stub", min_connections=1, max_connections=2, statement_timeout_seconds=1)
+    database = Database(config)
+    await database.connect()
+    payload = {"plan": {"steps": []}, "telemetry": {"events": []}}
+    metadata = {"capabilities": {"telemetry_agent_emitted": True}}
+    run_id = await database.log_discovery_run(
+        project_root="/tmp/project",
+        task="Telemetry integration test",
+        payload=payload,
+        metadata=metadata,
+        source="discovery",
+    )
+    assert run_id == 42
+    commands = pool.connection.commands
+    discovery_insert = next(cmd for cmd in commands if "INSERT INTO discovery_runs" in cmd[0])
+    assert "discovery_runs" in discovery_insert[0]
+    args = discovery_insert[1]
+    assert args[0] == "/tmp/project"
+    assert args[1] == "Telemetry integration test"
+    assert json.loads(args[3])["plan"] == {"steps": []}
+    assert json.loads(args[4])["capabilities"]["telemetry_agent_emitted"] is True
     await database.disconnect()

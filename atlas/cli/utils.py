@@ -14,6 +14,8 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     yaml = None  # type: ignore[assignment]
 
+from atlas.cli.persistence import persist_discovery_run
+
 
 class CLIError(RuntimeError):
     """Raised when a CLI helper encounters a recoverable error."""
@@ -144,4 +146,16 @@ def execute_runtime(
         "result": result,
     }
     run_path = write_run_record(atlas_dir, run_record)
+    project_root = Path(spec.get("project_root") or ".").resolve()
+    metadata = {
+        "capabilities": capabilities,
+        "run_artifact": str(run_path),
+    }
+    persist_discovery_run(
+        task=task,
+        project_root=project_root,
+        payload=result,
+        metadata=metadata,
+        source="runtime",
+    )
     return result, run_path
