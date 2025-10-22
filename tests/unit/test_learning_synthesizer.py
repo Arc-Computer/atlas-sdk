@@ -42,11 +42,10 @@ async def test_learning_synthesizer_merges_state_and_trims_history():
     }
     response_payload = json.dumps(
         {
-            "student_learning": "Focus on validating assumptions before acting.",
-            "teacher_learning": "Prompt the student to list blocking factors.",
-            "updated_student_pamphlet": "Existing guidance block.\n- Validate assumptions early.",
-            "updated_teacher_pamphlet": "Prompt them to enumerate blockers.",
-            "session_note": "Teacher nudged student to verify inputs.",
+            "student_pamphlet": "Existing guidance block.\n- Validate assumptions early.",
+            "teacher_pamphlet": "Prompt them to enumerate blockers.",
+            "session_student_learning": "Focus on validating assumptions before acting.",
+            "session_teacher_learning": "Prompt the student to list blocking factors.",
             "metadata": {"version": 2},
         }
     )
@@ -67,9 +66,10 @@ async def test_learning_synthesizer_merges_state_and_trims_history():
     assert result.learning_state["student_learning"].startswith("Existing guidance block.")
     assert result.learning_state["teacher_learning"] == "Prompt them to enumerate blockers."
     assert result.learning_state["metadata"]["version"] == 2
-    assert result.session_note == "Teacher nudged student to verify inputs."
-    assert "history" in json.loads(client.messages[-1]["content"])
-    trimmed_entries = json.loads(client.messages[-1]["content"])["history"]["entries"]
+    assert result.session_note == "Student: Focus on validating assumptions before acting. Teacher: Prompt the student to list blocking factors."
+    message_payload = json.loads(client.messages[-1]["content"])
+    assert "pamphlets" in message_payload
+    trimmed_entries = message_payload["history"]["entries"]
     assert len(trimmed_entries) == 2
     assert trimmed_entries[0]["id"] == 2 and trimmed_entries[1]["id"] == 3
 

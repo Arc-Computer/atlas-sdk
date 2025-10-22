@@ -144,14 +144,18 @@ class LearningSynthesizer:
         learning_state: Dict[str, Any],
         history: Dict[str, Any] | None,
     ) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {
+        latest_session: Dict[str, Any] = {
             "task": task,
             "reward": reward or {},
-            "trajectory": trajectory or {},
-            "current_pamphlet": {
-                "student_learning": learning_state.get("student_learning") if isinstance(learning_state, dict) else None,
-                "teacher_learning": learning_state.get("teacher_learning") if isinstance(learning_state, dict) else None,
-            },
+            "evidence": trajectory or {},
+        }
+        pamphlets = {
+            "student_pamphlet": (learning_state or {}).get("student_learning") if isinstance(learning_state, dict) else None,
+            "teacher_pamphlet": (learning_state or {}).get("teacher_learning") if isinstance(learning_state, dict) else None,
+        }
+        payload: Dict[str, Any] = {
+            "pamphlets": pamphlets,
+            "latest_session": latest_session,
         }
         if history:
             payload["history"] = self._trim_history(history)
@@ -179,24 +183,40 @@ class LearningSynthesizer:
         return None
 
     def _build_result(self, payload: Dict[str, Any], baseline_state: Dict[str, Any]) -> LearningSynthesisResult:
-        student_learning = self._clean_str(payload.get("student_learning"))
-        teacher_learning = self._clean_str(payload.get("teacher_learning"))
-        updated_student = self._clean_str(payload.get("updated_student_pamphlet")) or baseline_state.get("student_learning")
-        updated_teacher = self._clean_str(payload.get("updated_teacher_pamphlet"))
-        if updated_teacher is None:
-            updated_teacher = baseline_state.get("teacher_learning")
-        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else baseline_state.get("metadata", {})
-        session_note = self._clean_str(payload.get("session_note"))
-        if session_note is not None and not session_note:
-            session_note = None
+        session_student = self._clean_str(payload.get("session_student_learning"))
+        session_teacher = self._clean_str(payload.get("session_teacher_learning"))
+        updated_student = payload.get("student_pamphlet")
+        updated_teacher = payload.get("teacher_pamphlet")
+        metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None
+
+        current_student = baseline_state.get("student_learning") if isinstance(baseline_state, dict) else None
+        current_teacher = baseline_state.get("teacher_learning") if isinstance(baseline_state, dict) else None
+        current_metadata = baseline_state.get("metadata") if isinstance(baseline_state, dict) else {}
+
+        student_pamphlet = self._clean_str(updated_student)
+        teacher_pamphlet = self._clean_str(updated_teacher)
+        if student_pamphlet is None:
+            student_pamphlet = current_student or ""
+        if teacher_pamphlet is None:
+            teacher_pamphlet = current_teacher
+
+        note_metadata = metadata if isinstance(metadata, dict) else current_metadata or {}
+        session_note = None
+        if session_student or session_teacher:
+            parts = []
+            if session_student:
+                parts.append(f"Student: {session_student}")
+            if session_teacher:
+                parts.append(f"Teacher: {session_teacher}")
+            session_note = " ".join(parts)
         learning_state = {
-            "student_learning": updated_student or "",
-            "teacher_learning": updated_teacher,
-            "metadata": metadata or {},
+            "student_learning": student_pamphlet,
+            "teacher_learning": teacher_pamphlet,
+            "metadata": note_metadata,
         }
         return LearningSynthesisResult(
-            student_learning=student_learning,
-            teacher_learning=teacher_learning,
+            student_learning=session_student,
+            teacher_learning=session_teacher,
             learning_state=learning_state,
             session_note=session_note,
         )

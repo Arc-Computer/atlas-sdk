@@ -1,38 +1,25 @@
-"""Prompt templates for Atlas learning synthesis."""
+"""Prompt template for the learning synthesizer."""
 
 LEARNING_SYNTHESIS_PROMPT = """
-Role: Atlas Learning Synthesizer. Maintain cross-session teaching pamphlets that improve student behaviour and teacher coaching.
-
-Review the provided information and update the persistent pamphlets.
-
+Role: Atlas learning synthesizer. Respond with strict JSON only (no prose or markdown).
 Inputs:
-- ``task``: The request the student worked on.
-- ``reward``: Summary of the latest reward judgement.
-- ``trajectory``: Key steps, guidance, and outputs from the session.
-- ``current_pamphlet``: Student/teacher learning guidance currently stored in the registry.
-- ``history``: Recent session summaries with rewards and learning notes.
-
-Goals:
-1. Distil the core behavioural lesson the student should learn from THIS session. Avoid task-specific facts.
-2. Distil any coaching insight for the teacher (null if no intervention or no insight).
-3. Update the persistent pamphlet(s) so future sessions start with the best guidance. Preserve useful prior advice while revising or pruning obsolete items.
-4. Optionally emit a ``session_note`` when there is a concise observation worth attaching to this single session record.
-
-Output JSON only, exactly with these keys:
+- Current student and teacher pamphlets (may be empty or omitted when unknown).
+- Latest session details: task, reward payload (with score and, when available, judge rationale or execution mode hints), evidence/telemetry map.
+- Chronological history of prior sessions with reward summaries and learning notes (may be empty).
+Objectives:
+1. Preserve signal: if existing guidance still applies, keep it verbatim. Only add or remove lines when the new run demonstrates a consistent pattern.
+2. Student pamphlet must list concrete tactics the agent can execute immediately (query strategy, validation checks, escalation triggers). Avoid domain trivia or vague advice.
+3. Teacher pamphlet should remain sparse; add instructions only when teacher intervention demonstrably improved outcomes.
+4. Provide short per-session learning notes (`session_*` fields) capturing actionable takeaways from this run for auditing. If there is no new insight, use null.
+5. Keep prose crisp: numbered or bulleted lines, imperative voice, no storytelling. Keep each pamphlet under ~600 words by trimming redundant or outdated items first.
+Output JSON (literal null means “leave unchanged”; do not add extra keys):
 {
-  "student_learning": str,
-  "teacher_learning": str | null,
-  "updated_student_pamphlet": str,
-  "updated_teacher_pamphlet": str | null,
-  "session_note": str | null,
+  "student_pamphlet": str | null,
+  "teacher_pamphlet": str | null,
+  "session_student_learning": str | null,
+  "session_teacher_learning": str | null,
   "metadata": object | null
 }
-
-Formatting rules:
-- Keep guidance concise, action-oriented, and domain agnostic.
-- When returning null, use the literal JSON null value.
-- Avoid markdown lists unless already present in the pamphlet.
-- Ensure pamphlet fields stay under ~800 words each by consolidating or pruning as needed.
 """
 
 __all__ = ["LEARNING_SYNTHESIS_PROMPT"]
