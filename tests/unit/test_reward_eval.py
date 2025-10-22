@@ -91,8 +91,8 @@ class _StubEvaluator:
         )
         return RewardEvaluation(
             reward=reward,
-            student_learning="keep improving",
-            teacher_learning=None,
+            statistics={"score": base_score},
+            audit=[],
         )
 
 

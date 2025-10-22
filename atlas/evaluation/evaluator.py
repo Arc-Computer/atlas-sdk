@@ -50,11 +50,9 @@ class SessionTrajectory:
 
 @dataclass
 class RewardEvaluation:
-    """Aggregated reward plus learning payloads."""
+    """Aggregated reward statistics and audit payloads."""
 
     reward: AtlasRewardBreakdown
-    student_learning: str
-    teacher_learning: Optional[str]
     statistics: Dict[str, Any] = field(default_factory=dict)
     audit: List[Dict[str, Any]] = field(default_factory=list)
 
@@ -67,8 +65,6 @@ class SessionSample:
     uncertainty: float
     rationale: str
     principles: List[Dict[str, Any]]
-    student_learning: str
-    teacher_learning: Optional[str]
 
 
 class Evaluator:
@@ -124,7 +120,7 @@ class Evaluator:
         if not samples:
             samples = [self._empty_sample(focus_prompt)]
 
-        reward_breakdown, student_learning, teacher_learning, statistics = self._aggregate_samples(
+        reward_breakdown, statistics = self._aggregate_samples(
             samples,
             trajectory,
             escalated=escalated,
@@ -132,11 +128,9 @@ class Evaluator:
             focus_prompt=focus_prompt,
         )
         return RewardEvaluation(
-            reward_breakdown,
-            student_learning,
-            teacher_learning,
-            statistics,
-            audit_entries,
+            reward=reward_breakdown,
+            statistics=statistics,
+            audit=audit_entries,
         )
 
     def evaluate_session(self, trajectory: SessionTrajectory) -> RewardEvaluation:
@@ -219,8 +213,6 @@ class Evaluator:
             uncertainty=parsed["uncertainty"],
             rationale=parsed["rationale"],
             principles=parsed["principles"],
-            student_learning=parsed["student_learning"],
-            teacher_learning=parsed["teacher_learning"],
         ), audit_entry
 
     def _should_escalate(self, samples: Sequence[SessionSample]) -> bool:
@@ -249,8 +241,6 @@ class Evaluator:
                             "uncertainty": sample.uncertainty,
                             "rationale": sample.rationale,
                             "principles": sample.principles,
-                            "student_learning": sample.student_learning,
-                            "teacher_learning": sample.teacher_learning,
                         },
                         ensure_ascii=False,
                     )
@@ -317,8 +307,6 @@ class Evaluator:
             uncertainty=parsed["uncertainty"],
             rationale=parsed["rationale"],
             principles=parsed["principles"],
-            student_learning=parsed["student_learning"],
-            teacher_learning=parsed["teacher_learning"],
         ), audit_entry
 
     def _aggregate_samples(
@@ -329,7 +317,7 @@ class Evaluator:
         escalated: bool,
         escalation_reason: Optional[str],
         focus_prompt: str | None,
-    ) -> Tuple[AtlasRewardBreakdown, Dict[str, Any], Optional[Dict[str, Any]]]:
+    ) -> Tuple[AtlasRewardBreakdown, Dict[str, Any]]:
         scores = [sample.score for sample in samples]
         aggregated_score = sum(scores) / len(scores)
         best_sample = min(samples, key=lambda sample: sample.uncertainty)
@@ -377,16 +365,6 @@ class Evaluator:
             raw=reward_raw,
         )
 
-        student_learning = best_sample.student_learning
-
-        teacher_learning = None
-        if (trajectory.execution_mode or "").lower() != "auto":
-            teacher_text = (best_sample.teacher_learning or "").strip()
-            if teacher_text:
-                teacher_learning = teacher_text
-            else:
-                teacher_learning = None
-
         stats = {
             "score": aggregated_score,
             "score_mean": aggregated_score,
@@ -397,7 +375,7 @@ class Evaluator:
             "best_uncertainty": best_sample.uncertainty,
         }
 
-        return reward, student_learning, teacher_learning, stats
+        return reward, stats
 
     def _build_session_messages(
         self,
@@ -487,23 +465,11 @@ class Evaluator:
                                 "description": description if isinstance(description, str) else str(description),
                             }
                         )
-        student_learning = payload.get("student_learning")
-        if not isinstance(student_learning, str):
-            student_learning = ""
-        teacher_learning_value = payload.get("teacher_learning")
-        if isinstance(teacher_learning_value, str):
-            teacher_learning: Optional[str] = teacher_learning_value
-        elif teacher_learning_value is None:
-            teacher_learning = None
-        else:
-            teacher_learning = None
         return {
             "score": float(score),
             "uncertainty": float(uncertainty),
             "rationale": rationale if isinstance(rationale, str) else str(rationale),
             "principles": principles,
-            "student_learning": student_learning,
-            "teacher_learning": teacher_learning,
         }
 
     @staticmethod
@@ -513,8 +479,6 @@ class Evaluator:
             uncertainty=1.0,
             rationale="No valid reward sample produced.",
             principles=[],
-            student_learning="",
-            teacher_learning=None,
         )
 
     def _coerce_reward_breakdown(

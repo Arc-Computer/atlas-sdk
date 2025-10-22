@@ -68,3 +68,11 @@ CREATE TABLE IF NOT EXISTS trajectory_events (
     event JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS learning_registry (
+    learning_key TEXT PRIMARY KEY,
+    student_learning TEXT,
+    teacher_learning TEXT,
+    metadata JSONB,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

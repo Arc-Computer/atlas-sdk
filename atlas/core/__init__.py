@@ -19,7 +19,7 @@ from importlib import import_module
 
 from atlas.connectors.factory import create_from_atlas_config
 from atlas.config.loader import load_config
-from atlas.config.models import AdaptiveTeachingConfig, AtlasConfig, RewardObjectiveConfig, RuntimeSafetyConfig
+from atlas.config.models import AdaptiveTeachingConfig, AtlasConfig, LearningConfig, RewardObjectiveConfig, RuntimeSafetyConfig
 from atlas.prompts import (
     RewrittenStudentPrompts,
     RewrittenTeacherPrompts,
@@ -32,6 +32,7 @@ from atlas.runtime.orchestration.orchestrator import Orchestrator
 from atlas.evaluation.evaluator import Evaluator
 from atlas.personas.student import Student
 from atlas.personas.teacher import Teacher
+from atlas.learning import LearningSynthesizer
 from atlas.runtime.storage.database import Database
 from atlas.runtime.learning.drift import RewardDriftDetector
 from atlas.runtime.telemetry import ConsoleTelemetryStreamer
@@ -109,6 +110,8 @@ async def arun(
     student = _build_student(adapter, config, base_student_prompts)
     teacher = Teacher(config.teacher, base_teacher_prompts, adapter_config.tools)
     evaluator = _build_evaluator_instance(config, getattr(adaptive_teaching_cfg, "reward", None))
+    learning_cfg = getattr(config, "learning", LearningConfig())
+    learning_synthesizer = _build_learning_synthesizer(config)
     execution_context.metadata["adaptive_default_tags"] = list(getattr(adaptive_teaching_cfg, "default_tags", []) or [])
     triage_adapter = _load_triage_adapter(getattr(adaptive_teaching_cfg, "triage_adapter", None))
     session_meta = execution_context.metadata.setdefault("session_metadata", {})
@@ -120,6 +123,7 @@ async def arun(
     try:
         if database:
             await database.connect()
+            learning_state = await database.fetch_learning_state(learning_key)
             history_records = await database.fetch_learning_history(learning_key)
             learning_history = aggregate_learning_history(
                 history_records,
@@ -134,8 +138,10 @@ async def arun(
                 )
         else:
             learning_history = {}
+            learning_state = {}
 
         execution_context.metadata["learning_history"] = learning_history
+        execution_context.metadata["learning_state"] = learning_state or {}
 
         capability_probe_client = CapabilityProbeClient(adaptive_teaching_cfg.probe)
 
@@ -150,6 +156,33 @@ async def arun(
             capability_probe=capability_probe_client,
         )
         result = await orchestrator.arun(task)
+        if (
+            database
+            and learning_synthesizer
+            and learning_synthesizer.enabled
+            and learning_cfg.update_enabled
+            and execution_context.metadata.get("session_reward") is not None
+        ):
+            reward_payload = execution_context.metadata.get("session_reward")
+            trajectory_payload = execution_context.metadata.get("session_trajectory")
+            history_payload = execution_context.metadata.get("learning_history")
+            current_learning_state = execution_context.metadata.get("learning_state") or {}
+            synthesis = await learning_synthesizer.asynthesize(
+                learning_key=learning_key,
+                task=task,
+                reward=reward_payload if isinstance(reward_payload, dict) else _safe_reward_to_dict(reward_payload),
+                trajectory=trajectory_payload if isinstance(trajectory_payload, dict) else None,
+                learning_state=current_learning_state if isinstance(current_learning_state, dict) else {},
+                history=history_payload if isinstance(history_payload, dict) else None,
+            )
+            if synthesis is not None:
+                session_note = synthesis.session_note if learning_cfg.session_note_enabled else None
+                execution_context.set_session_learning(
+                    student_learning=synthesis.student_learning,
+                    teacher_learning=synthesis.teacher_learning,
+                    learning_state=synthesis.learning_state,
+                    session_note=session_note,
+                )
         if database and session_id is not None:
             await _persist_results(
                 database,
@@ -158,7 +191,16 @@ async def arun(
                 result,
                 events,
                 runtime_safety=config.runtime_safety,
-            )
+                )
+            if learning_cfg.enabled and learning_cfg.update_enabled:
+                updated_state = execution_context.metadata.get("learning_state")
+                if isinstance(updated_state, dict) and updated_state:
+                    await database.upsert_learning_state(
+                        learning_key,
+                        updated_state.get("student_learning"),
+                        updated_state.get("teacher_learning"),
+                        updated_state.get("metadata"),
+                    )
             await database.finalize_session(session_id, result.final_answer, "succeeded")
             if publisher is not None:
                 publisher.publish_control_event(
@@ -257,6 +299,14 @@ def _build_evaluator_instance(
     raise ValueError(f"Unsupported reward type: {reward_cfg.type}")
 
 
+def _build_learning_synthesizer(config: AtlasConfig) -> LearningSynthesizer | None:
+    learning_cfg = getattr(config, "learning", None)
+    if learning_cfg is None or not learning_cfg.enabled:
+        return None
+    fallback_llm = getattr(config.rim, "large_model", None)
+    return LearningSynthesizer(learning_cfg, fallback_llm=fallback_llm)
+
+
 def _load_triage_adapter(path: str | None):
     if not path:
         return default_build_dossier
@@ -295,6 +345,19 @@ def _build_learning_key(task: str, config: AtlasConfig, session_meta: Dict[str, 
     }
     serialized = json.dumps(payload, sort_keys=True)
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _safe_reward_to_dict(payload: Any) -> Dict[str, Any]:
+    if payload is None:
+        return {}
+    if hasattr(payload, "to_dict"):
+        try:
+            return payload.to_dict()
+        except Exception:  # pragma: no cover - defensive guard
+            return {}
+    if isinstance(payload, dict):
+        return payload
+    return {}
 
 
 def _split_callable_path(path: str) -> tuple[str, str]:
@@ -531,6 +594,12 @@ def _collect_session_insights(context: ExecutionContext, result: Result | None) 
     teacher_learning = context.metadata.get("session_teacher_learning") if isinstance(context.metadata, dict) else None
     if isinstance(teacher_learning, str) and teacher_learning.strip():
         payload["teacher_learning"] = teacher_learning
+    session_note = context.metadata.get("session_learning_note") if isinstance(context.metadata, dict) else None
+    if isinstance(session_note, str) and session_note.strip():
+        payload["session_learning_note"] = session_note.strip()
+    learning_state_snapshot = context.metadata.get("learning_state") if isinstance(context.metadata, dict) else None
+    if isinstance(learning_state_snapshot, dict) and learning_state_snapshot:
+        payload["learning_state"] = learning_state_snapshot
     session_reward_payload = payload.get("session_reward")
     reward_summary: dict[str, Any] | None = None
     if session_reward_payload:

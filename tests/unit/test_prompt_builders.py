@@ -49,7 +49,7 @@ def test_build_teacher_prompts_default_templates_include_base_prompt():
     prompts = build_teacher_prompts("Base prompt", teacher_cfg)
     assert isinstance(prompts, RewrittenTeacherPrompts)
     assert prompts.plan_review.startswith("Base prompt")
-    assert "JSON schema reference for plan review responses" in prompts.plan_review
+    assert "Return JSON only" in prompts.plan_review
     assert prompts.validation.startswith("Base prompt")
     assert prompts.guidance.startswith("Base prompt")
-    assert "JSON schema reference for validation responses" in prompts.validation
+    assert "Return JSON only" in prompts.validation

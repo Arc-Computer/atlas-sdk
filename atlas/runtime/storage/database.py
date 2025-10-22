@@ -350,6 +350,54 @@ class Database:
             )
         return history
 
+    async def fetch_learning_state(self, learning_key: str) -> dict[str, Any] | None:
+        if not learning_key:
+            return None
+        pool = self._require_pool()
+        async with pool.acquire() as connection:
+            row = await connection.fetchrow(
+                "SELECT student_learning, teacher_learning, metadata, updated_at"
+                " FROM learning_registry WHERE learning_key = $1",
+                learning_key,
+            )
+        if row is None:
+            return None
+        metadata = self._deserialize_json(row.get("metadata"))
+        if not isinstance(metadata, dict):
+            metadata = {}
+        return {
+            "student_learning": row.get("student_learning") or "",
+            "teacher_learning": row.get("teacher_learning"),
+            "metadata": metadata,
+            "updated_at": row.get("updated_at"),
+        }
+
+    async def upsert_learning_state(
+        self,
+        learning_key: str,
+        student_learning: Optional[str],
+        teacher_learning: Optional[str],
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        if not learning_key:
+            return
+        pool = self._require_pool()
+        serialized_metadata = self._serialize_json(metadata) if metadata else None
+        async with pool.acquire() as connection:
+            await connection.execute(
+                "INSERT INTO learning_registry(learning_key, student_learning, teacher_learning, metadata, updated_at)"
+                " VALUES ($1, $2, $3, $4, NOW())"
+                " ON CONFLICT (learning_key) DO UPDATE SET"
+                " student_learning = EXCLUDED.student_learning,"
+                " teacher_learning = EXCLUDED.teacher_learning,"
+                " metadata = EXCLUDED.metadata,"
+                " updated_at = NOW()",
+                learning_key,
+                student_learning,
+                teacher_learning,
+                serialized_metadata,
+            )
+
     async def fetch_trajectory_events(self, session_id: int, limit: int = 200) -> List[dict[str, Any]]:
         pool = self._require_pool()
         async with pool.acquire() as connection:

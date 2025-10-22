@@ -282,6 +282,26 @@ class TeacherConfig(BaseModel):
     prompts: TeacherPrompts | None = None
     prompt_guidance: Dict[str, str] = Field(default_factory=dict)
 
+class LearningPrompts(BaseModel):
+    """Prompt templates for the learning synthesizer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    synthesizer: str | None = None
+
+
+class LearningConfig(BaseModel):
+    """Controls the learning pamphlet synthesizer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    update_enabled: bool = True
+    llm: LLMParameters | None = None
+    prompts: LearningPrompts | None = None
+    history_limit: int = Field(default=10, ge=1, le=200)
+    session_note_enabled: bool = True
+
 class RIMConfig(BaseModel):
     """Aggregate reward model configuration."""
 
@@ -358,6 +378,7 @@ class AtlasConfig(BaseModel):
     teacher: TeacherConfig
     orchestration: OrchestrationConfig = Field(default_factory=OrchestrationConfig)
     rim: RIMConfig
+    learning: LearningConfig = Field(default_factory=LearningConfig)
     storage: StorageConfig | None = None
     prompt_rewrite: PromptRewriteConfig | None = None
     metadata: Dict[str, Any] = Field(default_factory=dict)

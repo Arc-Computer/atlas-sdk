@@ -157,12 +157,10 @@ class ExecutionContext:
         self,
         reward: typing.Any | None,
         *,
-        student_learning: str | None = None,
-        teacher_learning: str | None = None,
         stats: dict[str, typing.Any] | None = None,
         audit: typing.Sequence[typing.Mapping[str, typing.Any]] | None = None,
     ) -> None:
-        """Record session-level reward and learning payloads."""
+        """Record session-level reward payloads."""
 
         if reward is None:
             self.metadata.pop("session_reward", None)
@@ -174,10 +172,6 @@ class ExecutionContext:
             else:
                 reward_payload = typing.cast(typing.Any, reward)
             self.metadata["session_reward"] = reward_payload
-        if student_learning is not None:
-            self.metadata["session_student_learning"] = student_learning
-        if teacher_learning is not None:
-            self.metadata["session_teacher_learning"] = teacher_learning
         if stats is None:
             self.metadata.pop("session_reward_stats", None)
         else:
@@ -186,6 +180,33 @@ class ExecutionContext:
             self.metadata.pop("session_reward_audit", None)
         else:
             self.metadata["session_reward_audit"] = [dict(entry) for entry in audit]
+
+    def set_session_learning(
+        self,
+        *,
+        student_learning: str | None = None,
+        teacher_learning: str | None = None,
+        learning_state: dict[str, typing.Any] | None = None,
+        session_note: str | None = None,
+    ) -> None:
+        """Record learning artifacts separate from the reward pipeline."""
+
+        if student_learning is None:
+            self.metadata.pop("session_student_learning", None)
+        else:
+            self.metadata["session_student_learning"] = student_learning
+        if teacher_learning is None:
+            self.metadata.pop("session_teacher_learning", None)
+        else:
+            self.metadata["session_teacher_learning"] = teacher_learning
+        if learning_state is None:
+            self.metadata.pop("learning_state", None)
+        else:
+            self.metadata["learning_state"] = dict(learning_state)
+        if session_note is None or not session_note.strip():
+            self.metadata.pop("session_learning_note", None)
+        else:
+            self.metadata["session_learning_note"] = session_note.strip()
 
     def record_mode_decision(
         self,

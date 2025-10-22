@@ -171,8 +171,6 @@ class HarnessEvaluator(Evaluator):
             uncertainty=parsed["uncertainty"],
             rationale=parsed["rationale"],
             principles=parsed["principles"],
-            student_learning=parsed["student_learning"],
-            teacher_learning=parsed["teacher_learning"],
         )
 
     def _normalise_payload(self, payload: Any) -> dict[str, Any] | None:
@@ -459,13 +457,9 @@ async def evaluate_combo(
             score: float | None = None
             uncertainties: list[float] = []
             escalated: bool | None = None
-            student_learning: str | None = None
-            teacher_learning: str | None = None
             samples: list[dict[str, Any]] | None = None
             if evaluation is not None and error is None:
                 score = float(evaluation.reward.score)
-                student_learning = evaluation.student_learning
-                teacher_learning = evaluation.teacher_learning
                 samples_payload = evaluation.reward.raw.get("samples") if isinstance(evaluation.reward.raw, dict) else None
                 if isinstance(samples_payload, list):
                     samples = samples_payload
@@ -486,8 +480,6 @@ async def evaluate_combo(
                 "escalated": escalated,
                 "latency_ms": latency * 1000.0,
                 "error": error,
-                "student_learning": student_learning,
-                "teacher_learning": teacher_learning,
                 "samples": samples,
             }
 

@@ -755,6 +755,7 @@ class Orchestrator:
         context = ExecutionContext.get()
         try:
             trajectory = self._build_session_trajectory(task, plan, result)
+            context.metadata["session_trajectory"] = self._serialize_session_trajectory(trajectory)
         except Exception as exc:  # pragma: no cover - defensive guard
             logger.exception("Failed to build session trajectory: %s", exc)
             return
@@ -765,8 +766,6 @@ class Orchestrator:
             return
         context.set_session_reward(
             evaluation.reward,
-            student_learning=evaluation.student_learning,
-            teacher_learning=evaluation.teacher_learning,
             stats=evaluation.statistics,
             audit=evaluation.audit,
         )
@@ -816,6 +815,34 @@ class Orchestrator:
             session_metadata=session_metadata if isinstance(session_metadata, dict) else None,
             focus_prompt=None,
         )
+
+    @staticmethod
+    def _serialize_session_trajectory(trajectory: SessionTrajectory) -> Dict[str, Any]:
+        serialized_steps: List[Dict[str, Any]] = []
+        for record in trajectory.steps:
+            serialized_steps.append(
+                {
+                    "step": record.step.model_dump() if hasattr(record.step, "model_dump") else record.step,
+                    "trace": record.trace,
+                    "output": record.output,
+                    "attempts": record.attempts,
+                    "guidance": list(record.guidance) if record.guidance else None,
+                    "status": record.status,
+                    "validation": record.validation,
+                    "prior_results": record.prior_results,
+                    "metadata": record.metadata,
+                }
+            )
+        return {
+            "task": trajectory.task,
+            "final_answer": trajectory.final_answer,
+            "plan": trajectory.plan,
+            "steps": serialized_steps,
+            "execution_mode": trajectory.execution_mode,
+            "teacher_intervened": trajectory.teacher_intervened,
+            "session_metadata": trajectory.session_metadata,
+            "focus_prompt": trajectory.focus_prompt,
+        }
 
     def _determine_levels(self, plan: Plan) -> List[List[int]]:
         graph = DependencyGraph(plan)
