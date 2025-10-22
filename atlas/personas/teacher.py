@@ -275,12 +275,19 @@ class Teacher:
             "status": structured_output.get("status"),
             "student_response": structured_output.get("text"),
             "reason": structured_output.get("reason"),
-            "structured_output": {"hash": structured_hash, "keys": sorted(structured_json.keys()) if isinstance(structured_json, dict) else None},
+            "structured_output": {
+                "hash": structured_hash,
+                "keys": sorted(structured_json.keys()) if isinstance(structured_json, dict) else None,
+                "content": structured_json,
+                "preview": self._preview(json.dumps(structured_json, ensure_ascii=False)) if isinstance(structured_json, (dict, list)) else None,
+            },
             "deliverable": self._build_blob_reference(deliverable_hash, deliverable_payload),
             "artifacts": self._build_blob_reference(artifacts_hash, artifacts_payload, include_keys=True),
             "prior_results": {
                 "hash": prior_hash,
                 "changed": self._register_context_hash(context, prior_hash),
+                "content": prior_json,
+                "preview": self._preview(json.dumps(prior_json, ensure_ascii=False)) if isinstance(prior_json, (dict, list)) else None,
             },
             "prior_guidance": list(prior_guidance),
             "attempt_guidance": list(attempt_guidance),
@@ -309,11 +316,12 @@ class Teacher:
     ) -> Dict[str, Any] | None:
         if digest is None:
             return None
-        reference: Dict[str, Any] = {"hash": digest}
+        reference: Dict[str, Any] = {"hash": digest, "content": payload}
         if include_keys and isinstance(payload, dict):
             reference["keys"] = sorted(payload.keys())
         if isinstance(payload, (str, list, dict)):
-            reference["preview"] = self._preview(json.dumps(payload, ensure_ascii=False) if not isinstance(payload, str) else payload)
+            preview_source = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+            reference["preview"] = self._preview(preview_source)
         return reference
 
     def _preview(self, value: str | None, limit: int = 2048) -> str | None:

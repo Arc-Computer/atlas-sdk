@@ -34,7 +34,7 @@ Once telemetry is flowing into Postgres, use the new `scripts/eval_learning.py` 
 ## Leaner paired-mode validation
 
 Paired mode now ships with a compact `validation_request` envelope. Heavy fields—artifacts, full structured outputs, and prior
-step transcripts—are stored once per session inside the execution context and referenced by stable digests inside the
-payload. When a retry produces the same structured output, the orchestrator reuses the cached verdict instead of sending the
+step transcripts—are stored once per session inside the execution context and validation requests now include each blob’s
+content alongside a stable digest. When a retry produces the same structured output, the orchestrator reuses the cached verdict instead of sending the
 teacher back to the LLM. Telemetry exports are unchanged: they still record the full structured output, validation result,
 and `cached` provenance flag so the learning harness continues to receive identical signals.

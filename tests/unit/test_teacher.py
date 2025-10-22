@@ -214,6 +214,65 @@ def test_validation_signature_stable_and_blob_storage():
     asyncio.run(runner())
 
 
+class _PayloadCaptureClient:
+    def __init__(self) -> None:
+        self.payloads: list[dict[str, object]] = []
+
+    async def acomplete(self, messages, response_format=None, overrides=None):
+        request = messages[-1]["content"]
+        json_payload = request.split("\nReturn json.")[0]
+        self.payloads.append(json.loads(json_payload))
+        return LLMResponse(content=json.dumps({"valid": True, "guidance": None}), raw={}, reasoning={})
+
+
+def test_validation_payload_rehydrates_full_content():
+    async def runner() -> None:
+        ExecutionContext.get().reset()
+        config = TeacherConfig(
+            llm=_gpt5_params(),
+            max_review_tokens=1024,
+            plan_cache_seconds=0,
+            guidance_max_tokens=512,
+            validation_max_tokens=512,
+        )
+        prompts = RewrittenTeacherPrompts(
+            plan_review="Respond with JSON containing a 'steps' array.",
+            validation="Return JSON {\"valid\": bool, \"guidance\": str | null}.",
+            guidance="Return short guidance.",
+        )
+        teacher = Teacher(config, prompts)
+        capture = _PayloadCaptureClient()
+        teacher._client = capture
+        step = Step(id=1, description="draft summary", depends_on=[])
+        prior_results = {0: {"status": "ok", "text": "seed"}}
+        structured_output = {
+            "status": "ok",
+            "result": {
+                "deliverable": {"content": "draft summary"},
+                "artifacts": {"tokens": 12},
+            },
+            "deliverable": {"content": "draft summary"},
+            "artifacts": {"tokens": 12},
+            "text": "draft summary ready",
+        }
+        await teacher.avalidate_step(
+            step,
+            "trace",
+            structured_output,
+            prior_results=prior_results,
+            prior_guidance=[],
+            attempt_guidance=[],
+        )
+        assert capture.payloads, "Expected payload capture to record validation request"
+        payload = capture.payloads[-1]
+        assert payload["structured_output"]["content"] == teacher._jsonify(structured_output)
+        assert payload["artifacts"]["content"] == teacher._jsonify(structured_output["artifacts"])
+        assert payload["deliverable"]["content"] == teacher._jsonify(structured_output["deliverable"])
+        assert payload["prior_results"]["content"] == teacher._jsonify(prior_results)
+
+    asyncio.run(runner())
+
+
 class _ProbeClientStub:
     def __init__(self, payload: dict[str, object], *, reasoning: dict[str, object] | None = None) -> None:
         self._payload = payload

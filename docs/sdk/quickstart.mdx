@@ -144,11 +144,12 @@ it needs.
 
 When you run `atlas run` in paired mode, the teacher now exchanges a compact
 `validation_request` schema with the orchestrator. The payload highlights step
-metadata, current guidance, and hashes of large artefacts while the raw blobs
-are cached in the execution context. Identical retries reuse the cached verdict
-instantly and mark the corresponding telemetry event with `"cached": true`, so
-reward gating and the evaluation harness continue to observe the same structured
-signals without incurring extra LLM calls.
+metadata, current guidance, and hashes of large artefacts, and each request
+includes the blob content keyed by those digests so the teacher still inspects the
+full submission. Identical retries reuse the cached verdict instantly and mark the
+corresponding telemetry event with `"cached": true`, so reward gating and the
+evaluation harness continue to observe the same structured signals without incurring
+extra LLM calls.
 
 ## 4. Evaluate learning progress (no hints required)
 
