@@ -13,6 +13,7 @@ from atlas.runtime.orchestration.execution_context import ExecutionContext
 class _StubClient:
     def __init__(self, scores_by_temperature: Dict[float, float]) -> None:
         self._scores = scores_by_temperature
+        self.model = "stub-model"
 
     async def acomplete(self, messages, response_format=None, overrides=None):
         temperature = (overrides or {}).get("temperature", 0.0)
@@ -31,6 +32,9 @@ class _StubClient:
 
 
 class _QueueingClient:
+    def __init__(self) -> None:
+        self.model = "stub-model"
+
     async def acomplete(self, messages, response_format=None, overrides=None):
         context = ExecutionContext.get()
         queue = context.metadata.setdefault("_llm_reasoning_queue", [])

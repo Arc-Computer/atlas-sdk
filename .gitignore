@@ -50,3 +50,4 @@ htmlcov/
 
 # Evaluation artifacts
 results/
+.atlas/

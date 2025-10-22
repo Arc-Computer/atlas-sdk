@@ -59,6 +59,12 @@ Aggregated per model pair:
 
 CLI output renders a summary table and, when `--output` is provided, persists a JSON report with the full run history and a computed “best pair” record.
 
+### Learning Registry & Synthesizer
+- **Reward-only judges** – Session reward prompts now emit just the scoring rationale. Student/teacher learning notes come from a dedicated synthesizer that runs after reward evaluation.
+- **Learning registry** – Canonical pamphlets live in the `learning_registry` table keyed by `learning_key`. Each run still writes per-session notes to `sessions.student_learning` / `sessions.teacher_learning` for auditing.
+- **Config block** – Runtime configs gain a top-level `learning` block. Use `enabled` to surface pamphlets to adapters, flip `update_enabled` off when you want “apply” mode (read-only learning), and `history_limit` to throttle how much history the synthesizer sees.
+- **Execution flow** – `atlas run` loads the current pamphlet into `ExecutionContext.metadata["learning_state"]` at session start. After reward evaluation, the synthesizer refreshes the pamphlet (when updates are enabled) and `Database.upsert_learning_state` persists it.
+
 ### Findings (2025-10-19)
 
 We executed the full 4×4 student/teacher matrix against the 25-task synthetic dataset. Because no historical learning traces exist for these learning keys, the capability probe routed every task to the `paired` lane (student executes once, teacher validates the final answer). The table below shows the aggregated reward and latency metrics per pairing.

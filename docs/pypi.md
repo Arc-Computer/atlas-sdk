@@ -201,7 +201,7 @@ Add a `storage` section to your config when you want Atlas to log plans, attempt
 ## Observe and Export
 
 - Set `stream_progress=True` in `core.run` to stream planner/executor/judge events alongside the adaptive summary.
-- Export stored sessions with `arc-atlas --database-url postgresql://... --output traces.jsonl`—the JSONL includes `adaptive_summary`, `session_reward`, learning notes, and the aggregated learning history.
+- Export stored sessions with `arc-atlas --database-url postgresql://... --output traces.jsonl`—the JSONL includes `adaptive_summary`, `session_reward`, per-session learning notes, the consolidated `learning_state`, and aggregated history.
 - Explore `docs/examples/` for telemetry and export walkthroughs.
 
 ## Train with Atlas Core

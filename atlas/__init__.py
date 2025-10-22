@@ -27,6 +27,7 @@ from atlas.connectors import (
     register_adapter,
 )
 from atlas.core import arun, run
+from atlas.sdk import agent, environment
 from atlas.evaluation import Evaluator
 from atlas.personas import Student, StudentStepResult, Teacher
 from atlas.runtime import AtlasRewardBreakdown, AtlasSessionTrace, AtlasStepTrace
@@ -56,4 +57,7 @@ __all__ = [
     "ExportRequest",
     "ExportSummary",
     "export_sessions_sync",
+    # Decorators
+    "agent",
+    "environment",
 ]

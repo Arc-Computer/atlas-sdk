@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from textwrap import dedent, indent
 
+from atlas.cli import env as env_cli
+from atlas.cli import run as run_cli
 from atlas.cli import train as train_cli
 from atlas.cli.storage_runtime import InitOptions, QuitOptions, init_storage, quit_storage
 from atlas.utils.env import load_dotenv_if_available
@@ -213,6 +215,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     up_parser.set_defaults(handler=_cmd_storage_up)
 
+    env_cli.register_parser(subparsers)
+    run_cli.register_parser(subparsers)
     train_cli.register_parser(subparsers)
 
     return parser
