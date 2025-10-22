@@ -382,6 +382,14 @@ def summary_to_markdown(summary: LearningSummary) -> str:
             f"trajectory_events={snapshot.trajectory_events}"
             f"{model_suffix}"
         )
+        learning_details: list[str] = []
+        if snapshot.student_learning:
+            learning_details.append(f"student learning: {snapshot.student_learning}")
+        if snapshot.teacher_learning:
+            learning_details.append(f"teacher learning: {snapshot.teacher_learning}")
+        if learning_details:
+            for detail in learning_details:
+                lines.append(f"  - {detail}")
     return "\n".join(lines)
 
 

@@ -116,6 +116,7 @@ async def test_generate_learning_summary_computes_fields():
     assert "reward delta" in markdown.lower()
     assert "Model Performance" in markdown
     assert "student-beta" in markdown
+    assert "student learning: Capture better telemetry refs." in markdown
 
 
 @pytest.mark.asyncio
