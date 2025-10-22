@@ -25,7 +25,7 @@ def _interpret_action_payload(payload: Any) -> tuple[Any, bool, dict[str, Any]]:
 
 
 class StepwiseAgentAdapter(AtlasAgentProtocol):
-    """Wraps an agent that only implements ``act`` (and optionally ``reset``/``plan``/``summarize``."""
+    """Wraps an agent that only implements ``act`` (and optionally ``reset``/``plan``/``summarize``)."""
 
     def __init__(self, agent: object) -> None:
         self._agent = agent
