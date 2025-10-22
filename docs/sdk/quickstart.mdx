@@ -82,7 +82,7 @@ By default the command also performs a full sample run and records the first
 trajectory under `.atlas/runs/` for continual learning. Disable this behaviour
 with `--skip-sample-run`.
 
-### Adapting to existing stacks (LangGraph, SecRL, …)
+### Adapting to existing stacks (LangGraph, custom frameworks, …)
 
 Most production agents already expose factory helpers or require constructor
 arguments. Pass those hints directly to `atlas env init`:
@@ -90,13 +90,15 @@ arguments. Pass those hints directly to `atlas env init`:
 ```bash
 atlas env init \
   --task "Investigate incident 38" \
-  --env-fn secgym_bootstrap:create_environment \
-  --agent-fn secgym_bootstrap:create_agent \
-  --env-arg attack=incident_38 \
-  --env-arg db_url=mysql://root:admin@localhost:3310
+  --env-fn langgraph_adapter:create_environment \
+  --agent-fn langgraph_adapter:create_agent \
+  --env-arg dataset=incidents \
+  --agent-config configs/langgraph_agent.yaml
 ```
 
-Key flags (see `examples/secrl_bootstrap.py` and `examples/langgraph_adapter.py` for minimal stubs):
+Use `atlas env scaffold --template langgraph` to drop the starter template into your
+repository, then point the CLI at the generated factories. Key flags (see
+`examples/langgraph_adapter.py` for a factory template you can adapt):
 
 - `--env-fn / --agent-fn` – module-qualified factories that Atlas calls instead
   of the default zero-argument constructors.
@@ -108,8 +110,8 @@ Key flags (see `examples/secrl_bootstrap.py` and `examples/langgraph_adapter.py`
   once Docker containers, databases, and API keys are ready).
 
 The CLI prints a summary of what it detected and, when it sees a heavy stack
-such as SecRL or DeepAgents, surfaces preflight notes (e.g., “start container
-incident_5 before running discovery”). When LLM-generated factories warn that
+such as LangGraph or DeepAgents, surfaces preflight notes (e.g., “start worker
+services before running discovery”). When LLM-generated factories warn that
 dependencies are offline, Atlas automatically sets `ATLAS_DISCOVERY_VALIDATE=0`,
 skips the sample run, and records the notes in `.atlas/discover.json`. Re-run
 with `--validate` (or set the env var to `1`) once services are healthy to reuse

@@ -30,6 +30,18 @@ With the split between SDK (runtime) and ATLAS (training) in mind, here's what o
 Use Python 3.10 or newer before installing. Pip on older interpreters (e.g., 3.9) resolves `arc-atlas` 0.1.0 and the runtime crashes at import time.
 </Note>
 
+### Integration at a Glance
+
+| If your project... | Quick path | What to know |
+| --- | --- | --- |
+| Already exposes Atlas-shaped classes (`reset`/`step`/`close`, `plan`/`act`/`summarize`) or uses `@atlas.environment` / `@atlas.agent` decorators | `atlas env init --task "..."` → `atlas run --task "..."` | Discovery hashes your modules, writes `.atlas/discover.json` + `.atlas/generated_config.yaml`, and you’re ready to go—no factories required. |
+| Relies on LangGraph, SecRL, or other frameworks that need custom constructors/config | `atlas env scaffold --template langgraph` (optional helper), then `atlas env init --env-fn ... --agent-fn ...` | Use lightweight factory helpers (see `examples/langgraph_adapter.py`) to instantiate your stack. Pass extra args via `--env-arg/--agent-arg` and configs via `--env-config/--agent-config`. |
+
+**Prerequisites**
+- `pip install arc-atlas`
+- LLM credentials exported (`OPENAI_API_KEY`, `GEMINI_API_KEY`, etc.) or present in a `.env`
+- Optional but recommended for learning persistence: `STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas` (run `atlas init` to scaffold Dockerised Postgres if needed)
+
 **1. Create a virtual environment & install the SDK**
 ```bash
 python3.11 -m venv .venv
@@ -45,6 +57,8 @@ export GEMINI_API_KEY=...
 export XAI_API_KEY=...
 ```
 Keys can also live in a local `.env` file; the Atlas CLI and quickstart scripts automatically load it via [python-dotenv](https://pypi.org/project/python-dotenv/).
+
+If you want persistent learning updates, ensure a Postgres instance is reachable (the `atlas init` helper will start one via Docker) and export `STORAGE__DATABASE_URL` before running the CLI.
 
 **3. Run an Example**
 
@@ -70,21 +84,39 @@ python run_quickstart.py
 
 ### Autodiscovery Onboarding
 
-The CLI now supports a Codex-style discovery flow for self-managed agents:
+Pick the flow that matches your project:
+
+**Decorator-first (no factories)**
 
 ```bash
 pip install arc-atlas
+# Ensure your environment / agent classes are decorated with @atlas.environment / @atlas.agent
+atlas env init --task "Investigate production incident"
+atlas run --task "Investigate production incident"
+```
+
+**Factory-driven (custom stacks)**
+
+```bash
+pip install arc-atlas
+# Optionally scaffold a reference implementation into your repo
+atlas env scaffold --template langgraph
+
 atlas env init --task "Investigate production incident" \
-  --env-fn secrl_bootstrap:create_environment --env-arg attack=incident_38 \
-  --agent-fn langgraph_adapter:create_langgraph_agent --no-run
+  --env-fn langgraph_adapter:create_environment \
+  --agent-fn langgraph_adapter:create_agent \
+  --env-arg incident_id=38 --no-run
 atlas run --task "Investigate production incident"
 ```
 
 `atlas env init` scans your codebase, captures telemetry, and writes
 `.atlas/discover.json` / `.atlas/generated_config.yaml`. When it detects heavier
-stacks (SecRL, LangGraph/DeepAgents, etc.) it records preflight notes and skips
-execution until you rerun with `--validate`. See `docs/sdk/quickstart.mdx` and
-the examples under `examples/` for end-to-end templates.
+stacks (LangGraph/DeepAgents, multi-service environments, etc.) it records preflight notes and skips
+execution until you rerun with `--validate`. When autodiscovery finds no candidates it prints a reminder pointing to
+`atlas env scaffold --template langgraph` so you can start from a working factory.
+
+See [`examples/langgraph_adapter.py`](examples/langgraph_adapter.py) and the [Stateful Agent Quickstart](docs/sdk/quickstart.mdx)
+for end-to-end templates, configuration snippets, and troubleshooting tips.
 
 ---
 

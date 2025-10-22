@@ -324,3 +324,19 @@ def test_env_init_synthesizes_factories_with_auto_skip(monkeypatch, synthesis_pr
     config_text = (atlas_dir / "generated_config.yaml").read_text(encoding="utf-8")
     assert "preferred_mode: paired" in config_text
     assert "forced_mode: paired" in config_text
+
+
+def test_env_scaffold_writes_template(tmp_path: Path) -> None:
+    args = argparse.Namespace(
+        template="langgraph",
+        output=None,
+        path=str(tmp_path),
+        force=False,
+    )
+    exit_code = env_cli._cmd_env_scaffold(args)
+    assert exit_code == 0
+    generated = tmp_path / "langgraph_adapter.py"
+    assert generated.exists()
+    content = generated.read_text(encoding="utf-8")
+    assert "LangGraphEnvironment" in content
+    assert "create_agent" in content

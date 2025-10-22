@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import textwrap
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +27,105 @@ from atlas.sdk.factory_synthesis import FactorySynthesizer, ENV_VALIDATE_FLAG
 
 DISCOVERY_FILENAME = "discover.json"
 GENERATED_CONFIG_FILENAME = "generated_config.yaml"
+SCAFFOLD_TEMPLATES = {
+    "langgraph": {
+        "filename": "langgraph_adapter.py",
+        "content": textwrap.dedent(
+            """\
+            \"\"\"Atlas factory helpers for LangGraph-style agents.\"\"\"
+
+            from __future__ import annotations
+
+            from typing import Any, Dict
+
+            from atlas.sdk.interfaces import DiscoveryContext, TelemetryEmitterProtocol
+
+
+            class LangGraphEnvironment:
+                \"\"\"Minimal environment shim you can customise for your stack.\"\"\"
+
+                def __init__(self, *, dataset: str = \"incidents\" ) -> None:
+                    self._dataset = dataset
+                    self._step = 0
+
+                def reset(self, task: str | None = None) -> Dict[str, Any]:
+                    self._step = 0
+                    return {\"task\": task or \"Investigate incident\", \"dataset\": self._dataset}
+
+                def step(self, action: Dict[str, Any], submit: bool = False):
+                    self._step += 1
+                    done = submit or self._step >= 3
+                    observation = {
+                        \"step\": self._step,
+                        \"action\": action,
+                        \"submit\": submit,
+                    }
+                    reward = 1.0 if done else 0.0
+                    info = {\"dataset\": self._dataset}
+                    return observation, reward, done, info
+
+                def close(self) -> None:  # pragma: no cover - placeholder cleanup
+                    return None
+
+
+            class LangGraphAgentWrapper:
+                \"\"\"Wrap a compiled LangGraph graph so Atlas can orchestrate it.\"\"\"
+
+                def __init__(self, graph) -> None:
+                    self._graph = graph
+                    self._state: Dict[str, Any] = {}
+
+                def plan(
+                    self,
+                    task: str,
+                    observation: Any,
+                    *,
+                    emit_event: TelemetryEmitterProtocol | None = None,
+                ) -> Dict[str, Any]:
+                    self._state = {\"task\": task, \"observation\": observation}
+                    if emit_event:
+                        emit_event.emit(\"progress\", {\"stage\": \"plan\", \"task\": task})
+                    return {\"execution\": \"graph\", \"note\": \"LangGraph adapter\"}
+
+                def act(
+                    self,
+                    context: DiscoveryContext,
+                    *,
+                    emit_event: TelemetryEmitterProtocol | None = None,
+                ) -> Dict[str, Any]:
+                    if emit_event:
+                        emit_event.emit(\"progress\", {\"stage\": \"act\", \"step\": context.step_index})
+                    result = self._graph.invoke({\"observation\": context.observation, \"state\": self._state})
+                    action = result.get(\"action\") if isinstance(result, dict) else result
+                    submit = bool(result.get(\"submit\")) if isinstance(result, dict) else False
+                    return {\"action\": action, \"submit\": submit}
+
+                def summarize(
+                    self,
+                    context: DiscoveryContext,
+                    *,
+                    history=None,
+                    emit_event: TelemetryEmitterProtocol | None = None,
+                ) -> str:
+                    if emit_event:
+                        emit_event.emit(\"progress\", {\"stage\": \"summarize\"})
+                    return str(context.observation)
+
+
+            def create_environment(dataset: str = \"incidents\") -> LangGraphEnvironment:
+                \"\"\"Factory passed via --env-fn in `atlas env init`.\"\"\"
+
+                return LangGraphEnvironment(dataset=dataset)
+
+
+            def create_agent(graph) -> LangGraphAgentWrapper:
+                \"\"\"Factory passed via --agent-fn in `atlas env init`.\"\"\"
+
+                return LangGraphAgentWrapper(graph)
+            """
+        ),
+    }
+}
 
 
 @dataclass(slots=True)
@@ -70,10 +170,39 @@ def _serialize_target(target: TargetSpec, project_root: Path, role: Role) -> dic
     return payload
 
 
+def _print_factory_hint(role: str) -> None:
+    print(
+        f"No {role} candidates detected. "
+        "Add @atlas decorators or scaffold factories via `atlas env scaffold --template langgraph`.",
+        file=sys.stderr,
+    )
+
+
 @dataclass(slots=True)
 class SelectedTargets:
     environment: TargetSpec
     agent: TargetSpec
+
+
+def _cmd_env_scaffold(args: argparse.Namespace) -> int:
+    template_key = (args.template or "langgraph").lower()
+    template = SCAFFOLD_TEMPLATES.get(template_key)
+    if template is None:
+        print(
+            f"Unsupported template {args.template!r}. Available options: {', '.join(sorted(SCAFFOLD_TEMPLATES))}.",
+            file=sys.stderr,
+        )
+        return 1
+    project_root = Path(args.path or ".").resolve()
+    destination = project_root / (args.output or template["filename"])
+    if destination.exists() and not args.force:
+        print(f"{destination} already exists. Use --force to overwrite.", file=sys.stderr)
+        return 1
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(template["content"], encoding="utf-8")
+    print(f"Scaffolded {template_key!r} factory helpers at {destination}")
+    print("Update the template to call your own constructors and supply real LangGraph graphs.")
+    return 0
 
 
 def _prompt_selection(candidates: List[Candidate], role: str) -> Candidate:
@@ -155,21 +284,32 @@ def _write_generated_config(destination: Path, targets: SelectedTargets, capabil
     supports_stepwise = bool(capabilities.get("supports_stepwise", False))
     preferred_mode = capabilities.get("preferred_mode", "auto")
     plan_description = capabilities.get("plan_description") or ""
-    payload = "\n".join(
+    lines: list[str] = [
+        "# Generated by `atlas env init`.",
+        "# Merge these values into your primary Atlas config or tweak them in-place.",
+        "# Secrets (OPENAI_API_KEY, GEMINI_API_KEY, etc.) should live in your shell or .env.",
+        "# Set STORAGE__DATABASE_URL if you want to persist learning updates (see README for details).",
+        "runtime:",
+        "  behavior: self",
+        f"  environment: {targets.environment.dotted_path()}",
+        f"  agent: {targets.agent.dotted_path()}",
+        f"  control_loop: {control_loop}",
+        f"  supports_stepwise: {str(supports_stepwise).lower()}",
+        f"  preferred_mode: {preferred_mode}",
+    ]
+    if plan_description:
+        indented_plan = plan_description.replace(chr(10), chr(10) + "    ")
+        lines.append("  plan_description: |")
+        lines.append(f"    {indented_plan}")
+    lines.extend(
         [
-            "runtime:",
-            "  behavior: self",
-            f"  environment: {targets.environment.dotted_path()}",
-            f"  agent: {targets.agent.dotted_path()}",
-            f"  control_loop: {control_loop}",
-            f"  supports_stepwise: {str(supports_stepwise).lower()}",
-            f"  preferred_mode: {preferred_mode}",
+            "orchestration:",
+            f"  forced_mode: {preferred_mode}",
+            "storage:",
+            '  database_url: ""  # Optional: set to postgresql://user:pass@host:port/dbname or rely on STORAGE__DATABASE_URL',
         ]
     )
-    if plan_description:
-        payload += f"\n  plan_description: |\n    {plan_description.replace(chr(10), chr(10) + '    ')}"
-    payload += "\norchestration:\n  forced_mode: {mode}".format(mode=preferred_mode)
-    destination.write_text(payload + "\n", encoding="utf-8")
+    destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _compose_metadata(
@@ -297,6 +437,7 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
             print(exc, file=sys.stderr)
             return 1
     elif targets.environment.factory is None:
+        _print_factory_hint("environment")
         env_wrapper_required = True
 
     if agent_candidates:
@@ -306,6 +447,7 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
             print(exc, file=sys.stderr)
             return 1
     elif targets.agent.factory is None:
+        _print_factory_hint("agent")
         agent_wrapper_required = True
 
     atlas_dir = project_root / ".atlas"
@@ -626,3 +768,29 @@ def register_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPars
         help="Timeout (seconds) for the discovery worker (default: %(default)s).",
     )
     init_parser.set_defaults(handler=_cmd_env_init)
+
+    scaffold_parser = env_subparsers.add_parser(
+        "scaffold",
+        help="Copy starter factory helpers (e.g., LangGraph adapter) into your project.",
+    )
+    scaffold_parser.add_argument(
+        "--template",
+        default="langgraph",
+        choices=sorted(SCAFFOLD_TEMPLATES),
+        help="Template to scaffold (default: %(default)s).",
+    )
+    scaffold_parser.add_argument(
+        "--output",
+        help="Destination file for the scaffold (defaults to template filename).",
+    )
+    scaffold_parser.add_argument(
+        "--path",
+        default=".",
+        help="Project root where the scaffold should be written (default: current directory).",
+    )
+    scaffold_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite the destination file if it already exists.",
+    )
+    scaffold_parser.set_defaults(handler=_cmd_env_scaffold)
