@@ -30,3 +30,11 @@ The generated files include:
 If you change your environment or agent implementation, re-run `atlas env init` to refresh the cached metadata before calling `atlas run` again. The [Agent Quickstart](docs/sdk/quickstart.mdx) walks through the full onboarding flow and highlights how to validate the generated factories.
 
 Once telemetry is flowing into Postgres, use the new `scripts/eval_learning.py` helper (documented in `docs/learning_eval.md`) to compare learning trajectories—even without experience hints in the loop. It stitches together `sessions`, `trajectory_events`, and `discovery_runs` via `learning_key` so you can track reward deltas and adaptive mode shifts over time.
+
+## Leaner paired-mode validation
+
+Paired mode now ships with a compact `validation_request` envelope. Heavy fields—artifacts, full structured outputs, and prior
+step transcripts—are stored once per session inside the execution context and validation requests now include each blob’s
+content alongside a stable digest. When a retry produces the same structured output, the orchestrator reuses the cached verdict instead of sending the
+teacher back to the LLM. Telemetry exports are unchanged: they still record the full structured output, validation result,
+and `cached` provenance flag so the learning harness continues to receive identical signals.

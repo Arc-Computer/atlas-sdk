@@ -13,7 +13,6 @@ from statistics import fmean
 from typing import Any
 from typing import Dict
 from typing import List
-from typing import Optional
 from typing import Protocol
 from importlib import import_module
 
@@ -21,8 +20,8 @@ from atlas.connectors.factory import create_from_atlas_config
 from atlas.config.loader import load_config
 from atlas.config.models import AdaptiveTeachingConfig, AtlasConfig, LearningConfig, RewardObjectiveConfig, RuntimeSafetyConfig
 from atlas.prompts import (
-    RewrittenStudentPrompts,
-    RewrittenTeacherPrompts,
+    RewrittenStudentPrompts as RewrittenStudentPrompts,
+    RewrittenTeacherPrompts as RewrittenTeacherPrompts,
     build_student_prompts,
     build_teacher_prompts,
 )

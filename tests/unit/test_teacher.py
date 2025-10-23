@@ -76,6 +76,7 @@ def test_teacher_live_contracts():
         assert set(validation.keys()) >= {"valid", "guidance"}
         assert isinstance(validation["valid"], bool)
         assert validation["guidance"] is None or isinstance(validation["guidance"], str)
+        assert validation["cached"] is False
         assert teacher._client.overrides[0] and teacher._client.overrides[0].get("max_tokens") == config.max_review_tokens
         assert teacher._client.overrides[1] and teacher._client.overrides[1].get("max_tokens") == config.validation_max_tokens
         guidance = await teacher.agenerate_guidance(step, {"validation": {"guidance": "Take another pass."}})
@@ -137,6 +138,7 @@ def test_teacher_records_reasoning_metadata():
             attempt_guidance=[],
         )
         assert validation["reasoning"]["reasoning_content"][0]["text"] == "check constraints"
+        assert validation["cached"] is False
         assert teacher._client.overrides[0] and teacher._client.overrides[0].get("max_tokens") == config.max_review_tokens
         assert teacher._client.overrides[1] and teacher._client.overrides[1].get("max_tokens") == config.validation_max_tokens
         guidance = await teacher.agenerate_guidance(
@@ -156,6 +158,123 @@ class _StaticResponseClient:
 
     async def acomplete(self, messages, response_format=None, overrides=None):
         return LLMResponse(content=json.dumps(self._payload), raw={}, reasoning=self.reasoning)
+
+
+def test_validation_signature_stable_and_blob_storage():
+    async def runner() -> None:
+        ExecutionContext.get().reset()
+        config = TeacherConfig(
+            llm=_gpt5_params(),
+            max_review_tokens=1024,
+            plan_cache_seconds=0,
+            guidance_max_tokens=512,
+            validation_max_tokens=512,
+        )
+        prompts = RewrittenTeacherPrompts(
+            plan_review="Respond with JSON containing a 'steps' array.",
+            validation="Return JSON {\"valid\": bool, \"guidance\": str | null}.",
+            guidance="Return short guidance.",
+        )
+        teacher = Teacher(config, prompts)
+        teacher._client = _StaticResponseClient({"valid": True, "guidance": None})
+        step = Step(id=1, description="draft summary", depends_on=[])
+        structured_output = {
+            "status": "ok",
+            "result": {
+                "deliverable": {"content": "draft summary"},
+                "artifacts": {"tokens": 12},
+            },
+            "deliverable": {"content": "draft summary"},
+            "artifacts": {"tokens": 12},
+            "text": "draft summary ready",
+        }
+        prior_results = {0: {"status": "ok", "text": "seed"}}
+        signature_one = teacher.validation_signature(step, structured_output, prior_results, [], [])
+        signature_two = teacher.validation_signature(step, structured_output, prior_results, [], [])
+        assert signature_one == signature_two
+        mutated = dict(structured_output)
+        mutated["status"] = "error"
+        signature_three = teacher.validation_signature(step, mutated, prior_results, [], [])
+        assert signature_three != signature_one
+        await teacher.avalidate_step(
+            step,
+            "trace",
+            structured_output,
+            prior_results=prior_results,
+            prior_guidance=[],
+            attempt_guidance=[],
+        )
+        metadata = ExecutionContext.get().metadata
+        blobs = metadata.get("validation_blobs")
+        assert blobs and "structured_output" in blobs and blobs["structured_output"]
+        assert "prior_results" in blobs and blobs["prior_results"]
+        context_hashes = metadata.get("validation_context_hashes")
+        assert context_hashes and context_hashes.get("prior_results")
+
+    asyncio.run(runner())
+
+
+class _PayloadCaptureClient:
+    def __init__(self) -> None:
+        self.payloads: list[dict[str, object]] = []
+
+    async def acomplete(self, messages, response_format=None, overrides=None):
+        request = messages[-1]["content"]
+        suffix = "\nReturn json."
+        if not request.endswith(suffix):
+            raise AssertionError("validation request payload missing expected suffix")
+        json_payload = request[: -len(suffix)]
+        self.payloads.append(json.loads(json_payload))
+        return LLMResponse(content=json.dumps({"valid": True, "guidance": None}), raw={}, reasoning={})
+
+
+def test_validation_payload_rehydrates_full_content():
+    async def runner() -> None:
+        ExecutionContext.get().reset()
+        config = TeacherConfig(
+            llm=_gpt5_params(),
+            max_review_tokens=1024,
+            plan_cache_seconds=0,
+            guidance_max_tokens=512,
+            validation_max_tokens=512,
+        )
+        prompts = RewrittenTeacherPrompts(
+            plan_review="Respond with JSON containing a 'steps' array.",
+            validation="Return JSON {\"valid\": bool, \"guidance\": str | null}.",
+            guidance="Return short guidance.",
+        )
+        teacher = Teacher(config, prompts)
+        capture = _PayloadCaptureClient()
+        teacher._client = capture
+        step = Step(id=1, description="draft summary", depends_on=[])
+        prior_results = {0: {"status": "ok", "text": "seed"}}
+        structured_output = {
+            "status": "ok",
+            "result": {
+                "deliverable": {"content": "draft summary"},
+                "artifacts": {"tokens": 12},
+            },
+            "deliverable": {"content": "draft summary"},
+            "artifacts": {"tokens": 12},
+            "text": "draft summary ready",
+        }
+        result = await teacher.avalidate_step(
+            step,
+            "trace",
+            structured_output,
+            prior_results=prior_results,
+            prior_guidance=[],
+            attempt_guidance=[],
+        )
+        assert capture.payloads, "Expected payload capture to record validation request"
+        payload = capture.payloads[-1]
+        assert payload["structured_output"]["content"] == teacher._jsonify(structured_output)
+        assert payload["artifacts"]["content"] == teacher._jsonify(structured_output["artifacts"])
+        assert payload["deliverable"]["content"] == teacher._jsonify(structured_output["deliverable"])
+        assert payload["prior_results"]["content"] == teacher._jsonify(prior_results)
+        assert result["validation_request"] == payload
+
+    asyncio.run(runner())
 
 
 class _ProbeClientStub:
@@ -250,10 +369,6 @@ def test_areview_plan_refreshes_cache_on_escalation():
 
 
     asyncio.run(runner())
-
-
-    import pytest
-
     asyncio.run(runner())
 
 

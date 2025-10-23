@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import typing
 import os
 import sys
 import time
@@ -12,7 +13,7 @@ from importlib import import_module
 import importlib.util
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict
 
 from atlas.sdk.interfaces import AtlasAgentProtocol, AtlasEnvironmentProtocol, DiscoveryContext, TelemetryEmitterProtocol
 from atlas.sdk.wrappers import StepwiseAgentAdapter
@@ -79,7 +80,7 @@ def _schema_summary(value: Any) -> Dict[str, Any]:
             return [_convert(item, depth + 1) for item in seq[:5]]
         return repr(obj)
 
-    summary = {
+    summary: Dict[str, Any] = {
         "python_type": type(value).__name__,
     }
     if isinstance(value, dict):
@@ -225,10 +226,11 @@ def _discovery_loop(
                 "metadata": _json_safe(action_metadata),
             },
         )
+        step_method = typing.cast(Any, env.step)
         try:
-            observation, reward, done, info = env.step(action, submit=submit)
+            observation, reward, done, info = step_method(action, submit=submit)
         except TypeError:
-            observation, reward, done, info = env.step(action)
+            observation, reward, done, info = step_method(action)
         latest_reward = float(reward) if isinstance(reward, (int, float)) else None
         if latest_reward is not None:
             reward_total += latest_reward
@@ -347,6 +349,7 @@ def main() -> int:
         task = spec.get("task") or "Sample Atlas task."
         run_loop = bool(spec.get("run_discovery", True))
         skip_import = bool(spec.get("skip_import"))
+        result_payload: dict[str, Any]
         if skip_import:
             env_instance = None
             agent_instance = None
@@ -388,7 +391,6 @@ def main() -> int:
         _ensure_protocol(env_instance, AtlasEnvironmentProtocol)
         _ensure_protocol(agent_instance, AtlasAgentProtocol)
         emitter = TelemetryCollector()
-        result_payload: dict[str, Any]
         if run_loop:
             result_payload = _discovery_loop(env_instance, agent_instance, task, emitter=emitter)
         else:

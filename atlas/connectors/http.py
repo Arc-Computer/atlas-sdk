@@ -14,6 +14,7 @@ from atlas.connectors.registry import AdapterError
 from atlas.connectors.registry import AgentAdapter
 from atlas.connectors.registry import register_adapter
 from atlas.config.models import AdapterType
+from atlas.config.models import AdapterUnion
 from atlas.config.models import HTTPAdapterConfig
 
 class HTTPAdapter(AgentAdapter):
@@ -65,6 +66,13 @@ class HTTPAdapter(AgentAdapter):
                 await asyncio.sleep(retry.backoff_seconds * attempt)
         raise AdapterError("http adapter failed to obtain a response") from last_error
 
-register_adapter(AdapterType.HTTP, HTTPAdapter)
+
+def _build_http_adapter(config: AdapterUnion) -> AgentAdapter:
+    if not isinstance(config, HTTPAdapterConfig):
+        raise AdapterError("HTTP adapter requires HTTPAdapterConfig")
+    return HTTPAdapter(config)
+
+
+register_adapter(AdapterType.HTTP, _build_http_adapter)
 
 __all__ = ["HTTPAdapter"]

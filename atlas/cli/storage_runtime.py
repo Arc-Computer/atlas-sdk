@@ -11,7 +11,6 @@ import asyncio
 import platform
 import shutil
 import subprocess
-import sys
 import textwrap
 from dataclasses import dataclass
 from pathlib import Path
@@ -183,4 +182,3 @@ def _run_command(args: list[str], printer: Callable[[str], None]) -> int:
     if proc.returncode != 0 and proc.returncode != 130:
         printer(f"Command {' '.join(args)} exited with status {proc.returncode}")
     return proc.returncode
-

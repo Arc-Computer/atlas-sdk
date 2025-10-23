@@ -16,6 +16,7 @@ from atlas.prompts import RewrittenTeacherPrompts
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.types import Plan
 from atlas.types import Step
+from atlas.utils.digest import json_digest, normalise_json
 from atlas.utils.llm_client import LLMClient
 
 
@@ -110,21 +111,19 @@ class Teacher:
         context = ExecutionContext.get()
         context.metadata["active_actor"] = "teacher"
         context.metadata["_reasoning_origin"] = ("teacher", "validation")
+        payload = self._build_validation_payload(
+            step,
+            trace,
+            structured_output,
+            prior_results,
+            prior_guidance,
+            attempt_guidance,
+        )
         messages = [
             {"role": "system", "content": self._validation_prompt},
             {
                 "role": "user",
-                "content": json.dumps(
-                    self._build_validation_payload(
-                        step,
-                        trace,
-                        structured_output,
-                        prior_results,
-                        prior_guidance,
-                        attempt_guidance,
-                    ),
-                    ensure_ascii=False,
-                )
+                "content": json.dumps(payload, ensure_ascii=False)
                 + "\nReturn json.",
             },
         ]
@@ -157,6 +156,8 @@ class Teacher:
             result["reason"] = reason
         if mode == "coach" and isinstance(result.get("guidance"), str):
             result["guidance"] = self._shorten_guidance(result["guidance"])
+        result.setdefault("cached", False)
+        result["validation_request"] = payload
         return result
 
     async def agenerate_guidance(self, step: Step, evaluation: Dict[str, Any]) -> str:
@@ -217,6 +218,25 @@ class Teacher:
             result["text"] = text_output
         return result
 
+    def validation_signature(
+        self,
+        step: Step,
+        structured_output: Dict[str, Any],
+        prior_results: Dict[int, Any],
+        prior_guidance: Sequence[str],
+        attempt_guidance: Sequence[str],
+    ) -> str:
+        """Return a deterministic digest for caching validation verdicts."""
+
+        signature_payload = {
+            "step": normalise_json(step.model_dump()),
+            "structured_output": normalise_json(structured_output),
+            "prior_results": normalise_json(prior_results),
+            "prior_guidance": list(prior_guidance),
+            "attempt_guidance": list(attempt_guidance),
+        }
+        return json_digest(signature_payload)
+
     def _build_validation_payload(
         self,
         step: Step,
@@ -226,22 +246,101 @@ class Teacher:
         prior_guidance: Sequence[str],
         attempt_guidance: Sequence[str],
     ) -> Dict[str, Any]:
+        context = ExecutionContext.get()
+        blob_store = context.metadata.setdefault("validation_blobs", {})
+
+        structured_json = self._jsonify(structured_output)
+        structured_hash = json_digest(structured_json)
+        self._store_validation_blob(blob_store, "structured_output", structured_hash, structured_json)
+
+        result_payload = structured_output.get("result") or {}
+        artifacts_payload = self._jsonify(structured_output.get("artifacts") or result_payload.get("artifacts"))
+        artifacts_hash = json_digest(artifacts_payload) if artifacts_payload is not None else None
+        if artifacts_hash is not None:
+            self._store_validation_blob(blob_store, "artifacts", artifacts_hash, artifacts_payload)
+
+        deliverable_payload = self._jsonify(structured_output.get("deliverable") or result_payload.get("deliverable"))
+        deliverable_hash = json_digest(deliverable_payload) if deliverable_payload is not None else None
+        if deliverable_hash is not None:
+            self._store_validation_blob(blob_store, "deliverable", deliverable_hash, deliverable_payload)
+
+        prior_json = self._jsonify(prior_results)
+        prior_hash = json_digest(prior_json)
+        self._store_validation_blob(blob_store, "prior_results", prior_hash, prior_json)
+
+        trace_preview = self._preview(trace)
+
         payload = {
-            "step": step.model_dump(),
-            "trace": trace,
+            "step": self._summarise_step(step),
+            "trace": {"hash": json_digest(trace or ""), "preview": trace_preview},
             "status": structured_output.get("status"),
             "student_response": structured_output.get("text"),
-            "deliverable": self._jsonify(structured_output.get("deliverable")),
-            "artifacts": self._jsonify(structured_output.get("artifacts")),
-            "result": self._jsonify(structured_output.get("result")),
             "reason": structured_output.get("reason"),
-            "structured_output": self._jsonify(structured_output),
-            "validated_context": self._jsonify(prior_results),
+            "structured_output": {
+                "hash": structured_hash,
+                "keys": sorted(structured_json.keys()) if isinstance(structured_json, dict) else None,
+                "content": structured_json,
+                "preview": self._preview(json.dumps(structured_json, ensure_ascii=False)) if isinstance(structured_json, (dict, list)) else None,
+            },
+            "deliverable": self._build_blob_reference(deliverable_hash, deliverable_payload),
+            "artifacts": self._build_blob_reference(artifacts_hash, artifacts_payload, include_keys=True),
+            "prior_results": {
+                "hash": prior_hash,
+                "changed": self._register_context_hash(context, prior_hash),
+                "content": prior_json,
+                "preview": self._preview(json.dumps(prior_json, ensure_ascii=False)) if isinstance(prior_json, (dict, list)) else None,
+            },
             "prior_guidance": list(prior_guidance),
             "attempt_guidance": list(attempt_guidance),
             "available_tools": self._serialize_tools(),
         }
         return payload
+
+    def _summarise_step(self, step: Step) -> Dict[str, Any]:
+        dumped = step.model_dump()
+        summary = {
+            "id": dumped.get("id"),
+            "description": dumped.get("description"),
+        }
+        if dumped.get("tool") is not None:
+            summary["tool"] = dumped.get("tool")
+        if dumped.get("tool_params") is not None:
+            summary["tool_params"] = dumped.get("tool_params")
+        return summary
+
+    def _build_blob_reference(
+        self,
+        digest: str | None,
+        payload: Any,
+        *,
+        include_keys: bool = False,
+    ) -> Dict[str, Any] | None:
+        if digest is None:
+            return None
+        reference: Dict[str, Any] = {"hash": digest, "content": payload}
+        if include_keys and isinstance(payload, dict):
+            reference["keys"] = sorted(payload.keys())
+        if isinstance(payload, (str, list, dict)):
+            preview_source = payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
+            reference["preview"] = self._preview(preview_source)
+        return reference
+
+    def _preview(self, value: str | None, limit: int = 2048) -> str | None:
+        if not value:
+            return None
+        if len(value) <= limit:
+            return value
+        return value[: limit - 3] + "..."
+
+    def _store_validation_blob(self, store: Dict[str, Any], bucket: str, digest: str, payload: Any) -> None:
+        bucket_store = store.setdefault(bucket, {})
+        bucket_store.setdefault(digest, payload)
+
+    def _register_context_hash(self, context: ExecutionContext, digest: str) -> bool:
+        tracker = context.metadata.setdefault("validation_context_hashes", {})
+        changed = tracker.get("prior_results") != digest
+        tracker["prior_results"] = digest
+        return changed
 
     def _cache_key(self, task: str, plan: Plan) -> str:
         return json.dumps({"task": task, "plan": plan.model_dump()}, sort_keys=True)
@@ -252,7 +351,7 @@ class Teacher:
             return []
         serialized = []
         for tool in self._tools:
-            tool_info = {
+            tool_info: Dict[str, Any] = {
                 "name": tool.name,
                 "description": tool.description,
             }

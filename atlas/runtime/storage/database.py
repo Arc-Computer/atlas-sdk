@@ -12,7 +12,7 @@ except ImportError:  # pragma: no cover
     import importlib_resources  # type: ignore
 
 try:
-    import asyncpg
+    import asyncpg  # type: ignore[import-untyped]
     _ASYNCPG_ERROR = None
 except ModuleNotFoundError as exc:
     asyncpg = None
@@ -74,6 +74,7 @@ class Database:
 
     async def log_step_result(self, session_id: int, result: StepResult) -> None:
         pool = self._require_pool()
+        evaluation_payload: Any
         if hasattr(result.evaluation, "to_dict"):
             evaluation_payload = result.evaluation.to_dict()
         else:

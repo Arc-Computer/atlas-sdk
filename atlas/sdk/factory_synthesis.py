@@ -16,9 +16,9 @@ from atlas.sdk.discovery import Candidate
 from atlas.utils.llm_client import LLMClient
 
 try:  # pragma: no cover - tomllib is unavailable on older interpreters
-    import tomllib
-except Exception:  # pragma: no cover
-    tomllib = None
+    import tomllib  # type: ignore[import-not-found]
+except ModuleNotFoundError:  # pragma: no cover
+    tomllib = None  # type: ignore[assignment]
 
 RoleLiteral = str  # alias for readability
 
@@ -147,6 +147,7 @@ class FactorySynthesizer:
         snippets: dict[str, FactorySnippet] = {}
 
         if environment is not None or environment_summary is not None:
+            env_context: ClassContext | RepositorySummary
             if environment is not None:
                 env_needed, env_context = self._analyse_candidate(environment, environment_kwargs)
             else:
@@ -166,6 +167,7 @@ class FactorySynthesizer:
                 outcome.environment_auto_wrapped = isinstance(env_context, RepositorySummary)
 
         if agent is not None or agent_summary is not None:
+            agent_context: ClassContext | RepositorySummary
             if agent is not None:
                 agent_needed, agent_context = self._analyse_candidate(agent, agent_kwargs)
             else:

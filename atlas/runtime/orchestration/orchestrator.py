@@ -260,16 +260,32 @@ class Orchestrator:
             is_final_attempt = allow_retry and attempts > self._orchestration.max_retries
 
             if require_validation and not is_final_attempt:
-                validation_start = time.perf_counter()
-                validation = await self._teacher.avalidate_step(
+                cache_key = self._teacher.validation_signature(
                     step,
-                    student_result.trace,
                     structured_output,
                     context_outputs,
                     prior_guidance,
                     guidance,
                 )
-                attempt_timings["validation_ms"] = self._elapsed_ms(validation_start)
+                validation_cache = execution_context.metadata.setdefault("validation_cache", {})
+                cached_validation = validation_cache.get(cache_key)
+                if cached_validation is not None:
+                    validation = dict(cached_validation)
+                    validation["cached"] = True
+                    attempt_timings["validation_ms"] = 0.0
+                else:
+                    validation_start = time.perf_counter()
+                    validation = await self._teacher.avalidate_step(
+                        step,
+                        student_result.trace,
+                        structured_output,
+                        context_outputs,
+                        prior_guidance,
+                        guidance,
+                    )
+                    attempt_timings["validation_ms"] = self._elapsed_ms(validation_start)
+                    validation.setdefault("cached", False)
+                    validation_cache[cache_key] = self._prepare_cached_validation(validation)
                 logger.info(
                     "Orchestrator: teacher validation for step %s attempt %d=%s (guidance=%s)",
                     step.id,
@@ -961,6 +977,11 @@ class Orchestrator:
             entry["reason"] = reason
         entry["structured_output"] = self._ensure_jsonable(structured_output)
         return entry
+
+    def _prepare_cached_validation(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        cached = dict(payload)
+        cached.pop("cached", None)
+        return self._ensure_jsonable(cached)
 
     def _ensure_jsonable(self, value: Any, depth: int = 0) -> Any:
         if depth > 6:

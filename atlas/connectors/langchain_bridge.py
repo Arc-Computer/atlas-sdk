@@ -5,13 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any
-from typing import Dict
-from typing import List
-from typing import Sequence
-from typing import Tuple
-from typing import Literal
-from typing import Optional
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import os
 
@@ -26,10 +20,8 @@ from langchain_core.outputs import ChatGeneration
 from langchain_core.outputs import ChatResult
 from langchain_core.tools import BaseTool
 from langchain_core.tools import StructuredTool
-from pydantic import BaseModel
-from pydantic import Field
-from pydantic import ConfigDict
-from pydantic import create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model
+from langchain_core.callbacks.manager import AsyncCallbackManagerForLLMRun, CallbackManagerForLLMRun
 
 from atlas.connectors.registry import AgentAdapter
 from atlas.connectors.utils import normalise_usage_payload
@@ -68,7 +60,7 @@ def _build_args_model(tool: ToolDefinition) -> type[BaseModel]:
         fields[name] = (field_type, Field(default=default_value, **field_kwargs))
     model_name = f"{tool.name.title().replace(' ', '')}Args"
     model_config = ConfigDict(extra="forbid")
-    return create_model(model_name, __config__=model_config, **fields)
+    return create_model(model_name, __config__=model_config, **fields)  # type: ignore[call-overload]
 
 def _build_tool(adapter: AgentAdapter, tool: ToolDefinition) -> BaseTool:
     args_model = _build_args_model(tool)
@@ -109,9 +101,17 @@ class BYOABridgeLLM(BaseChatModel):
     @property
     def _llm_type(self) -> str:
         return "atlas-byoa-bridge"
-    def bind_tools(self, tools: Sequence[BaseTool]) -> "BYOABridgeLLM":
+    def bind_tools(
+        self,
+        tools: Sequence[dict[str, Any] | type | Callable[..., Any] | BaseTool],
+        *,
+        tool_choice: str | None = None,
+        **kwargs: Any,
+    ) -> "BYOABridgeLLM":
+        del tool_choice, kwargs
+        bound_tools = [tool for tool in tools if isinstance(tool, BaseTool)]
         clone = BYOABridgeLLM(self._adapter, self._tool_definitions)
-        clone._bound_tools = list(tools)
+        clone._bound_tools = bound_tools
         return clone
     def _serialize_message(self, message: BaseMessage) -> Dict[str, Any]:
         payload: Dict[str, Any] = {"type": message.type}
@@ -123,9 +123,9 @@ class BYOABridgeLLM(BaseChatModel):
         if isinstance(message, AIMessage) and message.tool_calls:
             payload["tool_calls"] = [
                 {
-                    "name": call.name,
-                    "arguments": call.args,
-                    "id": call.id,
+                    "name": call["name"],
+                    "args": call.get("args", {}),
+                    "id": call.get("id"),
                 }
                 for call in message.tool_calls
             ]
@@ -170,7 +170,10 @@ class BYOABridgeLLM(BaseChatModel):
             raw_usage = getattr(parsed, "usage", None)
             return str(parsed), [], normalise_usage_payload(raw_usage)
         content = parsed.get("content")
-        raw_calls = parsed.get("tool_calls", [])
+        raw_calls_obj: Any = parsed.get("tool_calls", [])
+        raw_calls: list[dict[str, Any]] = []
+        if isinstance(raw_calls_obj, list):
+            raw_calls = [item for item in raw_calls_obj if isinstance(item, dict)]
         usage_payload = normalise_usage_payload(parsed.get("usage"))
         tool_calls: List[ToolCall] = []
         for index, item in enumerate(raw_calls):
@@ -183,8 +186,12 @@ class BYOABridgeLLM(BaseChatModel):
                     args = json.loads(args)
                 except json.JSONDecodeError:
                     args = {"raw": args}
-            identifier = item.get("id") or f"{name}-{index}"
-            tool_calls.append(ToolCall(name=name, args=args, id=identifier, type="tool_call"))
+            args_dict = args if isinstance(args, dict) else {"raw": args}
+            identifier = item.get("id")
+            if not isinstance(identifier, str):
+                identifier = f"{name}-{index}"
+            tool_call: ToolCall = {"name": str(name), "args": args_dict, "id": identifier}
+            tool_calls.append(tool_call)
 
         # If content is missing, preserve the original response so Student._normalise_executor_message can parse it
         if content is None and not tool_calls:
@@ -199,12 +206,26 @@ class BYOABridgeLLM(BaseChatModel):
         message = AIMessage(content=content, tool_calls=tool_calls, additional_kwargs=additional_kwargs)
         generation = ChatGeneration(message=message)
         return ChatResult(generations=[generation])
-    async def _agenerate(self, messages: Sequence[BaseMessage], stop: Sequence[str] | None = None, **kwargs: Any) -> ChatResult:
+    async def _agenerate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: AsyncCallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        del run_manager, kwargs
         prompt = self._render_prompt(messages)
         response = await self._adapter.ainvoke(prompt)
         content, tool_calls, usage = self._parse_response(response)
         return self._to_chat_result(content, tool_calls, usage)
-    def _generate(self, messages: Sequence[BaseMessage], stop: Sequence[str] | None = None, **kwargs: Any) -> ChatResult:
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> ChatResult:
+        del run_manager
         try:
             asyncio.get_running_loop()
         except RuntimeError:

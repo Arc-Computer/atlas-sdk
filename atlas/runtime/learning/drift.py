@@ -23,7 +23,7 @@ def _coerce_float(value: Any) -> Optional[float]:
 
 
 def _zscore(value: Optional[float], mean: Optional[float], stddev: Optional[float]) -> Optional[float]:
-    if value is None or mean is None or stddev in (None, 0):
+    if value is None or mean is None or stddev is None or stddev == 0:
         return None
     return (value - mean) / stddev
 

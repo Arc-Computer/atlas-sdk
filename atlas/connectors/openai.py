@@ -4,25 +4,22 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any
-from typing import Dict
-from typing import List
+from typing import Any, Dict, List
 
 try:
-    import litellm
-    from litellm import acompletion
+    import litellm  # type: ignore[import-untyped]
+    from litellm import acompletion  # type: ignore[import-untyped]
     _LITELLM_ERROR = None
 except ModuleNotFoundError as exc:
-    litellm = None
-    acompletion = None
+    litellm = None  # type: ignore[assignment]
+    acompletion = None  # type: ignore[assignment]
     _LITELLM_ERROR = exc
 
 from atlas.connectors.registry import AdapterError
 from atlas.connectors.registry import AgentAdapter
 from atlas.connectors.registry import register_adapter
 from atlas.connectors.utils import AdapterResponse, normalise_usage_payload
-from atlas.config.models import AdapterType
-from atlas.config.models import OpenAIAdapterConfig
+from atlas.config.models import AdapterType, AdapterUnion, OpenAIAdapterConfig
 
 
 class OpenAIAdapter(AgentAdapter):
@@ -180,6 +177,12 @@ class OpenAIAdapter(AgentAdapter):
         return self._parse_response(response)
 
 
-register_adapter(AdapterType.OPENAI, OpenAIAdapter)
+def _build_openai_adapter(config: AdapterUnion) -> AgentAdapter:
+    if not isinstance(config, OpenAIAdapterConfig):
+        raise AdapterError("OpenAI adapter requires OpenAIAdapterConfig")
+    return OpenAIAdapter(config)
+
+
+register_adapter(AdapterType.OPENAI, _build_openai_adapter)
 
 __all__ = ["OpenAIAdapter"]

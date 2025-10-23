@@ -76,13 +76,17 @@ class LearningSynthesizer:
         ]
         response = None
         audit_entry: Dict[str, Any] | None = None
+        client = self._client
+        if client is None:
+            logger.debug("Learning synthesizer client unavailable; skipping update for %s", learning_key)
+            return None
         try:
-            response = await self._client.acomplete(
+            response = await client.acomplete(
                 messages,
                 response_format={"type": "json_object"},
             )
             audit_entry = {
-                "model": self._client.model,
+                "model": client.model,
                 "messages": messages,
                 "response": response.content,
                 "reasoning": response.reasoning or {},
@@ -120,9 +124,8 @@ class LearningSynthesizer:
     ) -> LearningSynthesisResult | None:
         if not self.enabled:
             return None
-        loop = None
         try:
-            loop = asyncio.get_running_loop()
+            asyncio.get_running_loop()
         except RuntimeError:
             return asyncio.run(
                 self.asynthesize(
@@ -141,7 +144,7 @@ class LearningSynthesizer:
         task: str,
         reward: Dict[str, Any] | None,
         trajectory: Dict[str, Any] | None,
-        learning_state: Dict[str, Any],
+        learning_state: Dict[str, Any] | None,
         history: Dict[str, Any] | None,
     ) -> Dict[str, Any]:
         latest_session: Dict[str, Any] = {
@@ -149,9 +152,10 @@ class LearningSynthesizer:
             "reward": reward or {},
             "evidence": trajectory or {},
         }
+        state_payload = learning_state or {}
         pamphlets = {
-            "student_pamphlet": (learning_state or {}).get("student_learning") if isinstance(learning_state, dict) else None,
-            "teacher_pamphlet": (learning_state or {}).get("teacher_learning") if isinstance(learning_state, dict) else None,
+            "student_pamphlet": state_payload.get("student_learning") if isinstance(state_payload, dict) else None,
+            "teacher_pamphlet": state_payload.get("teacher_learning") if isinstance(state_payload, dict) else None,
         }
         payload: Dict[str, Any] = {
             "pamphlets": pamphlets,

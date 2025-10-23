@@ -1,8 +1,6 @@
 import asyncio
 import json
 from datetime import datetime, timezone
-from pathlib import Path
-
 import pytest
 
 from atlas.cli.jsonl_writer import DEFAULT_TRAJECTORY_LIMIT, ExportStats, export_sessions

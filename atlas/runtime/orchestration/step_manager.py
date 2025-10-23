@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import Any
 
 from atlas.runtime.models import IntermediateStep
 from atlas.runtime.models import IntermediateStepPayload
