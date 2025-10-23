@@ -18,10 +18,18 @@ from atlas.types import Plan
 from atlas.types import Step
 from atlas.utils.digest import json_digest, normalise_json
 from atlas.utils.llm_client import LLMClient
+from atlas.learning.playbook import resolve_playbook
 
 
 class Teacher:
-    def __init__(self, config: TeacherConfig, prompts: RewrittenTeacherPrompts, tools: List[ToolDefinition] | None = None) -> None:
+    def __init__(
+        self,
+        config: TeacherConfig,
+        prompts: RewrittenTeacherPrompts,
+        tools: List[ToolDefinition] | None = None,
+        *,
+        apply_learning_prompts: bool = True,
+    ) -> None:
         self._config = config
         self._client = LLMClient(config.llm)
         self._plan_cache: Dict[str, Tuple[float, Plan]] = {}
@@ -29,6 +37,7 @@ class Teacher:
         self._validation_prompt = prompts.validation
         self._guidance_prompt = prompts.guidance
         self._tools = tools or []
+        self._apply_learning_prompts = apply_learning_prompts
 
     def update_prompts(self, prompts: RewrittenTeacherPrompts) -> None:
         """Replace teacher prompts and clear any cached plan reviews."""
@@ -51,7 +60,8 @@ class Teacher:
         return reviewed
 
     async def _review_plan_llm(self, task: str, plan: Plan, *, force_refresh: bool = False) -> Plan:
-        cache_key = self._cache_key(task, plan)
+        plan_prompt, playbook_digest, _ = self._compose_prompt(self._plan_prompt)
+        cache_key = self._cache_key(task, plan, playbook_digest)
         now = time.time()
         cached = self._plan_cache.get(cache_key)
         if cached and not force_refresh and now - cached[0] <= self._config.plan_cache_seconds:
@@ -67,7 +77,7 @@ class Teacher:
         }
 
         messages = [
-            {"role": "system", "content": self._plan_prompt},
+            {"role": "system", "content": plan_prompt},
             {
                 "role": "user",
                 "content": json.dumps(payload, ensure_ascii=False) + "\nReturn json.",
@@ -111,6 +121,7 @@ class Teacher:
         context = ExecutionContext.get()
         context.metadata["active_actor"] = "teacher"
         context.metadata["_reasoning_origin"] = ("teacher", "validation")
+        validation_prompt, playbook_digest, playbook_text = self._compose_prompt(self._validation_prompt)
         payload = self._build_validation_payload(
             step,
             trace,
@@ -118,9 +129,11 @@ class Teacher:
             prior_results,
             prior_guidance,
             attempt_guidance,
+            teacher_playbook=playbook_text,
+            teacher_playbook_hash=playbook_digest,
         )
         messages = [
-            {"role": "system", "content": self._validation_prompt},
+            {"role": "system", "content": validation_prompt},
             {
                 "role": "user",
                 "content": json.dumps(payload, ensure_ascii=False)
@@ -235,6 +248,9 @@ class Teacher:
             "prior_guidance": list(prior_guidance),
             "attempt_guidance": list(attempt_guidance),
         }
+        _, playbook_digest, _ = self._compose_prompt(self._validation_prompt)
+        if playbook_digest:
+            signature_payload["teacher_playbook_hash"] = playbook_digest
         return json_digest(signature_payload)
 
     def _build_validation_payload(
@@ -245,6 +261,9 @@ class Teacher:
         prior_results: Dict[int, Any],
         prior_guidance: Sequence[str],
         attempt_guidance: Sequence[str],
+        *,
+        teacher_playbook: str | None = None,
+        teacher_playbook_hash: str | None = None,
     ) -> Dict[str, Any]:
         context = ExecutionContext.get()
         blob_store = context.metadata.setdefault("validation_blobs", {})
@@ -294,7 +313,56 @@ class Teacher:
             "attempt_guidance": list(attempt_guidance),
             "available_tools": self._serialize_tools(),
         }
+        if teacher_playbook:
+            payload["teacher_playbook"] = teacher_playbook
+        if teacher_playbook_hash:
+            payload["teacher_playbook_hash"] = teacher_playbook_hash
         return payload
+
+    def _compose_prompt(self, base_prompt: str) -> tuple[str, str | None, str | None]:
+        playbook, digest, metadata = resolve_playbook("teacher", apply=self._apply_learning_prompts)
+        prompt = self._decorate_prompt(base_prompt, playbook, metadata)
+        return prompt, digest, playbook
+
+    def _decorate_prompt(
+        self,
+        base_prompt: str,
+        playbook: str | None,
+        metadata: Dict[str, Any] | None,
+    ) -> str:
+        base = base_prompt.strip()
+        block = self._format_playbook_block(playbook, metadata)
+        segments = [segment for segment in (block, base) if segment]
+        return "\n\n".join(segments) if segments else ""
+
+    def _format_playbook_block(self, playbook: str | None, metadata: Dict[str, Any] | None) -> str:
+        if not playbook:
+            return ""
+        header_lines = [">>> Teacher Playbook >>>"]
+        metadata_line = self._metadata_line(metadata)
+        if metadata_line:
+            header_lines.append(metadata_line)
+        header_lines.append(playbook)
+        header_lines.append(">>> End Teacher Playbook >>>")
+        return "\n".join(header_lines).strip()
+
+    def _metadata_line(self, metadata: Dict[str, Any] | None) -> str:
+        if not isinstance(metadata, dict):
+            return ""
+        entries: List[str] = []
+        timestamp_keys = ["teacher_updated_at", "updated_at", "timestamp", "last_updated"]
+        version_keys = ["teacher_version", "version"]
+        for key in timestamp_keys:
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                entries.append(f"Last updated: {value.strip()}")
+                break
+        for key in version_keys:
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                entries.append(f"Version: {value.strip()}")
+                break
+        return " | ".join(entries)
 
     def _summarise_step(self, step: Step) -> Dict[str, Any]:
         dumped = step.model_dump()
@@ -342,8 +410,11 @@ class Teacher:
         tracker["prior_results"] = digest
         return changed
 
-    def _cache_key(self, task: str, plan: Plan) -> str:
-        return json.dumps({"task": task, "plan": plan.model_dump()}, sort_keys=True)
+    def _cache_key(self, task: str, plan: Plan, playbook_digest: str | None) -> str:
+        payload = {"task": task, "plan": plan.model_dump()}
+        if playbook_digest:
+            payload["teacher_playbook_hash"] = playbook_digest
+        return json.dumps(payload, sort_keys=True)
 
     def _serialize_tools(self) -> List[Dict[str, Any]]:
         """Serialize tool definitions for inclusion in teacher prompts."""

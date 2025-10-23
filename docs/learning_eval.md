@@ -50,6 +50,13 @@ python scripts/eval_learning.py \
   --limit 5
 ```
 
+> **Pamphlet verification**: leave `learning.apply_to_prompts` at its default
+> (`true`) when running the script so the generated summaries reflect the same
+> guidance injected into runtime prompts. The resulting
+> `results/learning/*_summary.json` entries include the most recent
+> `teacher_playbook` payload when the pamphlet is present, making it easy to
+> confirm the runtime wiring without hitting the live APIs.
+
 ### Key options
 
 - `--summary-only` – skips per-session trajectory fetches and relies on SQL event counts; use this for large sweeps or CI.

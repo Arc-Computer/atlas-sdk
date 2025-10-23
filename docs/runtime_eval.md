@@ -62,8 +62,10 @@ CLI output renders a summary table and, when `--output` is provided, persists a 
 ### Learning Registry & Synthesizer
 - **Reward-only judges** – Session reward prompts now emit just the scoring rationale. Student/teacher learning notes come from a dedicated synthesizer that runs after reward evaluation.
 - **Learning registry** – Canonical pamphlets live in the `learning_registry` table keyed by `learning_key`. Each run still writes per-session notes to `sessions.student_learning` / `sessions.teacher_learning` for auditing.
-- **Config block** – Runtime configs gain a top-level `learning` block. Use `enabled` to surface pamphlets to adapters, flip `update_enabled` off when you want “apply” mode (read-only learning), and `history_limit` to throttle how much history the synthesizer sees.
+- **Config block** – Runtime configs gain a top-level `learning` block. Use `enabled` to surface pamphlets to adapters, flip `update_enabled` off when you want “apply” mode (read-only learning), and `history_limit` to throttle how much history the synthesizer sees. Set `apply_to_prompts` to `false` if you need to disable the new playbook injection while keeping persistence intact.
 - **Execution flow** – `atlas run` loads the current pamphlet into `ExecutionContext.metadata["learning_state"]` at session start. After reward evaluation, the synthesizer refreshes the pamphlet (when updates are enabled) and `Database.upsert_learning_state` persists it.
+
+When you rerun the dual-agent harness, confirm that the emitted telemetry (e.g. `results/dual_agent_eval.json`) contains the injected "Teacher Playbook" snippets under the validation payload. This ensures the cached pamphlets influenced the teacher’s decisions during evaluation.
 
 ### Findings (2025-10-19)
 

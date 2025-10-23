@@ -31,6 +31,7 @@ from atlas.runtime.agent_loop.tool_loop import ToolCallAgentGraphState
 from atlas.prompts import RewrittenStudentPrompts
 from atlas.types import Plan
 from atlas.types import Step
+from atlas.learning.playbook import resolve_playbook
 
 logger = logging.getLogger(__name__)
 
@@ -60,22 +61,18 @@ class Student:
         adapter_config: AdapterConfig,
         student_config: StudentConfig,
         student_prompts: RewrittenStudentPrompts,
+        *,
+        apply_learning_prompts: bool = True,
     ) -> None:
         self._adapter = adapter
         self._student_config = student_config
         self._prompts: RewrittenStudentPrompts = student_prompts
+        self._apply_learning_prompts = apply_learning_prompts
         self._bridge_llm, self._tools = build_bridge(adapter, adapter_config.tools)
         self._graph: Any | None = None
-        self._graph_builder = ToolCallAgentGraph(
-            llm=self._bridge_llm,
-            tools=self._tools,
-            system_prompt=self._prompts.executor,
-            callbacks=None,
-            detailed_logs=False,
-            log_response_max_chars=1000,
-            handle_tool_errors=True,
-            return_direct=None,
-        )
+        self._graph_builder: ToolCallAgentGraph | None = None
+        self._graph_system_prompt: str | None = None
+        self._refresh_graph_builder()
         self._llm_stream_state: Dict[str, Dict[str, Any]] = {}
 
     def _apply_usage_payload(self, usage: Any) -> Dict[str, int] | None:
@@ -121,16 +118,7 @@ class Student:
             return
         self._prompts = student_prompts
         self._graph = None
-        self._graph_builder = ToolCallAgentGraph(
-            llm=self._bridge_llm,
-            tools=self._tools,
-            system_prompt=self._prompts.executor,
-            callbacks=None,
-            detailed_logs=False,
-            log_response_max_chars=1000,
-            handle_tool_errors=True,
-            return_direct=None,
-        )
+        self._refresh_graph_builder()
 
     async def acreate_plan(self, task: str) -> Plan:
         context = ExecutionContext.get()
@@ -364,8 +352,9 @@ class Student:
             "}\n"
             "Do not include any prose before or after the JSON object."
         )
+        planner_prompt = self._compose_system_prompt(self._prompts.planner, "Student Playbook")
         return "\n\n".join([
-            self._prompts.planner,
+            planner_prompt,
             f"Task: {task.strip()}",
             json_direction,
         ])
@@ -373,8 +362,11 @@ class Student:
     def _compose_synthesis_prompt(self, task: str, step_results: List[Dict[str, Any]]) -> str:
         serialized_results = json.dumps(step_results, ensure_ascii=False, indent=2)
         execution_mode = ExecutionContext.get().metadata.get("execution_mode", "stepwise")
+        synthesizer_prompt = self._compose_system_prompt(
+            self._prompts.synthesizer, "Student Playbook"
+        )
         return "\n\n".join([
-            self._prompts.synthesizer,
+            synthesizer_prompt,
             f"Original Task: {task.strip()}",
             f"Execution Mode: {execution_mode}",
             f"Completed Steps: {serialized_results}",
@@ -411,10 +403,72 @@ class Student:
             f"Guidance History: {guidance_block}",
         ])
         user_message = "\n".join(payload)
+        executor_prompt = self._compose_system_prompt(self._prompts.executor, "Student Playbook")
+        self._refresh_graph_builder()
         return [
-            SystemMessage(content=self._prompts.executor),
+            SystemMessage(content=executor_prompt),
             HumanMessage(content=user_message),
         ]
+
+    def _refresh_graph_builder(self) -> None:
+        prompt = self._compose_system_prompt(self._prompts.executor, "Student Playbook")
+        if self._graph_builder is not None and self._graph_system_prompt == prompt:
+            return
+        self._graph_system_prompt = prompt
+        self._graph_builder = ToolCallAgentGraph(
+            llm=self._bridge_llm,
+            tools=self._tools,
+            system_prompt=prompt or None,
+            callbacks=None,
+            detailed_logs=False,
+            log_response_max_chars=1000,
+            handle_tool_errors=True,
+            return_direct=None,
+        )
+        self._graph = None
+
+    def _compose_system_prompt(self, base_prompt: str, label: str) -> str:
+        playbook, _, metadata = resolve_playbook("student", apply=self._apply_learning_prompts)
+        block = self._format_playbook_block(label, playbook, metadata, role="student")
+        base = base_prompt.strip()
+        segments = [segment for segment in (block, base) if segment]
+        return "\n\n".join(segments) if segments else ""
+
+    def _format_playbook_block(
+        self,
+        label: str,
+        playbook: str | None,
+        metadata: Dict[str, Any] | None,
+        *,
+        role: str,
+    ) -> str:
+        if not playbook:
+            return ""
+        header_lines = [f">>> {label} >>>"]
+        metadata_line = self._playbook_metadata_line(metadata, role)
+        if metadata_line:
+            header_lines.append(metadata_line)
+        header_lines.append(playbook)
+        header_lines.append(f">>> End {label} >>>")
+        return "\n".join(header_lines).strip()
+
+    def _playbook_metadata_line(self, metadata: Dict[str, Any] | None, role: str) -> str:
+        if not isinstance(metadata, dict):
+            return ""
+        entries: List[str] = []
+        timestamp_keys = [f"{role}_updated_at", "updated_at", "timestamp", "last_updated"]
+        version_keys = [f"{role}_version", "version"]
+        for key in timestamp_keys:
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                entries.append(f"Last updated: {value.strip()}")
+                break
+        for key in version_keys:
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                entries.append(f"Version: {value.strip()}")
+                break
+        return " | ".join(entries)
 
     def _build_trace(self, messages: Sequence[BaseMessage]) -> str:
         parts = []
@@ -972,7 +1026,8 @@ class Student:
         return {"reasoning": reasoning_entries}
 
     async def _ensure_graph(self):
-        if self._graph is None:
+        self._refresh_graph_builder()
+        if self._graph is None and self._graph_builder is not None:
             self._graph = await self._graph_builder.build_graph()
         return self._graph
 
