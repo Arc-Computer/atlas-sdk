@@ -174,7 +174,7 @@ def export_sessions_sync(request: ExportRequest) -> ExportSummary:
     """Synchronous helper for CLI usage."""
 
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(export_sessions_async(request))
     raise RuntimeError("export_sessions_sync cannot run within an existing event loop")
@@ -228,9 +228,10 @@ async def _iter_session_payloads(
         if not rows:
             break
         for row in rows:
-            session_id = row.get("id")
-            if not isinstance(session_id, int):
+            raw_session_id = row.get("id")
+            if not isinstance(raw_session_id, int):
                 continue
+            session_id = raw_session_id
             if session_id in seen:
                 continue
             if status_filters:
@@ -448,11 +449,13 @@ def _build_step_payload(
     attempts_value = step_row.get("attempts")
     if isinstance(attempts_value, int):
         attempts = attempts_value
-    else:
+    elif isinstance(attempts_value, (float, str)):
         try:
             attempts = int(attempts_value)
         except (TypeError, ValueError):
             attempts = len(attempt_details) or len(guidance) or 0
+    else:
+        attempts = len(attempt_details) or len(guidance) or 0
 
     metadata = _coerce_metadata(step_row.get("metadata"))
     if attempt_details:
@@ -485,7 +488,7 @@ def _build_step_payload(
         else:
             prior_results_text[key_str] = str(text_value)
 
-    step_payload = {
+    step_payload: dict[str, Any] = {
         "step_id": step_id,
         "description": _extract_plan_field(plan_step, "description") or "",
         "trace": step_row.get("trace") or "",
@@ -509,9 +512,13 @@ def _build_step_payload(
     if runtime_meta and "runtime" not in step_payload:
         step_payload["runtime"] = runtime_meta
 
-    for key, value in metadata.items():
-        if key not in step_payload:
-            step_payload[key] = value
+    extra_fields = {
+        key: value
+        for key, value in metadata.items()
+        if isinstance(key, str) and key not in step_payload
+    }
+    if extra_fields:
+        step_payload.update(extra_fields)
 
     step_payload["metadata"] = metadata
     return step_payload

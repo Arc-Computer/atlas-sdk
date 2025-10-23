@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import typing
 import uuid
-from collections.abc import Callable
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -19,6 +18,7 @@ from atlas.runtime.models import InvocationNode
 from atlas.utils.reactive.subject import Subject
 
 if typing.TYPE_CHECKING:
+    from atlas.runtime.orchestration.step_manager import IntermediateStepManager
     from atlas.types import StepEvaluation
     from atlas.utils.triage import TriageDossier
 

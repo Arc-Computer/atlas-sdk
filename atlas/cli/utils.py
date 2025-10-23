@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Tuple
 
 try:
-    import yaml
+    import yaml  # type: ignore[import-untyped]
 except Exception:  # pragma: no cover - optional dependency
     yaml = None  # type: ignore[assignment]
 
@@ -139,15 +139,21 @@ def execute_runtime(
             "Agent did not submit a final answer, but discovery marked control_loop=self. "
             "Re-run `atlas env init` to refresh metadata."
         )
-    run_record = {
+    run_record: dict[str, object] = {
         "task": task,
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "capabilities": capabilities,
         "result": result,
     }
     run_path = write_run_record(atlas_dir, run_record)
-    project_root = Path(spec.get("project_root") or ".").resolve()
-    metadata = {
+    project_root_value = spec.get("project_root")
+    if isinstance(project_root_value, Path):
+        project_root = project_root_value.resolve()
+    elif isinstance(project_root_value, str):
+        project_root = Path(project_root_value).resolve()
+    else:
+        project_root = Path(".").resolve()
+    metadata: dict[str, object] = {
         "capabilities": capabilities,
         "run_artifact": str(run_path),
     }

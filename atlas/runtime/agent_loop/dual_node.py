@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import logging
 from abc import abstractmethod
-from typing import Any
 
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.language_models import BaseChatModel

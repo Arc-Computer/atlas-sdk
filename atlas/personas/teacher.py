@@ -157,6 +157,7 @@ class Teacher:
         if mode == "coach" and isinstance(result.get("guidance"), str):
             result["guidance"] = self._shorten_guidance(result["guidance"])
         result.setdefault("cached", False)
+        result["validation_request"] = payload
         return result
 
     async def agenerate_guidance(self, step: Step, evaluation: Dict[str, Any]) -> str:
@@ -350,7 +351,7 @@ class Teacher:
             return []
         serialized = []
         for tool in self._tools:
-            tool_info = {
+            tool_info: Dict[str, Any] = {
                 "name": tool.name,
                 "description": tool.description,
             }

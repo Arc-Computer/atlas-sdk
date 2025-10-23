@@ -18,7 +18,12 @@ class _CachingTeacherStub:
 
     async def avalidate_step(self, step, trace, structured_output, prior_results, prior_guidance, attempt_guidance):
         self.calls += 1
-        return {"valid": False, "guidance": "retry", "cached": False}
+        return {
+            "valid": False,
+            "guidance": "retry",
+            "cached": False,
+            "validation_request": {"hash": "abc", "preview": "payload"},
+        }
 
 
 class _RepeatingStudentStub:
@@ -100,3 +105,4 @@ def test_orchestrator_reuses_validation_cache():
     attempts = metadata.get("steps", {}).get(1, {}).get("attempts", [])
     assert len(attempts) == 3
     assert attempts[-1]["evaluation"]["validation"].get("cached") is True
+    assert "validation_request" in attempts[-1]["evaluation"]["validation"]

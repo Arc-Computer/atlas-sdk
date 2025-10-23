@@ -7,15 +7,14 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 from typing import Dict
-from typing import List
 from typing import Sequence
 
 try:
-    import litellm
+    import litellm  # type: ignore[import-untyped]
     _LITELLM_ERROR = None
     litellm.drop_params = True
 except ModuleNotFoundError as exc:
-    litellm = None
+    litellm = None  # type: ignore[assignment]
     _LITELLM_ERROR = exc
 
 from atlas.config.models import LLMParameters
@@ -154,7 +153,7 @@ class LLMClient:
         if not payload:
             return
         try:
-            from atlas.runtime.orchestration.execution_context import ExecutionContext  # noqa: WPS433
+            from atlas.runtime.orchestration.execution_context import ExecutionContext
             context = ExecutionContext.get()
         except Exception:  # pragma: no cover - context not initialised
             return

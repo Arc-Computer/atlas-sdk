@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, List, Literal, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Literal, Sequence
 
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:
+    from atlas.runtime.orchestration.execution_context import ExecutionContext
 
 
 Severity = Literal["low", "moderate", "high", "critical"]
@@ -277,7 +280,7 @@ def default_build_dossier(
                 confidence=signal.get("confidence"),
                 annotation=signal.get("annotation"),
             )
-        elif isinstance(signal, Tuple) and len(signal) == 2:
+        elif isinstance(signal, tuple) and len(signal) == 2:
             builder.add_signal(str(signal[0]), signal[1])
 
     for persona in payload.get("persona_references", []):

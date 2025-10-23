@@ -24,8 +24,6 @@ from atlas.runtime.models.intermediate_step import StreamEventData
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.config.models import AdapterConfig
 from atlas.config.models import StudentConfig
-from atlas.config.models import ToolDefinition
-from atlas.connectors.langchain_bridge import BYOABridgeLLM
 from atlas.connectors.langchain_bridge import build_bridge
 from atlas.connectors.utils import normalise_usage_payload
 from atlas.runtime.agent_loop.tool_loop import ToolCallAgentGraph

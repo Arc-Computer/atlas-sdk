@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional, TextIO, Tuple
 from atlas.runtime.models import IntermediateStep
 from atlas.runtime.models import IntermediateStepType
 from atlas.runtime.orchestration.execution_context import ExecutionContext
+from atlas.utils.reactive.subscription import Subscription
 from atlas.types import Result
 
 
@@ -15,7 +16,7 @@ class ConsoleTelemetryStreamer:
     def __init__(self, output: TextIO | None = None) -> None:
         self._output = output or sys.stdout
         self._lock = threading.Lock()
-        self._subscription = None
+        self._subscription: Subscription[IntermediateStep] | None = None
         self._execution_context: ExecutionContext | None = None
         self._task_name = ""
         self._session_started_at: datetime.datetime | None = None
@@ -323,9 +324,15 @@ class ConsoleTelemetryStreamer:
         attempt_counts: dict[int, int] = {}
         for step_result in result.step_results:
             attempt_counts[step_result.step_id] = step_result.attempts
-        steps_meta = {}
+        steps_meta: dict[int, dict[str, Any]] = {}
         if self._execution_context is not None:
-            steps_meta = self._execution_context.metadata.get("steps", {}) or {}
+            raw_steps = self._execution_context.metadata.get("steps", {}) or {}
+            if isinstance(raw_steps, dict):
+                steps_meta = {
+                    step_id: meta
+                    for step_id, meta in raw_steps.items()
+                    if isinstance(step_id, int) and isinstance(meta, dict)
+                }
         if not attempt_counts and steps_meta:
             for step_id, meta in steps_meta.items():
                 attempts = len(meta.get("attempts", []))

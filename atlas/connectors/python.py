@@ -14,6 +14,7 @@ from atlas.connectors.registry import AdapterError
 from atlas.connectors.registry import AgentAdapter
 from atlas.connectors.registry import register_adapter
 from atlas.config.models import AdapterType
+from atlas.config.models import AdapterUnion
 from atlas.config.models import PythonAdapterConfig
 
 class PythonAdapter(AgentAdapter):
@@ -75,6 +76,13 @@ class PythonAdapter(AgentAdapter):
             result = await asyncio.to_thread(self._call_sync, prompt, call_metadata)
         return await self._normalise_result(result)
 
-register_adapter(AdapterType.PYTHON, PythonAdapter)
+
+def _build_python_adapter(config: AdapterUnion) -> AgentAdapter:
+    if not isinstance(config, PythonAdapterConfig):
+        raise AdapterError("Python adapter requires PythonAdapterConfig")
+    return PythonAdapter(config)
+
+
+register_adapter(AdapterType.PYTHON, _build_python_adapter)
 
 __all__ = ["PythonAdapter"]

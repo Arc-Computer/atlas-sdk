@@ -49,6 +49,32 @@ def _reset_litellm_logging_worker() -> None:
         pass
 
 
+def _ensure_jsonable(value: Any, depth: int = 0) -> Any:
+    if depth > 10:
+        return str(value)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if isinstance(value, dict):
+        return {str(key): _ensure_jsonable(item, depth + 1) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_ensure_jsonable(item, depth + 1) for item in value]
+    if hasattr(value, "model_dump"):
+        try:
+            dumped = value.model_dump()
+        except Exception:
+            return str(value)
+        return _ensure_jsonable(dumped, depth + 1)
+    if hasattr(value, "to_dict"):
+        try:
+            dumped = value.to_dict()
+        except Exception:
+            return str(value)
+        return _ensure_jsonable(dumped, depth + 1)
+    if hasattr(value, "__dict__"):
+        return _ensure_jsonable(vars(value), depth + 1)
+    return str(value)
+
+
 @dataclass(slots=True)
 class RuntimeTask:
     task: str
@@ -67,6 +93,7 @@ class TaskResult:
     adaptive_mode: str | None
     adaptive_mode_history: list[dict[str, Any]]
     session_reward: float | None
+    runtime_metadata: dict[str, Any]
     error: str | None
 
 
@@ -246,7 +273,7 @@ async def _arun_with_metadata(task: RuntimeTask, config_path: Path) -> tuple[Res
         str(config_path),
         stream_progress=False,
     )
-    metadata = dict(execution_context.metadata)
+    metadata = _ensure_jsonable(dict(execution_context.metadata))
     execution_context.reset()
     return result, metadata
 
@@ -261,11 +288,11 @@ def build_task_result(
     teacher_model: str,
     task: RuntimeTask,
     result: Result | None,
-    metadata: dict[str, Any] | None,
+    runtime_metadata: dict[str, Any] | None,
     runtime_seconds: float,
     error: str | None,
 ) -> TaskResult:
-    metadata = metadata or {}
+    metadata = runtime_metadata or {}
     adaptive_summary = metadata.get("adaptive_summary") if isinstance(metadata, dict) else None
     if not adaptive_summary and isinstance(metadata, dict):
         adaptive_summary = metadata.get("adaptive")
@@ -294,6 +321,7 @@ def build_task_result(
         adaptive_mode=adaptive_mode,
         adaptive_mode_history=adaptive_history,
         session_reward=reward_score,
+        runtime_metadata=metadata if isinstance(metadata, dict) else {},
         error=error,
     )
 
@@ -398,9 +426,9 @@ def _execute_job(
     start = time.perf_counter()
     error: str | None = None
     result: Result | None = None
-    metadata: dict[str, Any] | None = None
+    runtime_metadata: dict[str, Any] | None = None
     try:
-        result, metadata = execute_task(task, Path(config_path))
+        result, runtime_metadata = execute_task(task, Path(config_path))
     except Exception as exc:  # pragma: no cover - defensive guard for runtime errors
         error = str(exc)
     runtime_seconds = time.perf_counter() - start
@@ -409,7 +437,7 @@ def _execute_job(
         teacher_model=teacher_model,
         task=task,
         result=result,
-        metadata=metadata,
+        runtime_metadata=runtime_metadata,
         runtime_seconds=runtime_seconds,
         error=error,
     )
@@ -504,7 +532,8 @@ def write_output(
                 "teacher_model": record.teacher_model,
                 "task": record.task.task,
                 "expected_answer": record.task.expected_answer,
-                "metadata": record.task.metadata,
+                "task_metadata": record.task.metadata,
+                "runtime_metadata": record.runtime_metadata,
                 "runtime_seconds": record.runtime_seconds,
                 "success": record.success,
                 "final_answer": record.final_answer,

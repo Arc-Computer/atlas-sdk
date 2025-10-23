@@ -255,7 +255,7 @@ def test_validation_payload_rehydrates_full_content():
             "artifacts": {"tokens": 12},
             "text": "draft summary ready",
         }
-        await teacher.avalidate_step(
+        result = await teacher.avalidate_step(
             step,
             "trace",
             structured_output,
@@ -269,6 +269,7 @@ def test_validation_payload_rehydrates_full_content():
         assert payload["artifacts"]["content"] == teacher._jsonify(structured_output["artifacts"])
         assert payload["deliverable"]["content"] == teacher._jsonify(structured_output["deliverable"])
         assert payload["prior_results"]["content"] == teacher._jsonify(prior_results)
+        assert result["validation_request"] == payload
 
     asyncio.run(runner())
 
@@ -365,10 +366,6 @@ def test_areview_plan_refreshes_cache_on_escalation():
 
 
     asyncio.run(runner())
-
-
-    import pytest
-
     asyncio.run(runner())
 
 

@@ -7,7 +7,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator, List, Literal, Sequence
+from typing import Iterator, Literal, Sequence
 
 _SKIP_DIRS = {
     ".git",

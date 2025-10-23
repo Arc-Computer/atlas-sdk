@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 from typing import List
 
 from langchain_core.callbacks import AsyncCallbackHandler
@@ -22,8 +21,6 @@ from pydantic import Field
 
 from atlas.runtime.agent_loop.dual_node import DualNodeAgent
 from atlas.connectors.langchain_bridge import BYOABridgeLLM
-from atlas.runtime.agent_loop.base_agent import AGENT_CALL_LOG_MESSAGE
-from atlas.runtime.agent_loop.base_agent import AGENT_LOG_PREFIX
 from atlas.runtime.agent_loop.base_agent import AgentDecision
 
 logger = logging.getLogger(__name__)
