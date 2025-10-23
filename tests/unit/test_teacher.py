@@ -220,7 +220,10 @@ class _PayloadCaptureClient:
 
     async def acomplete(self, messages, response_format=None, overrides=None):
         request = messages[-1]["content"]
-        json_payload = request.split("\nReturn json.")[0]
+        suffix = "\nReturn json."
+        if not request.endswith(suffix):
+            raise AssertionError("validation request payload missing expected suffix")
+        json_payload = request[: -len(suffix)]
         self.payloads.append(json.loads(json_payload))
         return LLMResponse(content=json.dumps({"valid": True, "guidance": None}), raw={}, reasoning={})
 
