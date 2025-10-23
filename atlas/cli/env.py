@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
+import os
 import sys
 import textwrap
-import copy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence
 
 try:  # pragma: no cover - optional dependency
     import yaml  # type: ignore[import-untyped]
@@ -164,6 +165,100 @@ class TargetSpec:
         return "<unspecified>"
 
 
+def _load_project_env(project_root: Path) -> dict[str, str]:
+    """Load environment variables from a .env file without requiring python-dotenv."""
+
+    env_path = project_root / ".env"
+    if not env_path.exists():
+        return {}
+    try:
+        raw = env_path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    result: dict[str, str] = {}
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.lower().startswith("export "):
+            stripped = stripped[7:].strip()
+        key, sep, value = stripped.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        result.setdefault(key, value)
+    return result
+
+
+def _extract_module_from_string(value: object) -> Sequence[str]:
+    if not isinstance(value, str):
+        return []
+    if ":" in value:
+        module, _, _ = value.partition(":")
+        return [module.strip()] if module.strip() else []
+    if "." in value and "/" not in value and " " not in value:
+        return [value.strip()]
+    return []
+
+
+def _collect_candidate_modules(target: TargetSpec) -> set[str]:
+    modules: set[str] = set()
+    module, _ = _resolve_callable_reference(target)
+    if module:
+        modules.add(module)
+    for maybe_module in target.kwargs.values():
+        modules.update(_extract_module_from_string(maybe_module))
+    if target.config:
+        for maybe_module in target.config.values():
+            modules.update(_extract_module_from_string(maybe_module))
+    return modules
+
+
+def _infer_pythonpath_entries(project_root: Path, module_path: str) -> list[str]:
+    """Return directories that should be added to PYTHONPATH for a given module path."""
+
+    if not module_path or module_path.startswith("."):
+        return []
+    path_parts = [part for part in module_path.split(".") if part]
+    if not path_parts:
+        return []
+    base_path = project_root.joinpath(*path_parts)
+    file_candidate = base_path.with_suffix(".py")
+    if file_candidate.exists():
+        target_path = file_candidate
+    elif base_path.exists():
+        target_path = base_path
+    else:
+        return []
+    entries: list[str] = []
+    for parent in [target_path.parent, *target_path.parents]:
+        if not parent or not parent.exists():
+            continue
+        entries.append(str(parent))
+        if parent == project_root:
+            break
+    return entries
+
+
+def _prepare_pythonpath_overrides(project_root: Path, targets: SelectedTargets) -> list[str]:
+    modules: set[str] = set()
+    modules.update(_collect_candidate_modules(targets.environment))
+    modules.update(_collect_candidate_modules(targets.agent))
+    entries: list[str] = []
+    seen: set[str] = set()
+    for module in modules:
+        for entry in _infer_pythonpath_entries(project_root, module):
+            if entry not in seen:
+                seen.add(entry)
+                entries.append(entry)
+    return entries
+
+
 def _serialize_target(target: TargetSpec, project_root: Path, role: Role) -> dict[str, object]:
     payload: dict[str, object] = {
         "selection": "factory" if target.candidate is None else "candidate",
@@ -188,6 +283,64 @@ def _serialize_target(target: TargetSpec, project_root: Path, role: Role) -> dic
     payload.setdefault("file", None)
     payload.setdefault("hash", None)
     return payload
+
+
+def _filter_candidates(candidates: List[Candidate]) -> List[Candidate]:
+    if len(candidates) <= 1:
+        return candidates
+    filtered = [
+        candidate
+        for candidate in candidates
+        if not (
+            candidate.reason == "heuristic"
+            and candidate.module.startswith("atlas.sdk.")
+        )
+    ]
+    return filtered or candidates
+
+
+def _auto_select_candidate(
+    candidates: List[Candidate],
+    preferred_module: str | None,
+) -> tuple[Candidate | None, bool]:
+    if not candidates:
+        return None, False
+    filtered = _filter_candidates(candidates)
+    if preferred_module:
+        for candidate in filtered:
+            if candidate.module == preferred_module:
+                return candidate, True
+    if len(filtered) == 1:
+        return filtered[0], True
+    decorated = [candidate for candidate in filtered if candidate.via_decorator]
+    if len(decorated) == 1:
+        return decorated[0], True
+    sorted_candidates = sorted(
+        filtered,
+        key=lambda candidate: (candidate.via_decorator, candidate.score),
+        reverse=True,
+    )
+    return sorted_candidates[0], False
+
+
+def _summarise_failure_hints(exc: DiscoveryWorkerError) -> list[str]:
+    hints: list[str] = []
+    trace = exc.traceback or ""
+    message = str(exc)
+    payload = f"{trace}\n{message}".lower()
+    if "modulenotfounderror" in payload:
+        hints.append(
+            "Module import failed inside discovery. Ensure project dependencies are installed and PYTHONPATH points to your source tree (define PYTHONPATH in .env if needed)."
+        )
+    if "validationerror" in payload or "pydantic_core" in payload:
+        hints.append(
+            "Factory initialisation raised validation errors. Double-check required environment variables (atlas env init now auto-loads .env but secrets may still be missing)."
+        )
+    if "keyerror: 'data'" in payload:
+        hints.append(
+            "LangChain tool schema reported missing field 'data'. Update your StructuredTool args_schema to include that field or upgrade the auth0-ai tool wrappers."
+        )
+    return hints
 
 
 def _print_factory_hint(role: str) -> None:
@@ -376,23 +529,30 @@ def _compose_full_config_payload(
     if not agent_module or not agent_qualname:
         return None, {"reason": "agent-missing"}
     agent_template = config_payload.get("agent") if isinstance(config_payload.get("agent"), dict) else {}
-    agent_block = copy.deepcopy(agent_template)
-    agent_block["type"] = "python"
-    agent_block["import_path"] = agent_module
-    agent_block["attribute"] = agent_qualname
-    agent_block["working_directory"] = "./"
-    agent_block["allow_generator"] = False
-    agent_block.setdefault("tools", agent_template.get("tools") if isinstance(agent_template, dict) else [])
-    agent_block.setdefault("system_prompt", agent_template.get("system_prompt") if isinstance(agent_template, dict) else "")
-    default_agent_name = agent_template.get("name") if isinstance(agent_template, dict) else None
-    if not isinstance(default_agent_name, str) or not default_agent_name.strip():
-        default_agent_name = f"{project_root.name}-agent"
+    agent_block: dict[str, Any] = {
+        "type": "python",
+        "import_path": agent_module,
+        "attribute": agent_qualname,
+        "working_directory": "./",
+        "allow_generator": False,
+    }
+    template_name = agent_template.get("name") if isinstance(agent_template, dict) else None
+    default_agent_name = template_name if isinstance(template_name, str) and template_name.strip() else f"{project_root.name}-agent"
     agent_block["name"] = default_agent_name
+    system_prompt = agent_template.get("system_prompt") if isinstance(agent_template, dict) else ""
+    if isinstance(system_prompt, str):
+        agent_block["system_prompt"] = system_prompt
+    tools_section = agent_template.get("tools") if isinstance(agent_template, dict) else []
+    if isinstance(tools_section, list):
+        agent_block["tools"] = copy.deepcopy(tools_section)
 
     llm_provider = llm_capabilities.get("provider") if isinstance(llm_capabilities, dict) else None
     llm_model = llm_capabilities.get("model") if isinstance(llm_capabilities, dict) else None
     llm_source = llm_capabilities.get("source") if isinstance(llm_capabilities, dict) else None
-    agent_block["llm"] = _build_llm_block(agent_template.get("llm") if isinstance(agent_template, dict) else None, llm_provider, llm_model)
+    llm_template = agent_template.get("llm") if isinstance(agent_template, dict) else None
+    llm_block = _build_llm_block(llm_template, llm_provider, llm_model)
+    if llm_block:
+        agent_block["llm"] = llm_block
     config_payload["agent"] = agent_block
 
     teacher_template = config_payload.get("teacher") if isinstance(config_payload.get("teacher"), dict) else {}
@@ -646,25 +806,43 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     env_wrapper_required = False
     agent_wrapper_required = False
 
-    if env_candidates:
-        try:
-            targets.environment.candidate = _prompt_selection(env_candidates, "environment")
-        except ValueError as exc:
-            print(exc, file=sys.stderr)
-            return 1
-    elif targets.environment.factory is None:
-        _print_factory_hint("environment")
-        env_wrapper_required = True
+    auto_messages: list[str] = []
 
-    if agent_candidates:
-        try:
-            targets.agent.candidate = _prompt_selection(agent_candidates, "agent")
-        except ValueError as exc:
-            print(exc, file=sys.stderr)
-            return 1
-    elif targets.agent.factory is None:
-        _print_factory_hint("agent")
-        agent_wrapper_required = True
+    if targets.environment.factory is None:
+        preferred_env_module = targets.environment.factory[0] if targets.environment.factory else None
+        auto_candidate, auto_applied = _auto_select_candidate(env_candidates, preferred_env_module)
+        if auto_applied and auto_candidate is not None:
+            targets.environment.candidate = auto_candidate
+            auto_messages.append(f"Auto-selected environment candidate {auto_candidate.dotted_path()} (score={auto_candidate.score}).")
+        elif env_candidates:
+            try:
+                targets.environment.candidate = _prompt_selection(_filter_candidates(env_candidates), "environment")
+            except ValueError as exc:
+                print(exc, file=sys.stderr)
+                return 1
+        else:
+            _print_factory_hint("environment")
+            env_wrapper_required = True
+    else:
+        env_candidates = []
+
+    if targets.agent.factory is None:
+        preferred_agent_module = targets.agent.factory[0] if targets.agent.factory else None
+        auto_candidate, auto_applied = _auto_select_candidate(agent_candidates, preferred_agent_module)
+        if auto_applied and auto_candidate is not None:
+            targets.agent.candidate = auto_candidate
+            auto_messages.append(f"Auto-selected agent candidate {auto_candidate.dotted_path()} (score={auto_candidate.score}).")
+        elif agent_candidates:
+            try:
+                targets.agent.candidate = _prompt_selection(_filter_candidates(agent_candidates), "agent")
+            except ValueError as exc:
+                print(exc, file=sys.stderr)
+                return 1
+        else:
+            _print_factory_hint("agent")
+            agent_wrapper_required = True
+    else:
+        agent_candidates = []
 
     atlas_dir = project_root / ".atlas"
     run_requested = not args.no_run
@@ -761,11 +939,50 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
 
     discovery_path = atlas_dir / DISCOVERY_FILENAME
     config_path = atlas_dir / GENERATED_CONFIG_FILENAME
+    project_env = _load_project_env(project_root)
     try:
         env_overrides = parse_env_flags(args.env_vars or [])
     except CLIError as exc:
         print(exc, file=sys.stderr)
         return 1
+    loaded_env_keys: list[str] = []
+    for key, value in project_env.items():
+        if key not in env_overrides and key not in {ENV_VALIDATE_FLAG}:
+            env_overrides[key] = value
+            loaded_env_keys.append(key)
+    pythonpath_entries = _prepare_pythonpath_overrides(project_root, targets)
+    existing_pythonpath = env_overrides.get("PYTHONPATH") or project_env.get("PYTHONPATH") or os.environ.get("PYTHONPATH")
+    pythonpath_added: list[str] = []
+    if pythonpath_entries:
+        base_existing_parts = (
+            [part for part in (existing_pythonpath or "").split(os.pathsep) if part]
+            if existing_pythonpath
+            else []
+        )
+        combined: list[str] = []
+        seen_paths: set[str] = set()
+        for candidate in pythonpath_entries + base_existing_parts:
+            path_value = candidate.strip()
+            if not path_value:
+                continue
+            if path_value not in seen_paths:
+                seen_paths.add(path_value)
+                combined.append(path_value)
+                if path_value not in base_existing_parts:
+                    pythonpath_added.append(path_value)
+        if combined:
+            env_overrides["PYTHONPATH"] = os.pathsep.join(combined)
+    bootstrap_notes: list[str] = []
+    if loaded_env_keys:
+        preview = ", ".join(sorted(loaded_env_keys)[:5])
+        if len(loaded_env_keys) > 5:
+            preview += ", …"
+        bootstrap_notes.append(f"Loaded .env variables into discovery worker: {preview}")
+    if pythonpath_added:
+        preview = ", ".join(pythonpath_added[:5])
+        if len(pythonpath_added) > 5:
+            preview += ", …"
+        bootstrap_notes.append(f"Augmented PYTHONPATH with: {preview}")
     env_overrides.setdefault(ENV_VALIDATE_FLAG, "1" if run_requested else "0")
     spec: dict[str, object] = {
         "project_root": str(project_root),
@@ -773,6 +990,8 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         "run_discovery": run_requested,
         "env": env_overrides,
     }
+    if pythonpath_entries:
+        spec["pythonpath"] = pythonpath_entries
 
     if targets.environment.candidate is not None:
         env_payload: dict[str, object] = {
@@ -813,6 +1032,10 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     print("Discovery summary:")
     print(f"  {_summarise_target(targets.environment, 'Environment')}")
     print(f"  {_summarise_target(targets.agent, 'Agent')}")
+    for note in auto_messages:
+        print(f"  {note}")
+    for note in bootstrap_notes:
+        print(f"  {note}")
     if synthesis_notes:
         print("  Synthesis notes:")
         for note in synthesis_notes:
@@ -846,6 +1069,8 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
                 synthesizer.retry_with_error(exc.traceback or str(exc))
                 continue
             print(f"Discovery worker failed: {exc}", file=sys.stderr)
+            for hint in _summarise_failure_hints(exc):
+                print(f"  Hint: {hint}", file=sys.stderr)
             return 1
         except CLIError as exc:
             print(f"Discovery worker failed: {exc}", file=sys.stderr)

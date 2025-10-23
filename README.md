@@ -118,6 +118,11 @@ we can introspect your agent stack. When it detects heavier stacks
 (LangGraph/DeepAgents, multi-service environments, etc.) it records preflight notes and skips
 execution until you rerun with `--validate`. When autodiscovery finds no candidates it prints a reminder pointing to
 `atlas env scaffold --template langgraph` so you can start from a working factory.
+Discovery now auto-loads `.env` (including `PYTHONPATH`) before spinning up your
+factories and will derive additional import hints from the factories you pass on
+the command line—most stacks no longer need manual `PYTHONPATH` exports. For
+offline validation pipelines, set `ATLAS_FAKE_LLM=1` to run smoke tests against
+the generated config without calling a live provider.
 
 See [`examples/langgraph_adapter.py`](examples/langgraph_adapter.py) and the [Stateful Agent Quickstart](docs/sdk/quickstart.mdx)
 for end-to-end templates, configuration snippets, and troubleshooting tips.

@@ -60,6 +60,35 @@ _LLM_ATTR_HINTS: Tuple[str, ...] = (
 )
 
 
+def _apply_langchain_workarounds() -> None:
+    """Patch LangChain helpers to tolerate wrapped tools with injected fields."""
+
+    try:
+        from langchain_core.utils import pydantic as lc_pydantic  # type: ignore[import-untyped]
+    except Exception:  # pragma: no cover - optional dependency
+        return
+
+    def _wrap_subset_factory(original):
+        def _safe_subset(name: str, model: type, field_names: list[str], **kwargs):
+            model_fields = getattr(model, "model_fields", {}) or {}
+            filtered = [field for field in field_names if field in model_fields]
+            try:
+                return original(name, model, filtered, **kwargs)
+            except KeyError:
+                return original(name, model, [], **kwargs)
+        _safe_subset.__name__ = "safe_subset_wrapper"
+        return _safe_subset
+
+    if hasattr(lc_pydantic, "_create_subset_model"):
+        original_subset = lc_pydantic._create_subset_model  # type: ignore[attr-defined]
+        if getattr(original_subset, "__name__", "") != "safe_subset_wrapper":
+            lc_pydantic._create_subset_model = _wrap_subset_factory(original_subset)  # type: ignore[assignment]
+    if hasattr(lc_pydantic, "_create_subset_model_v2"):
+        original_subset_v2 = lc_pydantic._create_subset_model_v2  # type: ignore[attr-defined]
+        if getattr(original_subset_v2, "__name__", "") != "safe_subset_wrapper":
+            lc_pydantic._create_subset_model_v2 = _wrap_subset_factory(original_subset_v2)  # type: ignore[assignment]
+
+
 def _load_spec() -> dict[str, Any]:
     payload = sys.stdin.read()
     if not payload.strip():
@@ -473,15 +502,21 @@ def main() -> int:
     env_instance: AtlasEnvironmentProtocol | None = None
     agent_instance: AtlasAgentProtocol | None = None
     try:
+        _apply_langchain_workarounds()
         spec = _load_spec()
         project_root = Path(spec["project_root"]).resolve()
         sys.path.insert(0, str(project_root))
         src_dir = project_root / "src"
         if src_dir.exists():
             sys.path.insert(1, str(src_dir))
+        extra_paths = spec.get("pythonpath")
+        if isinstance(extra_paths, list):
+            for candidate in reversed(extra_paths):
+                if isinstance(candidate, str) and candidate not in sys.path:
+                    sys.path.insert(0, candidate)
         extra_env = spec.get("env") or {}
         for key, value in extra_env.items():
-            os.environ.setdefault(key, value)
+            os.environ[key] = value
         environment_spec = spec.get("environment") or {}
         agent_spec = spec.get("agent") or {}
         environment_factory_spec = spec.get("environment_factory")
