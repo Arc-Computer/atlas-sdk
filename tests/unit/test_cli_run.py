@@ -46,7 +46,7 @@ def test_run_with_config_persists_metadata(tmp_path, monkeypatch, capsys):
     config_path.write_text("{}", encoding="utf-8")
 
     monkeypatch.setattr("atlas.cli.run.atlas_arun", _fake_arun)
-    monkeypatch.setattr("atlas.cli.run.load_dotenv_if_available", lambda: None)
+    monkeypatch.setattr("atlas.cli.run.load_dotenv_if_available", lambda *_, **__: None)
 
     args = argparse.Namespace(
         config=str(config_path),

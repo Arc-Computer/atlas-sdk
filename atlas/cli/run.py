@@ -86,7 +86,15 @@ def _run_with_config(args: argparse.Namespace) -> int:
     project_root = Path(args.path or ".").resolve()
     atlas_dir = project_root / ".atlas"
     atlas_dir.mkdir(parents=True, exist_ok=True)
-    load_dotenv_if_available()
+    load_dotenv_if_available(project_root / ".env")
+    sys_path_candidates = [project_root]
+    src_dir = project_root / "src"
+    if src_dir.exists():
+        sys_path_candidates.append(src_dir)
+    for candidate in reversed(sys_path_candidates):
+        candidate_str = str(candidate)
+        if candidate_str not in sys.path:
+            sys.path.insert(0, candidate_str)
     if getattr(args, "mode", None):
         print("[atlas run] --mode override is not yet supported; using configuration defaults.", file=sys.stderr)
     if getattr(args, "max_steps", None):

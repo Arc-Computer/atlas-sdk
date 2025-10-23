@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import json
+import os
 import sys
 import textwrap
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List, Sequence
+
+try:  # pragma: no cover - optional dependency
+    import yaml  # type: ignore[import-untyped]
+except Exception:  # pragma: no cover - optional dependency
+    yaml = None  # type: ignore[assignment]
 
 from atlas.cli.persistence import persist_discovery_run
 from atlas.cli.utils import (
@@ -22,6 +29,7 @@ from atlas.cli.utils import (
     parse_env_flags,
     parse_key_value_flags,
 )
+from atlas.config.models import LearningConfig, RuntimeSafetyConfig
 from atlas.sdk.discovery import Candidate, Role, discover_candidates, serialize_candidate, split_candidates, write_discovery_payload
 from atlas.sdk.factory_synthesis import FactorySynthesizer, ENV_VALIDATE_FLAG
 
@@ -128,6 +136,18 @@ SCAFFOLD_TEMPLATES = {
     }
 }
 
+FULL_CONFIG_TEMPLATE = "openai_agent.yaml"
+
+_LLM_API_ENV_DEFAULTS: dict[str, str] = {
+    "openai": "OPENAI_API_KEY",
+    "azure-openai": "AZURE_OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "google": "GOOGLE_API_KEY",
+    "bedrock": "AWS_ACCESS_KEY_ID",
+    "xai": "XAI_API_KEY",
+}
+
 
 @dataclass(slots=True)
 class TargetSpec:
@@ -143,6 +163,100 @@ class TargetSpec:
         if self.factory is not None:
             return f"{self.factory[0]}:{self.factory[1]}"
         return "<unspecified>"
+
+
+def _load_project_env(project_root: Path) -> dict[str, str]:
+    """Load environment variables from a .env file without requiring python-dotenv."""
+
+    env_path = project_root / ".env"
+    if not env_path.exists():
+        return {}
+    try:
+        raw = env_path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    result: dict[str, str] = {}
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.lower().startswith("export "):
+            stripped = stripped[7:].strip()
+        key, sep, value = stripped.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        if not key:
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        result.setdefault(key, value)
+    return result
+
+
+def _extract_module_from_string(value: object) -> Sequence[str]:
+    if not isinstance(value, str):
+        return []
+    if ":" in value:
+        module, _, _ = value.partition(":")
+        return [module.strip()] if module.strip() else []
+    if "." in value and "/" not in value and " " not in value:
+        return [value.strip()]
+    return []
+
+
+def _collect_candidate_modules(target: TargetSpec) -> set[str]:
+    modules: set[str] = set()
+    module, _ = _resolve_callable_reference(target)
+    if module:
+        modules.add(module)
+    for maybe_module in target.kwargs.values():
+        modules.update(_extract_module_from_string(maybe_module))
+    if target.config:
+        for maybe_module in target.config.values():
+            modules.update(_extract_module_from_string(maybe_module))
+    return modules
+
+
+def _infer_pythonpath_entries(project_root: Path, module_path: str) -> list[str]:
+    """Return directories that should be added to PYTHONPATH for a given module path."""
+
+    if not module_path or module_path.startswith("."):
+        return []
+    path_parts = [part for part in module_path.split(".") if part]
+    if not path_parts:
+        return []
+    base_path = project_root.joinpath(*path_parts)
+    file_candidate = base_path.with_suffix(".py")
+    if file_candidate.exists():
+        target_path = file_candidate
+    elif base_path.exists():
+        target_path = base_path
+    else:
+        return []
+    entries: list[str] = []
+    for parent in [target_path.parent, *target_path.parents]:
+        if not parent or not parent.exists():
+            continue
+        entries.append(str(parent))
+        if parent == project_root:
+            break
+    return entries
+
+
+def _prepare_pythonpath_overrides(project_root: Path, targets: SelectedTargets) -> list[str]:
+    modules: set[str] = set()
+    modules.update(_collect_candidate_modules(targets.environment))
+    modules.update(_collect_candidate_modules(targets.agent))
+    entries: list[str] = []
+    seen: set[str] = set()
+    for module in modules:
+        for entry in _infer_pythonpath_entries(project_root, module):
+            if entry not in seen:
+                seen.add(entry)
+                entries.append(entry)
+    return entries
 
 
 def _serialize_target(target: TargetSpec, project_root: Path, role: Role) -> dict[str, object]:
@@ -169,6 +283,64 @@ def _serialize_target(target: TargetSpec, project_root: Path, role: Role) -> dic
     payload.setdefault("file", None)
     payload.setdefault("hash", None)
     return payload
+
+
+def _filter_candidates(candidates: List[Candidate]) -> List[Candidate]:
+    if len(candidates) <= 1:
+        return candidates
+    filtered = [
+        candidate
+        for candidate in candidates
+        if not (
+            candidate.reason == "heuristic"
+            and candidate.module.startswith("atlas.sdk.")
+        )
+    ]
+    return filtered or candidates
+
+
+def _auto_select_candidate(
+    candidates: List[Candidate],
+    preferred_module: str | None,
+) -> tuple[Candidate | None, bool]:
+    if not candidates:
+        return None, False
+    filtered = _filter_candidates(candidates)
+    if preferred_module:
+        for candidate in filtered:
+            if candidate.module == preferred_module:
+                return candidate, True
+    if len(filtered) == 1:
+        return filtered[0], True
+    decorated = [candidate for candidate in filtered if candidate.via_decorator]
+    if len(decorated) == 1:
+        return decorated[0], True
+    sorted_candidates = sorted(
+        filtered,
+        key=lambda candidate: (candidate.via_decorator, candidate.score),
+        reverse=True,
+    )
+    return sorted_candidates[0], False
+
+
+def _summarise_failure_hints(exc: DiscoveryWorkerError) -> list[str]:
+    hints: list[str] = []
+    trace = exc.traceback or ""
+    message = str(exc)
+    payload = f"{trace}\n{message}".lower()
+    if "modulenotfounderror" in payload:
+        hints.append(
+            "Module import failed inside discovery. Ensure project dependencies are installed and PYTHONPATH points to your source tree (define PYTHONPATH in .env if needed)."
+        )
+    if "validationerror" in payload or "pydantic_core" in payload:
+        hints.append(
+            "Factory initialisation raised validation errors. Double-check required environment variables (atlas env init now auto-loads .env but secrets may still be missing)."
+        )
+    if "keyerror: 'data'" in payload:
+        hints.append(
+            "LangChain tool schema reported missing field 'data'. Update your StructuredTool args_schema to include that field or upgrade the auth0-ai tool wrappers."
+        )
+    return hints
 
 
 def _print_factory_hint(role: str) -> None:
@@ -279,8 +451,176 @@ def _infer_skip_reasons(targets: SelectedTargets) -> list[str]:
     return reasons
 
 
-def _write_generated_config(destination: Path, targets: SelectedTargets, capabilities: dict[str, object], *, force: bool) -> None:
-    _ensure_write(destination, force=force)
+def _resolve_callable_reference(target: TargetSpec) -> tuple[str | None, str | None]:
+    if target.factory is not None:
+        return target.factory
+    if target.candidate is not None:
+        return target.candidate.module, target.candidate.qualname
+    return None, None
+
+
+def _build_factory_metadata(target: TargetSpec) -> dict[str, Any] | None:
+    module, qualname = _resolve_callable_reference(target)
+    if not module or not qualname:
+        return None
+    payload: dict[str, Any] = {
+        "module": module,
+        "qualname": qualname,
+        "working_directory": "./",
+    }
+    if target.kwargs:
+        payload["kwargs"] = dict(target.kwargs)
+    if target.config:
+        payload["config"] = target.config
+    if target.auto_wrapped:
+        payload["auto_wrapped"] = True
+    return payload
+
+
+def _build_llm_block(template_block: dict[str, Any] | None, provider: str | None, model: str | None) -> dict[str, Any]:
+    block: dict[str, Any] = copy.deepcopy(template_block) if isinstance(template_block, dict) else {}
+    if provider:
+        block["provider"] = provider
+    else:
+        provider = block.get("provider") if isinstance(block.get("provider"), str) else None
+    if model:
+        block["model"] = model
+    if provider and not block.get("api_key_env"):
+        api_env = _LLM_API_ENV_DEFAULTS.get(provider)
+        if api_env:
+            block["api_key_env"] = api_env
+    return block
+
+
+def _load_full_config_template() -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    template_root = Path(__file__).resolve().parents[2] / "configs" / "examples"
+    template_path = template_root / FULL_CONFIG_TEMPLATE
+    info: dict[str, Any] = {"template_path": str(template_path)}
+    if yaml is None:
+        info["reason"] = "pyyaml-missing"
+        return None, info
+    if not template_path.exists():
+        info["reason"] = "template-missing"
+        return None, info
+    try:
+        raw = template_path.read_text(encoding="utf-8")
+    except OSError as exc:  # pragma: no cover - filesystem edge case
+        info["reason"] = f"template-read-error: {exc}"
+        return None, info
+    try:
+        payload = yaml.safe_load(raw) or {}
+    except Exception as exc:  # pragma: no cover - defensive guard
+        info["reason"] = f"template-parse-error: {exc}"
+        return None, info
+    if not isinstance(payload, dict):
+        info["reason"] = "template-invalid"
+        return None, info
+    return payload, info
+
+
+def _compose_full_config_payload(
+    template_payload: dict[str, Any],
+    targets: SelectedTargets,
+    project_root: Path,
+    llm_capabilities: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    config_payload = copy.deepcopy(template_payload)
+    agent_module, agent_qualname = _resolve_callable_reference(targets.agent)
+    if not agent_module or not agent_qualname:
+        return None, {"reason": "agent-missing"}
+    agent_template = config_payload.get("agent") if isinstance(config_payload.get("agent"), dict) else {}
+    agent_block: dict[str, Any] = {
+        "type": "python",
+        "import_path": agent_module,
+        "attribute": agent_qualname,
+        "working_directory": "./",
+        "allow_generator": False,
+    }
+    template_name = agent_template.get("name") if isinstance(agent_template, dict) else None
+    default_agent_name = template_name if isinstance(template_name, str) and template_name.strip() else f"{project_root.name}-agent"
+    agent_block["name"] = default_agent_name
+    system_prompt = agent_template.get("system_prompt") if isinstance(agent_template, dict) else ""
+    if isinstance(system_prompt, str):
+        agent_block["system_prompt"] = system_prompt
+    tools_section = agent_template.get("tools") if isinstance(agent_template, dict) else []
+    if isinstance(tools_section, list):
+        agent_block["tools"] = copy.deepcopy(tools_section)
+
+    llm_provider = llm_capabilities.get("provider") if isinstance(llm_capabilities, dict) else None
+    llm_model = llm_capabilities.get("model") if isinstance(llm_capabilities, dict) else None
+    llm_source = llm_capabilities.get("source") if isinstance(llm_capabilities, dict) else None
+    llm_template = agent_template.get("llm") if isinstance(agent_template, dict) else None
+    llm_block = _build_llm_block(llm_template, llm_provider, llm_model)
+    if llm_block:
+        agent_block["llm"] = llm_block
+    config_payload["agent"] = agent_block
+
+    teacher_template = config_payload.get("teacher") if isinstance(config_payload.get("teacher"), dict) else {}
+    teacher_block = copy.deepcopy(teacher_template)
+    teacher_block["llm"] = _build_llm_block(teacher_template.get("llm") if isinstance(teacher_template, dict) else None, llm_provider, llm_model)
+    config_payload["teacher"] = teacher_block
+
+    if not isinstance(config_payload.get("learning"), dict):
+        config_payload["learning"] = LearningConfig().model_dump()
+    if not isinstance(config_payload.get("runtime_safety"), dict):
+        config_payload["runtime_safety"] = RuntimeSafetyConfig().model_dump()
+
+    metadata_block = config_payload.get("metadata") if isinstance(config_payload.get("metadata"), dict) else {}
+    discovery_meta: dict[str, Any] = {}
+    env_metadata = _build_factory_metadata(targets.environment)
+    if env_metadata:
+        discovery_meta["environment_factory"] = env_metadata
+    agent_metadata = _build_factory_metadata(targets.agent)
+    if agent_metadata:
+        discovery_meta["agent_factory"] = agent_metadata
+    if llm_provider or llm_model or llm_source:
+        discovery_meta["llm"] = {
+            "provider": llm_provider,
+            "model": llm_model,
+            "source": llm_source,
+        }
+    if discovery_meta:
+        metadata_block = copy.deepcopy(metadata_block)
+        existing_discovery = metadata_block.get("discovery")
+        if isinstance(existing_discovery, dict):
+            merged = copy.deepcopy(existing_discovery)
+            merged.update(discovery_meta)
+        else:
+            merged = discovery_meta
+        metadata_block["discovery"] = merged
+        config_payload["metadata"] = metadata_block
+
+    info = {
+        "llm_provider": llm_provider,
+        "llm_model": llm_model,
+        "llm_source": llm_source,
+        "llm_inferred": bool(llm_provider or llm_model),
+    }
+    return config_payload, info
+
+
+def _prepare_full_config_payload(
+    project_root: Path,
+    targets: SelectedTargets,
+    capabilities: dict[str, object],
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    template_payload, template_info = _load_full_config_template()
+    info = dict(template_info)
+    if template_payload is None:
+        return None, info
+    llm_capabilities = capabilities.get("llm") if isinstance(capabilities, dict) else {}
+    if not isinstance(llm_capabilities, dict):
+        llm_capabilities = {}
+    payload, compose_info = _compose_full_config_payload(template_payload, targets, project_root, llm_capabilities)
+    info.update(compose_info or {})
+    if payload is None:
+        info.setdefault("reason", compose_info.get("reason") if compose_info else "full-config-unavailable")
+    else:
+        info.setdefault("mode", "full")
+    return payload, info
+
+
+def _write_stub_config(destination: Path, targets: SelectedTargets, capabilities: dict[str, object]) -> None:
     control_loop = capabilities.get("control_loop", "self")
     supports_stepwise = bool(capabilities.get("supports_stepwise", False))
     preferred_mode = capabilities.get("preferred_mode", "auto")
@@ -313,6 +653,31 @@ def _write_generated_config(destination: Path, targets: SelectedTargets, capabil
     destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _write_generated_config(
+    destination: Path,
+    project_root: Path,
+    targets: SelectedTargets,
+    capabilities: dict[str, object],
+    *,
+    force: bool,
+    scaffold_full: bool,
+) -> dict[str, Any]:
+    _ensure_write(destination, force=force)
+    if scaffold_full:
+        payload, info = _prepare_full_config_payload(project_root, targets, capabilities)
+        if payload is not None and yaml is not None:
+            rendered = yaml.safe_dump(payload, sort_keys=False)
+            destination.write_text(rendered, encoding="utf-8")
+            info.setdefault("mode", "full")
+            return info
+        fallback_info = info if isinstance(info, dict) else {}
+    else:
+        fallback_info = {}
+    _write_stub_config(destination, targets, capabilities)
+    fallback_info.setdefault("mode", "stub")
+    return fallback_info
+
+
 def _compose_metadata(
     project_root: Path,
     targets: SelectedTargets,
@@ -343,6 +708,16 @@ def _compose_metadata(
         ),
         "preferred_mode": "auto" if control_loop == "self" else "paired",
     }
+    discovery_capabilities = discovery_payload.get("capabilities")
+    if isinstance(discovery_capabilities, dict):
+        llm_caps = discovery_capabilities.get("llm")
+        if isinstance(llm_caps, dict):
+            capabilities["llm"] = {
+                "provider": llm_caps.get("provider"),
+                "model": llm_caps.get("model"),
+                "source": llm_caps.get("source"),
+                "inferred": bool(llm_caps.get("provider") or llm_caps.get("model")),
+            }
     metadata = {
         "version": 1,
         "generated_at": generated_at,
@@ -431,25 +806,43 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     env_wrapper_required = False
     agent_wrapper_required = False
 
-    if env_candidates:
-        try:
-            targets.environment.candidate = _prompt_selection(env_candidates, "environment")
-        except ValueError as exc:
-            print(exc, file=sys.stderr)
-            return 1
-    elif targets.environment.factory is None:
-        _print_factory_hint("environment")
-        env_wrapper_required = True
+    auto_messages: list[str] = []
 
-    if agent_candidates:
-        try:
-            targets.agent.candidate = _prompt_selection(agent_candidates, "agent")
-        except ValueError as exc:
-            print(exc, file=sys.stderr)
-            return 1
-    elif targets.agent.factory is None:
-        _print_factory_hint("agent")
-        agent_wrapper_required = True
+    if targets.environment.factory is None:
+        preferred_env_module = targets.environment.factory[0] if targets.environment.factory else None
+        auto_candidate, auto_applied = _auto_select_candidate(env_candidates, preferred_env_module)
+        if auto_applied and auto_candidate is not None:
+            targets.environment.candidate = auto_candidate
+            auto_messages.append(f"Auto-selected environment candidate {auto_candidate.dotted_path()} (score={auto_candidate.score}).")
+        elif env_candidates:
+            try:
+                targets.environment.candidate = _prompt_selection(_filter_candidates(env_candidates), "environment")
+            except ValueError as exc:
+                print(exc, file=sys.stderr)
+                return 1
+        else:
+            _print_factory_hint("environment")
+            env_wrapper_required = True
+    else:
+        env_candidates = []
+
+    if targets.agent.factory is None:
+        preferred_agent_module = targets.agent.factory[0] if targets.agent.factory else None
+        auto_candidate, auto_applied = _auto_select_candidate(agent_candidates, preferred_agent_module)
+        if auto_applied and auto_candidate is not None:
+            targets.agent.candidate = auto_candidate
+            auto_messages.append(f"Auto-selected agent candidate {auto_candidate.dotted_path()} (score={auto_candidate.score}).")
+        elif agent_candidates:
+            try:
+                targets.agent.candidate = _prompt_selection(_filter_candidates(agent_candidates), "agent")
+            except ValueError as exc:
+                print(exc, file=sys.stderr)
+                return 1
+        else:
+            _print_factory_hint("agent")
+            agent_wrapper_required = True
+    else:
+        agent_candidates = []
 
     atlas_dir = project_root / ".atlas"
     run_requested = not args.no_run
@@ -546,11 +939,50 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
 
     discovery_path = atlas_dir / DISCOVERY_FILENAME
     config_path = atlas_dir / GENERATED_CONFIG_FILENAME
+    project_env = _load_project_env(project_root)
     try:
         env_overrides = parse_env_flags(args.env_vars or [])
     except CLIError as exc:
         print(exc, file=sys.stderr)
         return 1
+    loaded_env_keys: list[str] = []
+    for key, value in project_env.items():
+        if key not in env_overrides and key not in {ENV_VALIDATE_FLAG}:
+            env_overrides[key] = value
+            loaded_env_keys.append(key)
+    pythonpath_entries = _prepare_pythonpath_overrides(project_root, targets)
+    existing_pythonpath = env_overrides.get("PYTHONPATH") or project_env.get("PYTHONPATH") or os.environ.get("PYTHONPATH")
+    pythonpath_added: list[str] = []
+    if pythonpath_entries:
+        base_existing_parts = (
+            [part for part in (existing_pythonpath or "").split(os.pathsep) if part]
+            if existing_pythonpath
+            else []
+        )
+        combined: list[str] = []
+        seen_paths: set[str] = set()
+        for candidate in pythonpath_entries + base_existing_parts:
+            path_value = candidate.strip()
+            if not path_value:
+                continue
+            if path_value not in seen_paths:
+                seen_paths.add(path_value)
+                combined.append(path_value)
+                if path_value not in base_existing_parts:
+                    pythonpath_added.append(path_value)
+        if combined:
+            env_overrides["PYTHONPATH"] = os.pathsep.join(combined)
+    bootstrap_notes: list[str] = []
+    if loaded_env_keys:
+        preview = ", ".join(sorted(loaded_env_keys)[:5])
+        if len(loaded_env_keys) > 5:
+            preview += ", …"
+        bootstrap_notes.append(f"Loaded .env variables into discovery worker: {preview}")
+    if pythonpath_added:
+        preview = ", ".join(pythonpath_added[:5])
+        if len(pythonpath_added) > 5:
+            preview += ", …"
+        bootstrap_notes.append(f"Augmented PYTHONPATH with: {preview}")
     env_overrides.setdefault(ENV_VALIDATE_FLAG, "1" if run_requested else "0")
     spec: dict[str, object] = {
         "project_root": str(project_root),
@@ -558,6 +990,8 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         "run_discovery": run_requested,
         "env": env_overrides,
     }
+    if pythonpath_entries:
+        spec["pythonpath"] = pythonpath_entries
 
     if targets.environment.candidate is not None:
         env_payload: dict[str, object] = {
@@ -598,6 +1032,10 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     print("Discovery summary:")
     print(f"  {_summarise_target(targets.environment, 'Environment')}")
     print(f"  {_summarise_target(targets.agent, 'Agent')}")
+    for note in auto_messages:
+        print(f"  {note}")
+    for note in bootstrap_notes:
+        print(f"  {note}")
     if synthesis_notes:
         print("  Synthesis notes:")
         for note in synthesis_notes:
@@ -631,6 +1069,8 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
                 synthesizer.retry_with_error(exc.traceback or str(exc))
                 continue
             print(f"Discovery worker failed: {exc}", file=sys.stderr)
+            for hint in _summarise_failure_hints(exc):
+                print(f"  Hint: {hint}", file=sys.stderr)
             return 1
         except CLIError as exc:
             print(f"Discovery worker failed: {exc}", file=sys.stderr)
@@ -655,12 +1095,41 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     capabilities = metadata.get("capabilities") if isinstance(metadata.get("capabilities"), dict) else {}
     write_discovery_payload(discovery_path, metadata=metadata)
     try:
-        _write_generated_config(config_path, targets, capabilities, force=args.force)
+        scaffold_info = _write_generated_config(
+            config_path,
+            project_root,
+            targets,
+            capabilities,
+            force=args.force,
+            scaffold_full=bool(getattr(args, "scaffold_config_full", False)),
+        )
     except FileExistsError as exc:
         print(exc, file=sys.stderr)
         return 1
     print(f"Discovery metadata written to {discovery_path}")
-    print(f"Generated config stub written to {config_path}")
+    if scaffold_info.get("mode") == "full":
+        print(f"Generated runnable config written to {config_path}")
+        template_path = scaffold_info.get("template_path")
+        if template_path:
+            print(f"  Template source: {template_path}")
+        if scaffold_info.get("llm_inferred"):
+            provider = scaffold_info.get("llm_provider") or scaffold_info.get("llm", {}).get("provider")
+            model_name = scaffold_info.get("llm_model") or scaffold_info.get("llm", {}).get("model")
+            print(
+                "  Inferred LLM metadata: provider={provider} model={model}".format(
+                    provider=provider or "unknown",
+                    model=model_name or "unknown",
+                )
+            )
+        else:
+            if getattr(args, "scaffold_config_full", False):
+                print("  LLM provider/model not inferred; template defaults retained.")
+    else:
+        print(f"Generated config stub written to {config_path}")
+        if getattr(args, "scaffold_config_full", False):
+            reason = scaffold_info.get("reason")
+            if reason:
+                print(f"  Unable to scaffold full config ({reason}); wrote discovery stub instead.")
     telemetry_status = "enabled" if capabilities.get("telemetry_agent_emitted") else "missing"
     print(
         "Detected handshake: control_loop={control} supports_stepwise={stepwise} telemetry={telemetry}".format(
@@ -755,6 +1224,14 @@ def register_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPars
         action="append",
         default=[],
         help="Keyword argument for the agent factory (repeatable).",
+    )
+    init_parser.add_argument(
+        "--scaffold-config-full",
+        action="store_true",
+        help=(
+            "Generate a runnable Atlas configuration using discovery metadata and template defaults. "
+            "Falls back to the legacy stub if the template cannot be loaded."
+        ),
     )
     init_parser.add_argument(
         "--env-config",

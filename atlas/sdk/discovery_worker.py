@@ -8,15 +8,85 @@ import os
 import sys
 import time
 import traceback
+from collections import deque
 from dataclasses import dataclass
 from importlib import import_module
 import importlib.util
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Dict
+from typing import Any, Dict, Iterable, Tuple
 
 from atlas.sdk.interfaces import AtlasAgentProtocol, AtlasEnvironmentProtocol, DiscoveryContext, TelemetryEmitterProtocol
 from atlas.sdk.wrappers import StepwiseAgentAdapter
+
+try:  # pragma: no cover - optional dependency
+    from langchain_core.language_models.chat_models import BaseChatModel as _LangChainBaseChatModel  # type: ignore[import-untyped]
+except Exception:  # pragma: no cover - optional dependency
+    _LangChainBaseChatModel = None  # type: ignore[assignment]
+
+
+_LLM_PROVIDER_HINTS: Tuple[Tuple[str, str], ...] = (
+    ("azure", "azure-openai"),
+    ("azure_openai", "azure-openai"),
+    ("langchain_openai", "openai"),
+    ("openai", "openai"),
+    ("anthropic", "anthropic"),
+    ("langchain_anthropic", "anthropic"),
+    ("google.generativeai", "gemini"),
+    ("langchain_google_genai", "gemini"),
+    ("vertexai", "google"),
+    ("langchain_google_vertexai", "google"),
+    ("bedrock", "bedrock"),
+    ("groq", "openai"),
+    ("xai", "xai"),
+)
+
+_LLM_ATTR_HINTS: Tuple[str, ...] = (
+    "llm",
+    "_llm",
+    "chat_model",
+    "_chat_model",
+    "client",
+    "_client",
+    "model",
+    "_model",
+    "graph",
+    "_graph",
+    "app",
+    "_app",
+    "runner",
+    "_runner",
+    "compiled_graph",
+)
+
+
+def _apply_langchain_workarounds() -> None:
+    """Patch LangChain helpers to tolerate wrapped tools with injected fields."""
+
+    try:
+        from langchain_core.utils import pydantic as lc_pydantic  # type: ignore[import-untyped]
+    except Exception:  # pragma: no cover - optional dependency
+        return
+
+    def _wrap_subset_factory(original):
+        def _safe_subset(name: str, model: type, field_names: list[str], **kwargs):
+            model_fields = getattr(model, "model_fields", {}) or {}
+            filtered = [field for field in field_names if field in model_fields]
+            try:
+                return original(name, model, filtered, **kwargs)
+            except KeyError:
+                return original(name, model, [], **kwargs)
+        _safe_subset.__name__ = "safe_subset_wrapper"
+        return _safe_subset
+
+    if hasattr(lc_pydantic, "_create_subset_model"):
+        original_subset = lc_pydantic._create_subset_model  # type: ignore[attr-defined]
+        if getattr(original_subset, "__name__", "") != "safe_subset_wrapper":
+            lc_pydantic._create_subset_model = _wrap_subset_factory(original_subset)  # type: ignore[assignment]
+    if hasattr(lc_pydantic, "_create_subset_model_v2"):
+        original_subset_v2 = lc_pydantic._create_subset_model_v2  # type: ignore[attr-defined]
+        if getattr(original_subset_v2, "__name__", "") != "safe_subset_wrapper":
+            lc_pydantic._create_subset_model_v2 = _wrap_subset_factory(original_subset_v2)  # type: ignore[assignment]
 
 
 def _load_spec() -> dict[str, Any]:
@@ -110,6 +180,104 @@ def _json_safe(value: Any, depth: int = 0) -> Any:
     if isinstance(value, (list, tuple, set)):
         return [_json_safe(item, depth + 1) for item in list(value)[:8]]
     return repr(value)
+
+
+def _normalise_provider_name(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    candidate = raw.lower()
+    for needle, provider in _LLM_PROVIDER_HINTS:
+        if needle in candidate:
+            return provider
+    return None
+
+
+def _extract_model_name(obj: Any) -> str | None:
+    for attr in ("model_name", "model", "model_id"):
+        value = getattr(obj, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _describe_source(obj: Any) -> str:
+    module = getattr(obj.__class__, "__module__", "")
+    qualname = getattr(obj.__class__, "__qualname__", getattr(obj.__class__, "__name__", "<unknown>"))
+    if module:
+        return f"{module}.{qualname}"
+    return qualname
+
+
+def _llm_metadata_from_object(obj: Any) -> tuple[str | None, str | None, str | None]:
+    provider: str | None = None
+    model: str | None = None
+    source: str | None = None
+    if isinstance(obj, dict):
+        provider = _normalise_provider_name(str(obj.get("provider")))
+        raw_model = obj.get("model") or obj.get("model_name")
+        if isinstance(raw_model, str) and raw_model.strip():
+            model = raw_model.strip()
+        if provider or model:
+            return provider, model, "dict"
+    if _LangChainBaseChatModel is not None and isinstance(obj, _LangChainBaseChatModel):  # type: ignore[arg-type]
+        provider = _normalise_provider_name(getattr(obj.__class__, "__module__", ""))
+        model = _extract_model_name(obj)
+        return provider, model, _describe_source(obj)
+    module_name = getattr(obj.__class__, "__module__", "")
+    provider = _normalise_provider_name(module_name)
+    model = _extract_model_name(obj)
+    if provider or model:
+        source = _describe_source(obj)
+        return provider, model, source
+    return None, None, None
+
+
+def _iter_children(obj: Any) -> Iterable[Any]:
+    if isinstance(obj, dict):
+        return list(obj.values())
+    if isinstance(obj, (list, tuple, set)):
+        return list(obj)
+    children: list[Any] = []
+    for attr in _LLM_ATTR_HINTS:
+        try:
+            value = getattr(obj, attr)
+        except AttributeError:
+            continue
+        except Exception:  # pragma: no cover - defensive guard
+            continue
+        children.append(value)
+    if hasattr(obj, "__dict__"):
+        try:
+            children.extend(getattr(obj, "__dict__").values())
+        except Exception:  # pragma: no cover - defensive guard
+            pass
+    return children
+
+
+def _detect_llm_metadata(root: Any) -> dict[str, Any]:
+    queue: deque[tuple[Any, int]] = deque([(root, 0)])
+    visited: set[int] = set()
+    max_depth = 4
+    while queue:
+        current, depth = queue.popleft()
+        identifier = id(current)
+        if identifier in visited:
+            continue
+        visited.add(identifier)
+        if depth > max_depth:
+            continue
+        if isinstance(current, (str, bytes, int, float, bool)) or current is None:
+            continue
+        provider, model, source = _llm_metadata_from_object(current)
+        if provider or model:
+            return {
+                "provider": provider,
+                "model": model,
+                "source": source,
+            }
+        for child in list(_iter_children(current))[:8]:
+            queue.append((child, depth + 1))
+    return {"provider": None, "model": None, "source": None}
 
 
 def _normalize_action(action: Any) -> tuple[Any, bool, dict[str, Any]]:
@@ -316,6 +484,7 @@ def _empty_result_payload() -> Dict[str, Any]:
         "reward": {"total": None, "last": None, "steps": 0},
         "schema": {},
         "history": [],
+        "capabilities": {"llm": {"provider": None, "model": None, "source": None}},
     }
 
 
@@ -333,15 +502,21 @@ def main() -> int:
     env_instance: AtlasEnvironmentProtocol | None = None
     agent_instance: AtlasAgentProtocol | None = None
     try:
+        _apply_langchain_workarounds()
         spec = _load_spec()
         project_root = Path(spec["project_root"]).resolve()
         sys.path.insert(0, str(project_root))
         src_dir = project_root / "src"
         if src_dir.exists():
             sys.path.insert(1, str(src_dir))
+        extra_paths = spec.get("pythonpath")
+        if isinstance(extra_paths, list):
+            for candidate in reversed(extra_paths):
+                if isinstance(candidate, str) and candidate not in sys.path:
+                    sys.path.insert(0, candidate)
         extra_env = spec.get("env") or {}
         for key, value in extra_env.items():
-            os.environ.setdefault(key, value)
+            os.environ[key] = value
         environment_spec = spec.get("environment") or {}
         agent_spec = spec.get("agent") or {}
         environment_factory_spec = spec.get("environment_factory")
@@ -391,10 +566,26 @@ def main() -> int:
         _ensure_protocol(env_instance, AtlasEnvironmentProtocol)
         _ensure_protocol(agent_instance, AtlasAgentProtocol)
         emitter = TelemetryCollector()
+        llm_metadata = _detect_llm_metadata(agent_instance)
         if run_loop:
             result_payload = _discovery_loop(env_instance, agent_instance, task, emitter=emitter)
         else:
             result_payload = _empty_result_payload()
+        capabilities_payload = result_payload.setdefault("capabilities", {})
+        if not isinstance(capabilities_payload, dict):
+            capabilities_payload = {}
+            result_payload["capabilities"] = capabilities_payload
+        llm_entry: dict[str, Any] = {}
+        existing_llm = capabilities_payload.get("llm")
+        if isinstance(existing_llm, dict):
+            llm_entry.update(existing_llm)
+        for key in ("provider", "model", "source"):
+            value = llm_metadata.get(key)
+            if value is not None:
+                llm_entry[key] = value
+            else:
+                llm_entry.setdefault(key, None)
+        capabilities_payload["llm"] = llm_entry
         response = {
             "status": "ok",
             "result": result_payload,
