@@ -4,6 +4,8 @@ import os
 
 import pytest
 
+from types import SimpleNamespace
+
 from langchain_core.messages import AIMessage
 
 from atlas.connectors.registry import build_adapter
@@ -383,3 +385,51 @@ def test_student_unwraps_adapter_response_string_arguments():
     assert isinstance(result, str)
     parsed = json.loads(result)
     assert parsed["steps"][0]["id"] == 4
+
+
+def test_student_injects_playbook_into_prompts():
+    ExecutionContext.get().reset()
+    ExecutionContext.get().metadata["learning_state"] = {
+        "student_learning": "Prioritise log review before escalating steps.",
+        "metadata": {"updated_at": "2025-02-02"},
+    }
+    student = object.__new__(Student)
+    student._prompts = SimpleNamespace(
+        planner="Base planner",
+        synthesizer="Base synthesizer",
+        executor="Base executor",
+    )
+    student._apply_learning_prompts = True
+    student._graph_builder = None
+    student._graph = None
+    student._graph_system_prompt = None
+    student._bridge_llm = None
+    student._tools = []
+
+    planner_prompt = student._compose_planner_prompt("Check logs")
+    assert planner_prompt.startswith(">>> Student Playbook >>>")
+    assert "Prioritise log review" in planner_prompt
+    assert "Base planner" in planner_prompt
+
+
+def test_student_skips_playbook_when_disabled():
+    ExecutionContext.get().reset()
+    ExecutionContext.get().metadata["learning_state"] = {
+        "student_learning": "Respect existing runbooks.",
+    }
+    student = object.__new__(Student)
+    student._prompts = SimpleNamespace(
+        planner="Planner body",
+        synthesizer="Synth body",
+        executor="Exec body",
+    )
+    student._apply_learning_prompts = False
+    student._graph_builder = None
+    student._graph = None
+    student._graph_system_prompt = None
+    student._bridge_llm = None
+    student._tools = []
+
+    planner_prompt = student._compose_planner_prompt("Investigate issue")
+    assert "Student Playbook" not in planner_prompt
+    assert planner_prompt.startswith("Planner body")

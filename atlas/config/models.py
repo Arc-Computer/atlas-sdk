@@ -301,6 +301,7 @@ class LearningConfig(BaseModel):
     prompts: LearningPrompts | None = None
     history_limit: int = Field(default=10, ge=1, le=200)
     session_note_enabled: bool = True
+    apply_to_prompts: bool = True
 
 class RIMConfig(BaseModel):
     """Aggregate reward model configuration."""

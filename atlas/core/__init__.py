@@ -93,6 +93,8 @@ async def arun(
         )
     base_student_prompts = build_student_prompts(base_prompt, config.student)
     base_teacher_prompts = build_teacher_prompts(base_prompt, config.teacher)
+    learning_cfg = getattr(config, "learning", LearningConfig())
+    apply_learning_prompts = getattr(learning_cfg, "apply_to_prompts", True)
     adaptive_teaching_cfg = getattr(config, "adaptive_teaching", AdaptiveTeachingConfig())
     execution_context.metadata["prompt_rewrite"] = {
         "student": {
@@ -106,10 +108,20 @@ async def arun(
             "guidance": base_teacher_prompts.guidance,
         },
     }
-    student = _build_student(adapter, config, base_student_prompts)
-    teacher = Teacher(config.teacher, base_teacher_prompts, adapter_config.tools)
+    execution_context.metadata["learning_apply_to_prompts"] = apply_learning_prompts
+    student = _build_student(
+        adapter,
+        config,
+        base_student_prompts,
+        apply_learning_prompts=apply_learning_prompts,
+    )
+    teacher = Teacher(
+        config.teacher,
+        base_teacher_prompts,
+        adapter_config.tools,
+        apply_learning_prompts=apply_learning_prompts,
+    )
     evaluator = _build_evaluator_instance(config, getattr(adaptive_teaching_cfg, "reward", None))
-    learning_cfg = getattr(config, "learning", LearningConfig())
     learning_synthesizer = _build_learning_synthesizer(config)
     execution_context.metadata["adaptive_default_tags"] = list(getattr(adaptive_teaching_cfg, "default_tags", []) or [])
     triage_adapter = _load_triage_adapter(getattr(adaptive_teaching_cfg, "triage_adapter", None))
@@ -260,13 +272,20 @@ def run(
     raise RuntimeError("atlas.run cannot be invoked inside an existing event loop")
 
 
-def _build_student(adapter, config: AtlasConfig, student_prompts) -> Student:
+def _build_student(
+    adapter,
+    config: AtlasConfig,
+    student_prompts,
+    *,
+    apply_learning_prompts: bool = True,
+) -> Student:
     adapter_config = config.agent
     return Student(
         adapter=adapter,
         adapter_config=adapter_config,
         student_config=config.student,
         student_prompts=student_prompts,
+        apply_learning_prompts=apply_learning_prompts,
     )
 
 

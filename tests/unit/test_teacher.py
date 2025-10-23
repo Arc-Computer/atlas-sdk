@@ -407,3 +407,56 @@ def test_avalidate_step_trims_guidance_in_coach_mode():
         assert result["guidance"] == "First sentence. Second sentence"
 
     asyncio.run(runner())
+
+
+def test_teacher_injects_playbook_into_prompts():
+    ExecutionContext.get().reset()
+    ExecutionContext.get().metadata["learning_state"] = {
+        "teacher_learning": "Require concrete reproduction steps before approval.",
+        "metadata": {"updated_at": "2025-02-03"},
+    }
+    config = TeacherConfig(
+        llm=_gpt5_params(),
+        max_review_tokens=512,
+        plan_cache_seconds=0,
+        guidance_max_tokens=256,
+        validation_max_tokens=256,
+    )
+    prompts = RewrittenTeacherPrompts(
+        plan_review="Plan base",
+        validation="Validation base",
+        guidance="Guidance base",
+    )
+    teacher = Teacher(config, prompts, apply_learning_prompts=True)
+    plan_prompt, digest, playbook_text = teacher._compose_prompt(teacher._plan_prompt)
+    assert plan_prompt.startswith(">>> Teacher Playbook >>>")
+    assert "Require concrete reproduction steps" in plan_prompt
+    assert "Plan base" in plan_prompt
+    assert "Last updated: 2025-02-03" in plan_prompt
+    assert playbook_text == "Require concrete reproduction steps before approval."
+    assert digest is not None
+
+
+def test_teacher_skips_playbook_when_disabled():
+    ExecutionContext.get().reset()
+    ExecutionContext.get().metadata["learning_state"] = {
+        "teacher_learning": "Always escalate compliance questions.",
+    }
+    config = TeacherConfig(
+        llm=_gpt5_params(),
+        max_review_tokens=512,
+        plan_cache_seconds=0,
+        guidance_max_tokens=256,
+        validation_max_tokens=256,
+    )
+    prompts = RewrittenTeacherPrompts(
+        plan_review="Plan base",
+        validation="Validation base",
+        guidance="Guidance base",
+    )
+    teacher = Teacher(config, prompts, apply_learning_prompts=False)
+    plan_prompt, digest, playbook_text = teacher._compose_prompt(teacher._plan_prompt)
+    assert ">>> Teacher Playbook >>>" not in plan_prompt
+    assert plan_prompt == "Plan base"
+    assert digest is None
+    assert playbook_text is None
