@@ -6,10 +6,16 @@ import argparse
 import json
 import sys
 import textwrap
+import copy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
+
+try:  # pragma: no cover - optional dependency
+    import yaml  # type: ignore[import-untyped]
+except Exception:  # pragma: no cover - optional dependency
+    yaml = None  # type: ignore[assignment]
 
 from atlas.cli.persistence import persist_discovery_run
 from atlas.cli.utils import (
@@ -22,6 +28,7 @@ from atlas.cli.utils import (
     parse_env_flags,
     parse_key_value_flags,
 )
+from atlas.config.models import LearningConfig, RuntimeSafetyConfig
 from atlas.sdk.discovery import Candidate, Role, discover_candidates, serialize_candidate, split_candidates, write_discovery_payload
 from atlas.sdk.factory_synthesis import FactorySynthesizer, ENV_VALIDATE_FLAG
 
@@ -126,6 +133,18 @@ SCAFFOLD_TEMPLATES = {
             """
         ),
     }
+}
+
+FULL_CONFIG_TEMPLATE = "openai_agent.yaml"
+
+_LLM_API_ENV_DEFAULTS: dict[str, str] = {
+    "openai": "OPENAI_API_KEY",
+    "azure-openai": "AZURE_OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "google": "GOOGLE_API_KEY",
+    "bedrock": "AWS_ACCESS_KEY_ID",
+    "xai": "XAI_API_KEY",
 }
 
 
@@ -279,8 +298,169 @@ def _infer_skip_reasons(targets: SelectedTargets) -> list[str]:
     return reasons
 
 
-def _write_generated_config(destination: Path, targets: SelectedTargets, capabilities: dict[str, object], *, force: bool) -> None:
-    _ensure_write(destination, force=force)
+def _resolve_callable_reference(target: TargetSpec) -> tuple[str | None, str | None]:
+    if target.factory is not None:
+        return target.factory
+    if target.candidate is not None:
+        return target.candidate.module, target.candidate.qualname
+    return None, None
+
+
+def _build_factory_metadata(target: TargetSpec) -> dict[str, Any] | None:
+    module, qualname = _resolve_callable_reference(target)
+    if not module or not qualname:
+        return None
+    payload: dict[str, Any] = {
+        "module": module,
+        "qualname": qualname,
+        "working_directory": "./",
+    }
+    if target.kwargs:
+        payload["kwargs"] = dict(target.kwargs)
+    if target.config:
+        payload["config"] = target.config
+    if target.auto_wrapped:
+        payload["auto_wrapped"] = True
+    return payload
+
+
+def _build_llm_block(template_block: dict[str, Any] | None, provider: str | None, model: str | None) -> dict[str, Any]:
+    block: dict[str, Any] = copy.deepcopy(template_block) if isinstance(template_block, dict) else {}
+    if provider:
+        block["provider"] = provider
+    else:
+        provider = block.get("provider") if isinstance(block.get("provider"), str) else None
+    if model:
+        block["model"] = model
+    if provider and not block.get("api_key_env"):
+        api_env = _LLM_API_ENV_DEFAULTS.get(provider)
+        if api_env:
+            block["api_key_env"] = api_env
+    return block
+
+
+def _load_full_config_template() -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    template_root = Path(__file__).resolve().parents[2] / "configs" / "examples"
+    template_path = template_root / FULL_CONFIG_TEMPLATE
+    info: dict[str, Any] = {"template_path": str(template_path)}
+    if yaml is None:
+        info["reason"] = "pyyaml-missing"
+        return None, info
+    if not template_path.exists():
+        info["reason"] = "template-missing"
+        return None, info
+    try:
+        raw = template_path.read_text(encoding="utf-8")
+    except OSError as exc:  # pragma: no cover - filesystem edge case
+        info["reason"] = f"template-read-error: {exc}"
+        return None, info
+    try:
+        payload = yaml.safe_load(raw) or {}
+    except Exception as exc:  # pragma: no cover - defensive guard
+        info["reason"] = f"template-parse-error: {exc}"
+        return None, info
+    if not isinstance(payload, dict):
+        info["reason"] = "template-invalid"
+        return None, info
+    return payload, info
+
+
+def _compose_full_config_payload(
+    template_payload: dict[str, Any],
+    targets: SelectedTargets,
+    project_root: Path,
+    llm_capabilities: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    config_payload = copy.deepcopy(template_payload)
+    agent_module, agent_qualname = _resolve_callable_reference(targets.agent)
+    if not agent_module or not agent_qualname:
+        return None, {"reason": "agent-missing"}
+    agent_template = config_payload.get("agent") if isinstance(config_payload.get("agent"), dict) else {}
+    agent_block = copy.deepcopy(agent_template)
+    agent_block["type"] = "python"
+    agent_block["import_path"] = agent_module
+    agent_block["attribute"] = agent_qualname
+    agent_block["working_directory"] = "./"
+    agent_block["allow_generator"] = False
+    agent_block.setdefault("tools", agent_template.get("tools") if isinstance(agent_template, dict) else [])
+    agent_block.setdefault("system_prompt", agent_template.get("system_prompt") if isinstance(agent_template, dict) else "")
+    default_agent_name = agent_template.get("name") if isinstance(agent_template, dict) else None
+    if not isinstance(default_agent_name, str) or not default_agent_name.strip():
+        default_agent_name = f"{project_root.name}-agent"
+    agent_block["name"] = default_agent_name
+
+    llm_provider = llm_capabilities.get("provider") if isinstance(llm_capabilities, dict) else None
+    llm_model = llm_capabilities.get("model") if isinstance(llm_capabilities, dict) else None
+    llm_source = llm_capabilities.get("source") if isinstance(llm_capabilities, dict) else None
+    agent_block["llm"] = _build_llm_block(agent_template.get("llm") if isinstance(agent_template, dict) else None, llm_provider, llm_model)
+    config_payload["agent"] = agent_block
+
+    teacher_template = config_payload.get("teacher") if isinstance(config_payload.get("teacher"), dict) else {}
+    teacher_block = copy.deepcopy(teacher_template)
+    teacher_block["llm"] = _build_llm_block(teacher_template.get("llm") if isinstance(teacher_template, dict) else None, llm_provider, llm_model)
+    config_payload["teacher"] = teacher_block
+
+    if not isinstance(config_payload.get("learning"), dict):
+        config_payload["learning"] = LearningConfig().model_dump()
+    if not isinstance(config_payload.get("runtime_safety"), dict):
+        config_payload["runtime_safety"] = RuntimeSafetyConfig().model_dump()
+
+    metadata_block = config_payload.get("metadata") if isinstance(config_payload.get("metadata"), dict) else {}
+    discovery_meta: dict[str, Any] = {}
+    env_metadata = _build_factory_metadata(targets.environment)
+    if env_metadata:
+        discovery_meta["environment_factory"] = env_metadata
+    agent_metadata = _build_factory_metadata(targets.agent)
+    if agent_metadata:
+        discovery_meta["agent_factory"] = agent_metadata
+    if llm_provider or llm_model or llm_source:
+        discovery_meta["llm"] = {
+            "provider": llm_provider,
+            "model": llm_model,
+            "source": llm_source,
+        }
+    if discovery_meta:
+        metadata_block = copy.deepcopy(metadata_block)
+        existing_discovery = metadata_block.get("discovery")
+        if isinstance(existing_discovery, dict):
+            merged = copy.deepcopy(existing_discovery)
+            merged.update(discovery_meta)
+        else:
+            merged = discovery_meta
+        metadata_block["discovery"] = merged
+        config_payload["metadata"] = metadata_block
+
+    info = {
+        "llm_provider": llm_provider,
+        "llm_model": llm_model,
+        "llm_source": llm_source,
+        "llm_inferred": bool(llm_provider or llm_model),
+    }
+    return config_payload, info
+
+
+def _prepare_full_config_payload(
+    project_root: Path,
+    targets: SelectedTargets,
+    capabilities: dict[str, object],
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    template_payload, template_info = _load_full_config_template()
+    info = dict(template_info)
+    if template_payload is None:
+        return None, info
+    llm_capabilities = capabilities.get("llm") if isinstance(capabilities, dict) else {}
+    if not isinstance(llm_capabilities, dict):
+        llm_capabilities = {}
+    payload, compose_info = _compose_full_config_payload(template_payload, targets, project_root, llm_capabilities)
+    info.update(compose_info or {})
+    if payload is None:
+        info.setdefault("reason", compose_info.get("reason") if compose_info else "full-config-unavailable")
+    else:
+        info.setdefault("mode", "full")
+    return payload, info
+
+
+def _write_stub_config(destination: Path, targets: SelectedTargets, capabilities: dict[str, object]) -> None:
     control_loop = capabilities.get("control_loop", "self")
     supports_stepwise = bool(capabilities.get("supports_stepwise", False))
     preferred_mode = capabilities.get("preferred_mode", "auto")
@@ -313,6 +493,31 @@ def _write_generated_config(destination: Path, targets: SelectedTargets, capabil
     destination.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _write_generated_config(
+    destination: Path,
+    project_root: Path,
+    targets: SelectedTargets,
+    capabilities: dict[str, object],
+    *,
+    force: bool,
+    scaffold_full: bool,
+) -> dict[str, Any]:
+    _ensure_write(destination, force=force)
+    if scaffold_full:
+        payload, info = _prepare_full_config_payload(project_root, targets, capabilities)
+        if payload is not None and yaml is not None:
+            rendered = yaml.safe_dump(payload, sort_keys=False)
+            destination.write_text(rendered, encoding="utf-8")
+            info.setdefault("mode", "full")
+            return info
+        fallback_info = info if isinstance(info, dict) else {}
+    else:
+        fallback_info = {}
+    _write_stub_config(destination, targets, capabilities)
+    fallback_info.setdefault("mode", "stub")
+    return fallback_info
+
+
 def _compose_metadata(
     project_root: Path,
     targets: SelectedTargets,
@@ -343,6 +548,16 @@ def _compose_metadata(
         ),
         "preferred_mode": "auto" if control_loop == "self" else "paired",
     }
+    discovery_capabilities = discovery_payload.get("capabilities")
+    if isinstance(discovery_capabilities, dict):
+        llm_caps = discovery_capabilities.get("llm")
+        if isinstance(llm_caps, dict):
+            capabilities["llm"] = {
+                "provider": llm_caps.get("provider"),
+                "model": llm_caps.get("model"),
+                "source": llm_caps.get("source"),
+                "inferred": bool(llm_caps.get("provider") or llm_caps.get("model")),
+            }
     metadata = {
         "version": 1,
         "generated_at": generated_at,
@@ -655,12 +870,41 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     capabilities = metadata.get("capabilities") if isinstance(metadata.get("capabilities"), dict) else {}
     write_discovery_payload(discovery_path, metadata=metadata)
     try:
-        _write_generated_config(config_path, targets, capabilities, force=args.force)
+        scaffold_info = _write_generated_config(
+            config_path,
+            project_root,
+            targets,
+            capabilities,
+            force=args.force,
+            scaffold_full=bool(getattr(args, "scaffold_config_full", False)),
+        )
     except FileExistsError as exc:
         print(exc, file=sys.stderr)
         return 1
     print(f"Discovery metadata written to {discovery_path}")
-    print(f"Generated config stub written to {config_path}")
+    if scaffold_info.get("mode") == "full":
+        print(f"Generated runnable config written to {config_path}")
+        template_path = scaffold_info.get("template_path")
+        if template_path:
+            print(f"  Template source: {template_path}")
+        if scaffold_info.get("llm_inferred"):
+            provider = scaffold_info.get("llm_provider") or scaffold_info.get("llm", {}).get("provider")
+            model_name = scaffold_info.get("llm_model") or scaffold_info.get("llm", {}).get("model")
+            print(
+                "  Inferred LLM metadata: provider={provider} model={model}".format(
+                    provider=provider or "unknown",
+                    model=model_name or "unknown",
+                )
+            )
+        else:
+            if getattr(args, "scaffold_config_full", False):
+                print("  LLM provider/model not inferred; template defaults retained.")
+    else:
+        print(f"Generated config stub written to {config_path}")
+        if getattr(args, "scaffold_config_full", False):
+            reason = scaffold_info.get("reason")
+            if reason:
+                print(f"  Unable to scaffold full config ({reason}); wrote discovery stub instead.")
     telemetry_status = "enabled" if capabilities.get("telemetry_agent_emitted") else "missing"
     print(
         "Detected handshake: control_loop={control} supports_stepwise={stepwise} telemetry={telemetry}".format(
@@ -755,6 +999,14 @@ def register_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPars
         action="append",
         default=[],
         help="Keyword argument for the agent factory (repeatable).",
+    )
+    init_parser.add_argument(
+        "--scaffold-config-full",
+        action="store_true",
+        help=(
+            "Generate a runnable Atlas configuration using discovery metadata and template defaults. "
+            "Falls back to the legacy stub if the template cannot be loaded."
+        ),
     )
     init_parser.add_argument(
         "--env-config",

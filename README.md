@@ -111,8 +111,11 @@ atlas run --task "Investigate production incident"
 ```
 
 `atlas env init` scans your codebase, captures telemetry, and writes
-`.atlas/discover.json` / `.atlas/generated_config.yaml`. When it detects heavier
-stacks (LangGraph/DeepAgents, multi-service environments, etc.) it records preflight notes and skips
+`.atlas/discover.json` / `.atlas/generated_config.yaml`. Pass `--scaffold-config-full`
+to have the CLI merge discovery metadata into a runnable Atlas configuration using
+the OpenAI example template—provider/model hints are propagated automatically when
+we can introspect your agent stack. When it detects heavier stacks
+(LangGraph/DeepAgents, multi-service environments, etc.) it records preflight notes and skips
 execution until you rerun with `--validate`. When autodiscovery finds no candidates it prints a reminder pointing to
 `atlas env scaffold --template langgraph` so you can start from a working factory.
 
