@@ -1,0 +1,69 @@
+presets:
+  gemini-2.5-flash:
+    provider: GEMINI
+    model: gemini/gemini-2.5-flash
+    api_key_env: GEMINI_API_KEY
+    temperature: 0.2
+    timeout_seconds: 60.0
+    max_output_tokens: 8096
+  gemini-2.5-pro:
+    provider: GEMINI
+    model: gemini/gemini-2.5-pro
+    api_key_env: GEMINI_API_KEY
+    temperature: 0.2
+    timeout_seconds: 60.0
+    max_output_tokens: 8096
+  claude-haiku-4-5:
+    provider: ANTHROPIC
+    model: claude-haiku-4-5
+    api_key_env: ANTHROPIC_API_KEY
+    temperature: 0.2
+    timeout_seconds: 60.0
+  claude-sonnet-4-5-20250929:
+    provider: ANTHROPIC
+    model: claude-sonnet-4-5-20250929
+    api_key_env: ANTHROPIC_API_KEY
+    temperature: 0.15
+    timeout_seconds: 60.0
+  grok-4-fast:
+    provider: XAI
+    model: xai/grok-4-fast
+    api_key_env: XAI_API_KEY
+    temperature: 0.2
+    timeout_seconds: 45.0
+  grok-4:
+    provider: XAI
+    model: xai/grok-4
+    api_key_env: XAI_API_KEY
+    temperature: 0.2
+    timeout_seconds: 60.0
+  gpt-5-mini:
+    provider: OPENAI
+    model: gpt-5-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.2
+    timeout_seconds: 60.0
+  gpt-5:
+    provider: OPENAI
+    model: gpt-5
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.2
+    timeout_seconds: 60.0
+
+combos:
+  gemini_pair:
+    small_preset: gemini-2.5-flash
+    large_preset: gemini-2.5-pro
+    description: "Gemini Flash (small) ➜ Gemini Pro (arbiter)"
+  claude_stack:
+    small_preset: claude-haiku-4-5
+    large_preset: claude-sonnet-4-5-20250929
+    description: "Claude Haiku ➜ Claude Sonnet"
+  gpt5_stack:
+    small_preset: gpt-5-mini
+    large_preset: gpt-5
+    description: "GPT-5 Mini ➜ GPT-5"
+  grok_stack:
+    small_preset: grok-4-fast
+    large_preset: grok-4
+    description: "Grok 4 Fast ➜ Grok 4"

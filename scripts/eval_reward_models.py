@@ -7,6 +7,7 @@ import statistics
 import sys
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
@@ -18,8 +19,14 @@ from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.types import Plan, Step
 from atlas.utils.env import load_dotenv_if_available
 
+try:
+    import yaml
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    yaml = None
+
 DEFAULT_DATASET = Path("atlas/data/reward_eval_trajectories.jsonl")
 DEFAULT_CONFIG = Path("configs/examples/openai_agent.yaml")
+REWARD_CONFIG_PATH = Path("configs/eval/reward_system.yaml")
 
 
 @dataclass(frozen=True)
@@ -40,7 +47,7 @@ class JudgeCombo:
     description: str
 
 
-JUDGE_PRESETS: dict[str, dict[str, Any]] = {
+DEFAULT_JUDGE_PRESETS: dict[str, dict[str, Any]] = {
     "gemini-2.5-flash": {
         "provider": LLMProvider.GEMINI,
         "model": "gemini/gemini-2.5-flash",
@@ -102,7 +109,7 @@ JUDGE_PRESETS: dict[str, dict[str, Any]] = {
 }
 
 
-JUDGE_COMBOS: dict[str, JudgeCombo] = {
+DEFAULT_JUDGE_COMBOS: dict[str, JudgeCombo] = {
     "gemini_pair": JudgeCombo(
         identifier="gemini_pair",
         small_preset="gemini-2.5-flash",
@@ -130,48 +137,196 @@ JUDGE_COMBOS: dict[str, JudgeCombo] = {
 }
 
 
+def _coerce_provider(raw: Any) -> LLMProvider:
+    if isinstance(raw, LLMProvider):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return LLMProvider[raw]
+        except KeyError:
+            raise ValueError(f"Unknown provider value '{raw}'") from None
+    raise ValueError(f"Provider must be LLMProvider or string, got {type(raw)!r}")
+
+
+def _load_reward_system_config(
+    path: Path,
+) -> tuple[dict[str, dict[str, Any]], dict[str, JudgeCombo]]:
+    presets = {name: preset.copy() for name, preset in DEFAULT_JUDGE_PRESETS.items()}
+    combos = DEFAULT_JUDGE_COMBOS.copy()
+
+    if not path.exists():
+        return presets, combos
+
+    if yaml is None:
+        print(
+            f"[reward-eval] PyYAML not installed; ignoring {path}. Install pyyaml to customize reward presets.",
+            file=sys.stderr,
+        )
+        return presets, combos
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = yaml.safe_load(handle) or {}
+    except Exception as exc:  # pragma: no cover - configuration parsing
+        print(f"[reward-eval] Failed to parse {path}: {exc}", file=sys.stderr)
+        return presets, combos
+
+    raw_presets = payload.get("presets", {}) if isinstance(payload, dict) else {}
+    if isinstance(raw_presets, dict):
+        for name, data in raw_presets.items():
+            if not isinstance(data, dict):
+                continue
+            if name not in presets and "provider" not in data:
+                print(
+                    f"[reward-eval] Skipping preset '{name}': missing required 'provider' field for new preset.",
+                    file=sys.stderr,
+                )
+                continue
+            try:
+                provider = _coerce_provider(data.get("provider", presets.get(name, {}).get("provider")))
+            except ValueError as exc:
+                print(f"[reward-eval] Skipping preset '{name}': {exc}", file=sys.stderr)
+                continue
+            preset = {
+                "provider": provider,
+                "model": data.get("model"),
+                "api_key_env": data.get("api_key_env"),
+                "temperature": data.get("temperature", presets.get(name, {}).get("temperature", 0.2)),
+                "timeout_seconds": data.get(
+                    "timeout_seconds",
+                    presets.get(name, {}).get("timeout_seconds"),
+                ),
+                "max_output_tokens": data.get(
+                    "max_output_tokens",
+                    presets.get(name, {}).get("max_output_tokens"),
+                ),
+            }
+            presets[name] = {key: value for key, value in preset.items() if value is not None}
+
+    raw_combos = payload.get("combos", {}) if isinstance(payload, dict) else {}
+    if isinstance(raw_combos, dict):
+        for name, data in raw_combos.items():
+            if not isinstance(data, dict):
+                continue
+            small = data.get("small_preset")
+            large = data.get("large_preset")
+            if not small or not large:
+                print(f"[reward-eval] Combo '{name}' missing small/large presets; skipping.", file=sys.stderr)
+                continue
+            description = data.get("description") or (
+                DEFAULT_JUDGE_COMBOS[name].description if name in DEFAULT_JUDGE_COMBOS else name
+            )
+            combos[name] = JudgeCombo(
+                identifier=name,
+                small_preset=small,
+                large_preset=large,
+                description=description,
+            )
+
+    return presets, combos
+
+
+JUDGE_PRESETS, JUDGE_COMBOS = _load_reward_system_config(REWARD_CONFIG_PATH)
+
+
+def _json_safe(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _json_safe(val) for key, val in value.items()}
+    if isinstance(value, set):
+        try:
+            ordered = sorted(value)  # type: ignore[call-arg]
+        except TypeError:
+            ordered = sorted((repr(item), item) for item in value)
+            return [_json_safe(item) for _, item in ordered]
+        return [_json_safe(item) for item in ordered]
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    for attr in ("model_dump", "dict"):
+        if hasattr(value, attr):
+            try:
+                dumped = getattr(value, attr)()
+            except Exception:
+                continue
+            return _json_safe(dumped)
+    return repr(value)
+
+
 class HarnessEvaluator(Evaluator):
     """Evaluator variant with relaxed payload parsing for offline reward sweeps."""
+
+    def __init__(self, config: RIMConfig, *, collect_audit: bool = False) -> None:
+        super().__init__(config)
+        self._collect_audit = collect_audit
 
     async def _sample_session(  # type: ignore[override]
         self,
         trajectory: SessionTrajectory,
         focus_prompt: str | None,
         temperature: float,
-    ) -> SessionSample | None:
+    ) -> tuple[SessionSample | None, dict[str, Any] | None]:
         messages = self._build_session_messages(trajectory, focus_prompt)
         exec_context = ExecutionContext.get()
         exec_context.metadata["active_actor"] = "reward"
         exec_context.metadata["_reasoning_origin"] = ("reward", "sample")
+        audit_entry: dict[str, Any] | None = None
+        if self._collect_audit:
+            audit_entry = {
+                "stage": "tier1",
+                "model": self._small_client.model,
+                "temperature": temperature,
+                "messages": messages,
+            }
         try:
             response = await self._small_client.acomplete(
                 messages,
                 response_format={"type": "json_object"},
                 overrides={"temperature": temperature},
             )
-        except Exception:
+            if self._collect_audit and audit_entry is not None:
+                audit_entry["response"] = response.content
+                audit_entry["raw_response"] = response.raw
+                if response.reasoning:
+                    audit_entry["reasoning"] = response.reasoning
+        except Exception as exc:
             exec_context.metadata.setdefault("_llm_reasoning_queue", [])
             exec_context.metadata["_llm_reasoning_queue"].clear()
-            return None
+            if self._collect_audit:
+                if audit_entry is None:
+                    audit_entry = {
+                        "stage": "tier1",
+                        "model": self._small_client.model,
+                        "temperature": temperature,
+                        "messages": messages,
+                    }
+                audit_entry["error"] = repr(exc)
+            return (None, audit_entry) if self._collect_audit else (None, None)
 
         payload = self._try_parse_json(response.content)
         if payload is None:
             payload = self._extract_from_tool_calls(response.raw)
         payload = self._normalise_payload(payload)
-        self._consume_reasoning_metadata("reward", "sample")
+        reasoning_queue = self._consume_reasoning_metadata("reward", "sample")
+        if self._collect_audit and audit_entry is not None and reasoning_queue:
+            audit_entry["reasoning_queue"] = reasoning_queue
 
         if payload is None:
-            return None
+            if self._collect_audit and audit_entry is not None:
+                audit_entry["parse_error"] = "empty_or_unrecognised_payload"
+            return (None, audit_entry) if self._collect_audit else (None, None)
         parsed = self._parse_session_payload(payload)
         if parsed is None:
-            return None
+            if self._collect_audit and audit_entry is not None:
+                audit_entry["parse_error"] = "invalid_payload_shape"
+            return (None, audit_entry) if self._collect_audit else (None, None)
 
         return SessionSample(
             score=parsed["score"],
             uncertainty=parsed["uncertainty"],
             rationale=parsed["rationale"],
             principles=parsed["principles"],
-        )
+        ), audit_entry if self._collect_audit else None
 
     def _normalise_payload(self, payload: Any) -> dict[str, Any] | None:
         if not isinstance(payload, dict):
@@ -288,6 +443,17 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         type=Path,
         default=None,
         help="Optional path to write JSON report (per run details + summaries).",
+    )
+    parser.add_argument(
+        "--markdown-output",
+        type=Path,
+        default=None,
+        help="Optional path to write Markdown summary (defaults to results/reward/<timestamp>.md).",
+    )
+    parser.add_argument(
+        "--collect-audit",
+        action="store_true",
+        help="Capture minimal model prompts/responses for debugging reward judge behaviour.",
     )
     return parser.parse_args(argv)
 
@@ -408,7 +574,7 @@ def _build_rim_config(base: RIMConfig, combo: JudgeCombo) -> RIMConfig:
     return base.model_copy(update={"small_model": small, "large_model": large})
 
 
-EvaluatorFactory = Callable[[RIMConfig], Evaluator]
+EvaluatorFactory = Callable[[RIMConfig, bool], Evaluator]
 
 
 async def evaluate_combo(
@@ -419,8 +585,9 @@ async def evaluate_combo(
     repeats: int,
     concurrency: int,
     evaluator_factory: EvaluatorFactory,
+    collect_audit: bool,
 ) -> list[dict[str, Any]]:
-    evaluator = evaluator_factory(rim_config)
+    evaluator = evaluator_factory(rim_config, collect_audit)
     semaphore = asyncio.Semaphore(max(1, concurrency))
     results: list[dict[str, Any]] = []
 
@@ -458,6 +625,7 @@ async def evaluate_combo(
             uncertainties: list[float] = []
             escalated: bool | None = None
             samples: list[dict[str, Any]] | None = None
+            audit_entries: list[dict[str, Any]] | None = None
             if evaluation is not None and error is None:
                 score = float(evaluation.reward.score)
                 samples_payload = evaluation.reward.raw.get("samples") if isinstance(evaluation.reward.raw, dict) else None
@@ -468,6 +636,8 @@ async def evaluate_combo(
                         if isinstance(uncertainty, (int, float)):
                             uncertainties.append(float(uncertainty))
                 escalated = any(judge.escalated for judge in evaluation.reward.judges)
+                if collect_audit and evaluation.audit:
+                    audit_entries = [_json_safe(entry) for entry in evaluation.audit]
             uncertainty_value = statistics.fmean(uncertainties) if uncertainties else None
             return {
                 "combo": combo.identifier,
@@ -481,6 +651,7 @@ async def evaluate_combo(
                 "latency_ms": latency * 1000.0,
                 "error": error,
                 "samples": samples,
+                "audit": audit_entries,
             }
 
     for repeat_index in range(repeats):
@@ -634,6 +805,74 @@ def render_summary_table(
         print(" | ".join(row[idx].ljust(widths[idx]) for idx in range(len(headers))))
 
 
+def generate_markdown_report(
+    summaries: dict[str, dict[str, Any]],
+    combos: dict[str, JudgeCombo],
+    *,
+    metadata: dict[str, Any],
+    baseline: str | None,
+) -> str:
+    lines: list[str] = []
+    title = metadata.get("title") or "Reward Model Evaluation"
+    lines.append(f"# {title}")
+    generated = metadata.get("generated_at")
+    if generated:
+        lines.append(f"_Generated: {generated}_")
+    lines.append("")
+    dataset = metadata.get("dataset")
+    if dataset:
+        lines.append(f"- **Dataset:** `{dataset}`")
+    baseline_label = baseline
+    if baseline and baseline in combos:
+        baseline_label = combos[baseline].description
+    if baseline:
+        lines.append(f"- **Baseline:** {baseline} ({baseline_label})")
+    repeats = metadata.get("repeats")
+    if repeats:
+        lines.append(f"- **Repeats:** {repeats}")
+    lines.append("")
+
+    headers = [
+        "Combo",
+        "Score (avg)",
+        "Score σ",
+        "Escalation",
+        "Uncertainty",
+        "Latency ms",
+        "Failures",
+    ]
+    lines.append(" | ".join(headers))
+    lines.append(" | ".join("---" for _ in headers))
+
+    ordered_combos = metadata.get("combos") or sorted(summaries)
+    for combo_id in ordered_combos:
+        summary = summaries.get(combo_id)
+        if not summary:
+            continue
+        combo = combos.get(combo_id)
+        label = combo.description if combo else combo_id
+        if combo_id == baseline:
+            label = f"{label} (baseline)"
+        score_mean = summary.get("score_mean")
+        score_std = summary.get("score_stdev")
+        escalation = summary.get("escalation_rate")
+        uncertainty = summary.get("uncertainty_mean")
+        latency = summary.get("latency_mean_ms")
+        failures = summary.get("failures")
+        row = [
+            label,
+            f"{score_mean:.3f}" if score_mean is not None else "n/a",
+            f"{score_std:.3f}" if score_std is not None else "n/a",
+            f"{escalation:.2%}" if escalation is not None else "n/a",
+            f"{uncertainty:.3f}" if uncertainty is not None else "n/a",
+            f"{latency:.1f}" if latency is not None else "n/a",
+            str(failures),
+        ]
+        lines.append(" | ".join(row))
+
+    return "\n".join(lines) + "\n"
+
+
 async def main_async(args: argparse.Namespace) -> dict[str, Any]:
     load_dotenv_if_available()
     config = load_config(str(args.base_config))
@@ -664,8 +903,8 @@ async def main_async(args: argparse.Namespace) -> dict[str, Any]:
 
     rim_base: RIMConfig = config.rim
 
-    def evaluator_factory(rim_cfg: RIMConfig) -> Evaluator:
-        return HarnessEvaluator(rim_cfg)
+    def evaluator_factory(rim_cfg: RIMConfig, collect_audit: bool) -> Evaluator:
+        return HarnessEvaluator(rim_cfg, collect_audit=collect_audit)
 
     per_run_records: list[dict[str, Any]] = []
     for combo in requested_combos:
@@ -678,6 +917,7 @@ async def main_async(args: argparse.Namespace) -> dict[str, Any]:
             repeats=max(1, args.repeats),
             concurrency=max(1, args.concurrency),
             evaluator_factory=evaluator_factory,
+            collect_audit=args.collect_audit,
         )
         per_run_records.extend(combo_records)
         print(f"Completed combo '{combo.identifier}'.")
@@ -692,23 +932,39 @@ async def main_async(args: argparse.Namespace) -> dict[str, Any]:
         baseline=baseline_combo.identifier if baseline_combo else None,
     )
 
+    generated_at = datetime.now(timezone.utc)
+    timestamp_slug = generated_at.strftime("%Y%m%dT%H%M%SZ")
     report = {
         "metadata": {
+            "title": "Reward Model Evaluation",
             "dataset": str(args.dataset),
             "base_config": str(args.base_config),
             "combos": [combo.identifier for combo in requested_combos],
             "baseline": baseline_combo.identifier if baseline_combo else None,
             "repeats": max(1, args.repeats),
             "concurrency": max(1, args.concurrency),
+            "generated_at": generated_at.isoformat(),
         },
         "per_run": per_run_records,
         "summaries": summaries,
     }
 
+    markdown_path = args.markdown_output or Path("results/reward") / f"reward_eval_{timestamp_slug}.md"
+    markdown_path.parent.mkdir(parents=True, exist_ok=True)
+    markdown_payload = generate_markdown_report(
+        summaries,
+        JUDGE_COMBOS,
+        metadata=report["metadata"],
+        baseline=report["metadata"]["baseline"],
+    )
+    markdown_path.write_text(markdown_payload, encoding="utf-8")
+    print(f"Saved Markdown summary to {markdown_path}")
+
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         with args.output.open("w", encoding="utf-8") as handle:
             json.dump(report, handle, indent=2)
+        print(f"Wrote JSON report to {args.output}")
     return report
 
 

@@ -36,7 +36,9 @@ This evaluation mirrors the probe and runtime sweeps for reward interpreters (RI
 | `gpt5_stack`  | `gpt-5-mini` (OpenAI)               | `gpt-5` (OpenAI)                     | Evaluates OpenAI’s small/large pairing for parity with runtime options. |
 | `grok_stack`  | `xai/grok-4-fast` (xAI)             | `xai/grok-4` (xAI)                   | Tests xAI’s fast vs. larger Grok judges without cross-provider escalation. |
 
-Add new combinations by extending `JUDGE_PRESETS` and `JUDGE_COMBOS` in `scripts/eval_reward_models.py`; no orchestrator code changes are required.
+Add new combinations by editing `configs/eval/reward_system.yaml`; no orchestrator code changes are required. The CLI will use the file when present and fall back to the baked-in defaults otherwise.
+
+> **Configuration-first:** The defaults above live in `configs/eval/reward_system.yaml`. Update that file to swap models or add combos—`scripts/eval_reward_models.py` will load it automatically and fall back to built-ins if the file is missing.
 
 ### Harness Workflow
 1. Ensure the dataset is committed and up to date (`atlas/data/reward_eval_trajectories.jsonl`).
@@ -47,7 +49,8 @@ Add new combinations by extending `JUDGE_PRESETS` and `JUDGE_COMBOS` in `scripts
      --dataset atlas/data/reward_eval_trajectories.jsonl \
      --output results/reward/eval_gemini_claude.json \
      --repeats 1 \
-     --concurrency 1
+     --concurrency 1 \
+     --collect-audit
    ```
    4. Inspect the console table for high-level metrics and review the JSON artifact for per-run details.
    When you are ready to compare every judge pairing in one pass, run:
@@ -57,7 +60,8 @@ Add new combinations by extending `JUDGE_PRESETS` and `JUDGE_COMBOS` in `scripts
      --dataset atlas/data/reward_eval_trajectories.jsonl \
      --output results/reward/latest.json \
      --repeats 1 \
-     --concurrency 1
+     --concurrency 1 \
+     --collect-audit
    ```
 
 Key command options:
@@ -65,6 +69,12 @@ Key command options:
 - `--baseline`: combo ID used for deltas and correlation (defaults to `gemini_pair`).
 - `--repeats`: number of passes over the dataset (helps quantify variance).
 - `--concurrency`: maximum concurrent evaluations per combo.
+- `--collect-audit`: capture minimal prompt/response context for debugging judge behaviour.
+- `--markdown-output`: override the Markdown summary path (defaults to `results/reward/<timestamp>.md`).
+
+Each run writes:
+- A Markdown summary table to `results/reward/<timestamp>.md` (or the path you pass via `--markdown-output`).
+- A JSON artifact when `--output` is provided.
 
 ### Metrics Captured
 - **Reward score statistics:** mean and standard deviation across successful runs.
@@ -75,16 +85,6 @@ Key command options:
 - **Baseline agreement:** delta statistics, Pearson correlation, and fraction of runs within ±0.02 reward of the baseline pair.
   *Tip:* divide `latency_*_ms` by 1 000 when reporting seconds.
 
-#### Latest Evaluation (2025-10-20)
+#### Latest Evaluation
 
-| Combo ID      | Avg Reward | σ (Reward) | Avg Uncertainty | Escalation Rate | Avg Latency (s) |
-|---------------|-----------:|-----------:|----------------:|----------------:|----------------:|
-| `gemini_pair` | 0.938      | 0.206      | 0.028           | 5.0 %           | 13.8            |
-| `claude_stack`| 0.625      | 0.388      | 0.395           | 2.5 %           | 13.3            |
-| `gpt5_stack`  | 0.869      | 0.116      | 0.164           | 22.5 %          | 35.4            |
-| `grok_stack`  | 0.923      | 0.173      | 0.072           | 2.5 %           | 6.2             |
-
-- Gemini remains the strongest overall scorer with low variance and minimal escalations at moderate latency (~14 s).  
-- Grok is nearly as strong on reward, with very low uncertainty and the fastest latency (~6 s).  
-- GPT‑5 yields solid reward but escalates frequently and costs ~35 s per evaluation.  
-- Claude shows competitive highs but 11/40 runs dropped to 0 (uncertainty 1.0), indicating remaining response-parsing issues for this stack—investigate before relying on it.
+The CLI emits a Markdown report for every run (see `results/reward/`). Import the latest generated table into your release notes or dashboards instead of maintaining static values here.
