@@ -8,6 +8,7 @@ from atlas.config.models import AdapterType
 from atlas.config.models import AdaptiveProbeConfig
 from atlas.config.models import AdaptiveTeachingConfig
 from atlas.config.models import AtlasConfig
+from atlas.config.models import LearningConfig
 from atlas.config.models import LLMParameters
 from atlas.config.models import LLMProvider
 from atlas.config.models import OrchestrationConfig
@@ -25,6 +26,7 @@ __all__ = [
     "AdaptiveTeachingConfig",
     "AtlasConfig",
     "ConfigLoadError",
+    "LearningConfig",
     "LLMParameters",
     "LLMProvider",
     "OrchestrationConfig",

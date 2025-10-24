@@ -163,15 +163,18 @@ Return JSON only. Format:
 
         Make your validation decision:
         - valid=true: The output is acceptable, proceed to next step or task
-        - valid=false: The output needs correction
+        - valid=false: The output needs correction AND YOU MUST PROVIDE GUIDANCE.
 
-        If validation fails (valid=false), provide guidance for correction:
-        - Be specific about what's wrong
-        - Reference the exact issue in the student's output
-        - State what needs to be fixed
-        - Keep guidance focused and actionable
+        When valid=false:
+        - `guidance` MUST be a non-empty string.
+        - Point to the exact issue (wrong fact, missing reasoning, format breach, skipped query, etc.).
+        - State the precise corrective action the student must take next (e.g., re-run a query with filter X, reformat answer, supply reasoning that cites table/column, etc.).
+        - If multiple issues exist, prioritise the blocker that prevents acceptance.
 
-        Provide your validation decision and, if the output is invalid, specific correction guidance.
+        When valid=true:
+        - You MAY set `guidance` to null or provide encouragement.
+
+        Output JSON only with the schema below. Do not return empty guidance when valid=false.
         """
     )
     validation_schema = dedent(

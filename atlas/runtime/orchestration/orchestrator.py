@@ -12,6 +12,7 @@ from typing import Callable
 from typing import Dict
 from typing import List
 from typing import Optional
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from atlas.config.models import AdaptiveTeachingConfig
@@ -34,6 +35,9 @@ from atlas.types import Result
 from atlas.types import Step
 from atlas.types import StepEvaluation
 from atlas.types import StepResult
+
+if TYPE_CHECKING:
+    from atlas.learning.synthesizer import LearningSynthesizer, LearningUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +73,7 @@ class Orchestrator:
         adaptive_config: AdaptiveTeachingConfig | None = None,
         triage_adapter: Callable[[str, Dict[str, Any] | None], TriageDossier] | None = None,
         capability_probe: CapabilityProbeClient | None = None,
+        learning_synthesizer: "LearningSynthesizer | None" = None,
     ) -> None:
         self._teacher = teacher
         self._student = student
@@ -79,6 +84,7 @@ class Orchestrator:
         self._adaptive = adaptive_config or AdaptiveTeachingConfig()
         self._triage_adapter = triage_adapter or default_build_dossier
         self._capability_probe = capability_probe
+        self._learning_synthesizer = learning_synthesizer
 
     async def arun(self, task: str) -> Result:
         context = ExecutionContext.get()
@@ -755,15 +761,46 @@ class Orchestrator:
             logger.exception("Failed to build session trajectory: %s", exc)
             return
         try:
-            evaluation = await self._evaluator.aevaluate_session(trajectory)
+            reward = await self._evaluator.aevaluate_session(trajectory)
         except Exception as exc:  # pragma: no cover - defensive guard
             logger.exception("Session-level reward evaluation failed: %s", exc)
             return
-        context.set_session_reward(
-            evaluation.reward,
-            student_learning=evaluation.student_learning,
-            teacher_learning=evaluation.teacher_learning,
+        context.set_session_reward(reward)
+        try:
+            await self._maybe_update_learning(trajectory, reward)
+        except Exception as exc:  # pragma: no cover - defensive guard
+            logger.exception("Learning synthesis failed: %s", exc)
+
+    async def _maybe_update_learning(
+        self,
+        trajectory: SessionTrajectory,
+        reward: AtlasRewardBreakdown,
+    ) -> None:
+        synthesizer = self._learning_synthesizer
+        if synthesizer is None:
+            return
+        context = ExecutionContext.get()
+        learning_key = context.metadata.get("learning_key") if isinstance(context.metadata, dict) else None
+        if not isinstance(learning_key, str) or not learning_key:
+            return
+        history_snapshot = context.metadata.get("learning_history") if isinstance(context.metadata, dict) else None
+        prior_state = context.metadata.get("learning_state") if isinstance(context.metadata, dict) else None
+        update = await synthesizer.asynthesize(
+            learning_key=learning_key,
+            trajectory=trajectory,
+            reward=reward,
+            history_snapshot=history_snapshot,
+            prior_state=prior_state,
         )
+        if update is None:
+            return
+        context.set_session_learning(update.session_student_learning, update.session_teacher_learning)
+        if update.updated_state is not None:
+            context.metadata["learning_state"] = update.updated_state
+        if update.history_snapshot is not None:
+            context.metadata["learning_history"] = update.history_snapshot
+        if update.session_metadata is not None:
+            context.metadata["learning_metadata"] = update.session_metadata
 
     def _build_session_trajectory(self, task: str, plan: Plan, result: Result) -> SessionTrajectory:
         context = ExecutionContext.get()

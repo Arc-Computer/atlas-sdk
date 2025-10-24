@@ -16,7 +16,7 @@ from importlib import import_module
 
 from atlas.connectors.factory import create_from_atlas_config
 from atlas.config.loader import load_config
-from atlas.config.models import AdaptiveTeachingConfig, AtlasConfig, RewardObjectiveConfig
+from atlas.config.models import AdaptiveTeachingConfig, AtlasConfig, RewardObjectiveConfig, LearningConfig
 from atlas.prompts import (
     RewrittenStudentPrompts,
     RewrittenTeacherPrompts,
@@ -33,6 +33,7 @@ from atlas.runtime.storage.database import Database
 from atlas.runtime.telemetry import ConsoleTelemetryStreamer
 from atlas.runtime.telemetry.langchain_callback import configure_langchain_callbacks
 from atlas.runtime.learning_history import aggregate_learning_history
+from atlas.learning.synthesizer import LearningSynthesizer
 from atlas.types import Result
 from atlas.utils.triage import default_build_dossier
 
@@ -111,13 +112,16 @@ async def arun(
     learning_key = _build_learning_key(task, config, session_meta)
     session_meta["learning_key"] = learning_key
     execution_context.metadata["learning_key"] = learning_key
+    learning_config: LearningConfig | None = getattr(config, "learning", None)
     database = Database(config.storage) if config.storage else None
     session_id: int | None = None
     try:
+        learning_state: dict[str, Any] | None = None
         if database:
             await database.connect()
+            learning_state = await database.fetch_learning_state(learning_key)
             history_records = await database.fetch_learning_history(learning_key)
-            learning_history = aggregate_learning_history(history_records)
+            learning_history = aggregate_learning_history(history_records, learning_state)
             metadata = execution_context.metadata.get("session_metadata")
             session_id = await database.create_session(task, metadata=metadata)
             if publisher is not None and session_id is not None:
@@ -126,9 +130,12 @@ async def arun(
                     {"session_id": session_id, "task": task},
                 )
         else:
-            learning_history = {}
-
+            learning_history = aggregate_learning_history([], None)
         execution_context.metadata["learning_history"] = learning_history
+        execution_context.metadata["learning_state"] = learning_state if isinstance(learning_state, dict) else {}
+        if learning_config is not None:
+            execution_context.metadata["learning_mode"] = "train" if learning_config.updates_enabled else "apply"
+        learning_synthesizer = LearningSynthesizer(learning_config, database) if learning_config is not None else None
 
         capability_probe_client = CapabilityProbeClient(adaptive_teaching_cfg.probe)
 
@@ -141,6 +148,7 @@ async def arun(
             adaptive_config=adaptive_teaching_cfg,
             triage_adapter=triage_adapter,
             capability_probe=capability_probe_client,
+            learning_synthesizer=learning_synthesizer,
         )
         result = await orchestrator.arun(task)
         if database and session_id is not None:
@@ -390,6 +398,12 @@ def _collect_session_insights(context: ExecutionContext, result: Result) -> dict
     learning_key = context.metadata.get("learning_key") if isinstance(context.metadata, dict) else None
     if learning_key:
         payload["learning_key"] = learning_key
+    learning_metadata = context.metadata.get("learning_metadata") if isinstance(context.metadata, dict) else None
+    if isinstance(learning_metadata, dict) and learning_metadata:
+        payload["learning_metadata"] = learning_metadata
+    learning_mode = context.metadata.get("learning_mode") if isinstance(context.metadata, dict) else None
+    if isinstance(learning_mode, str) and learning_mode:
+        payload["learning_mode"] = learning_mode
     teacher_notes = _extract_teacher_notes(context)
     if teacher_notes:
         payload["teacher_notes"] = teacher_notes

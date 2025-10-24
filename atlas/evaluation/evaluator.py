@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
+from datetime import date, datetime, time, timedelta
 from statistics import pstdev
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 from atlas.config.models import RIMConfig
 from atlas.evaluation.judges.base import JudgeContext
@@ -49,15 +50,6 @@ class SessionTrajectory:
 
 
 @dataclass
-class RewardEvaluation:
-    """Aggregated reward plus learning payloads."""
-
-    reward: AtlasRewardBreakdown
-    student_learning: str
-    teacher_learning: Optional[str]
-
-
-@dataclass
 class SessionSample:
     """Parsed response from a single reward model invocation."""
 
@@ -65,8 +57,6 @@ class SessionSample:
     uncertainty: float
     rationale: str
     principles: List[Dict[str, Any]]
-    student_learning: str
-    teacher_learning: Optional[str]
 
 
 class Evaluator:
@@ -94,8 +84,7 @@ class Evaluator:
         if context.reward_override is not None:
             return self._coerce_reward_breakdown(context.reward_override)
         trajectory = self._trajectory_from_context(context)
-        evaluation = await self.aevaluate_session(trajectory)
-        return evaluation.reward
+        return await self.aevaluate_session(trajectory)
 
     def judge(self, context: JudgeContext) -> AtlasRewardBreakdown:
         try:
@@ -104,7 +93,7 @@ class Evaluator:
             return asyncio.run(self.ajudge(context))
         raise RuntimeError("Evaluator.judge cannot be invoked inside an active event loop")
 
-    async def aevaluate_session(self, trajectory: SessionTrajectory) -> RewardEvaluation:
+    async def aevaluate_session(self, trajectory: SessionTrajectory) -> AtlasRewardBreakdown:
         focus_prompt = trajectory.focus_prompt or self._default_focus_prompt
         samples = await self._collect_samples(trajectory, focus_prompt)
         escalated = False
@@ -120,16 +109,16 @@ class Evaluator:
         if not samples:
             samples = [self._empty_sample(focus_prompt)]
 
-        reward_breakdown, student_learning, teacher_learning = self._aggregate_samples(
+        reward_breakdown = self._aggregate_samples(
             samples,
             trajectory,
             escalated=escalated,
             escalation_reason=escalation_reason,
             focus_prompt=focus_prompt,
         )
-        return RewardEvaluation(reward_breakdown, student_learning, teacher_learning)
+        return reward_breakdown
 
-    def evaluate_session(self, trajectory: SessionTrajectory) -> RewardEvaluation:
+    def evaluate_session(self, trajectory: SessionTrajectory) -> AtlasRewardBreakdown:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
@@ -184,8 +173,6 @@ class Evaluator:
             uncertainty=parsed["uncertainty"],
             rationale=parsed["rationale"],
             principles=parsed["principles"],
-            student_learning=parsed["student_learning"],
-            teacher_learning=parsed["teacher_learning"],
         )
 
     def _should_escalate(self, samples: Sequence[SessionSample]) -> bool:
@@ -214,8 +201,6 @@ class Evaluator:
                             "uncertainty": sample.uncertainty,
                             "rationale": sample.rationale,
                             "principles": sample.principles,
-                            "student_learning": sample.student_learning,
-                            "teacher_learning": sample.teacher_learning,
                         },
                         ensure_ascii=False,
                     )
@@ -262,8 +247,6 @@ class Evaluator:
             uncertainty=parsed["uncertainty"],
             rationale=parsed["rationale"],
             principles=parsed["principles"],
-            student_learning=parsed["student_learning"],
-            teacher_learning=parsed["teacher_learning"],
         )
 
     def _aggregate_samples(
@@ -274,7 +257,7 @@ class Evaluator:
         escalated: bool,
         escalation_reason: Optional[str],
         focus_prompt: str | None,
-    ) -> Tuple[AtlasRewardBreakdown, Dict[str, Any], Optional[Dict[str, Any]]]:
+    ) -> AtlasRewardBreakdown:
         scores = [sample.score for sample in samples]
         aggregated_score = sum(scores) / len(scores)
         best_sample = min(samples, key=lambda sample: sample.uncertainty)
@@ -318,17 +301,7 @@ class Evaluator:
             raw=reward_raw,
         )
 
-        student_learning = best_sample.student_learning
-
-        teacher_learning = None
-        if (trajectory.execution_mode or "").lower() != "auto":
-            teacher_text = (best_sample.teacher_learning or "").strip()
-            if teacher_text:
-                teacher_learning = teacher_text
-            else:
-                teacher_learning = None
-
-        return reward, student_learning, teacher_learning
+        return reward
 
     def _build_session_messages(
         self,
@@ -340,11 +313,11 @@ class Evaluator:
             execution_mode=self._escape_for_prompt(str(trajectory.execution_mode)),
             teacher_intervened=self._escape_for_prompt(str(trajectory.teacher_intervened)),
             focus_prompt=self._escape_for_prompt(focus_prompt or ""),
-            plan=self._escape_for_prompt(json.dumps(trajectory.plan or {}, ensure_ascii=False)),
+            plan=self._escape_for_prompt(self._json_dumps(trajectory.plan or {})),
             final_answer=self._escape_for_prompt(trajectory.final_answer),
-            session_metadata=self._escape_for_prompt(json.dumps(trajectory.session_metadata or {}, ensure_ascii=False)),
+            session_metadata=self._escape_for_prompt(self._json_dumps(trajectory.session_metadata or {})),
         )
-        user_payload = json.dumps(
+        user_payload = self._json_dumps(
             {
                 "task": trajectory.task,
                 "execution_mode": trajectory.execution_mode,
@@ -418,23 +391,11 @@ class Evaluator:
                                 "description": description if isinstance(description, str) else str(description),
                             }
                         )
-        student_learning = payload.get("student_learning")
-        if not isinstance(student_learning, str):
-            student_learning = ""
-        teacher_learning_value = payload.get("teacher_learning")
-        if isinstance(teacher_learning_value, str):
-            teacher_learning: Optional[str] = teacher_learning_value
-        elif teacher_learning_value is None:
-            teacher_learning = None
-        else:
-            teacher_learning = None
         return {
             "score": float(score),
             "uncertainty": float(uncertainty),
             "rationale": rationale if isinstance(rationale, str) else str(rationale),
             "principles": principles,
-            "student_learning": student_learning,
-            "teacher_learning": teacher_learning,
         }
 
     @staticmethod
@@ -444,8 +405,6 @@ class Evaluator:
             uncertainty=1.0,
             rationale="No valid reward sample produced.",
             principles=[],
-            student_learning="",
-            teacher_learning=None,
         )
 
     def _coerce_reward_breakdown(
@@ -460,6 +419,25 @@ class Evaluator:
     def _escape_for_prompt(value: Any) -> str:
         text = "" if value is None else str(value)
         return text.replace("{", "{{").replace("}", "}}")
+
+    @staticmethod
+    def _json_default(value: Any) -> Any:
+        if isinstance(value, (datetime, date)):
+            return value.isoformat()
+        if isinstance(value, time):
+            return value.isoformat()
+        if isinstance(value, timedelta):
+            return value.total_seconds()
+        return str(value)
+
+    @classmethod
+    def _json_dumps(cls, payload: Any, **kwargs: Any) -> str:
+        kwargs.setdefault("ensure_ascii", False)
+        kwargs.setdefault("default", cls._json_default)
+        try:
+            return json.dumps(payload, **kwargs)
+        except TypeError:
+            return json.dumps(cls._json_default(payload), **kwargs)
 
     @staticmethod
     def _consume_reasoning_metadata(actor: str, stage: str) -> List[Dict[str, Any]]:

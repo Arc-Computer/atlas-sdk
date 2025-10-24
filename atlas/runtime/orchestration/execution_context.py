@@ -156,25 +156,34 @@ class ExecutionContext:
     def set_session_reward(
         self,
         reward: typing.Any | None,
-        *,
-        student_learning: str | None = None,
-        teacher_learning: str | None = None,
     ) -> None:
-        """Record session-level reward and learning payloads."""
+        """Record session-level reward details."""
 
         if reward is None:
             self.metadata.pop("session_reward", None)
+            return
+        if hasattr(reward, "to_dict"):
+            reward_payload = reward.to_dict()
+        elif isinstance(reward, dict):
+            reward_payload = reward
         else:
-            if hasattr(reward, "to_dict"):
-                reward_payload = reward.to_dict()
-            elif isinstance(reward, dict):
-                reward_payload = reward
-            else:
-                reward_payload = typing.cast(typing.Any, reward)
-            self.metadata["session_reward"] = reward_payload
-        if student_learning is not None:
+            reward_payload = typing.cast(typing.Any, reward)
+        self.metadata["session_reward"] = reward_payload
+
+    def set_session_learning(
+        self,
+        student_learning: str | None = None,
+        teacher_learning: str | None = None,
+    ) -> None:
+        """Record session-level learning payloads."""
+
+        if student_learning is None:
+            self.metadata.pop("session_student_learning", None)
+        else:
             self.metadata["session_student_learning"] = student_learning
-        if teacher_learning is not None:
+        if teacher_learning is None:
+            self.metadata.pop("session_teacher_learning", None)
+        else:
             self.metadata["session_teacher_learning"] = teacher_learning
 
     def record_mode_decision(

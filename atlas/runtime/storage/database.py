@@ -171,6 +171,52 @@ class Database:
                 session_id,
             )
 
+    async def upsert_learning_state(
+        self,
+        learning_key: str,
+        student_learning: Optional[str],
+        teacher_learning: Optional[str],
+        metadata: Dict[str, Any] | None = None,
+    ) -> None:
+        if not learning_key:
+            return
+        pool = self._require_pool()
+        serialized_metadata = self._serialize_json(metadata) if metadata is not None else None
+        async with pool.acquire() as connection:
+            await connection.execute(
+                "INSERT INTO learning_registry(learning_key, student_learning, teacher_learning, metadata)"
+                " VALUES ($1, $2, $3, $4)"
+                " ON CONFLICT (learning_key) DO UPDATE SET"
+                " student_learning = EXCLUDED.student_learning,"
+                " teacher_learning = EXCLUDED.teacher_learning,"
+                " metadata = EXCLUDED.metadata,"
+                " updated_at = NOW()",
+                learning_key,
+                student_learning,
+                teacher_learning,
+                serialized_metadata,
+            )
+
+    async def fetch_learning_state(self, learning_key: str) -> dict[str, Any] | None:
+        if not learning_key:
+            return None
+        pool = self._require_pool()
+        async with pool.acquire() as connection:
+            row = await connection.fetchrow(
+                "SELECT learning_key, student_learning, teacher_learning, metadata, updated_at"
+                " FROM learning_registry WHERE learning_key = $1",
+                learning_key,
+            )
+        if row is None:
+            return None
+        return {
+            "learning_key": row["learning_key"],
+            "student_learning": row["student_learning"],
+            "teacher_learning": row["teacher_learning"],
+            "metadata": self._deserialize_json(row["metadata"]),
+            "updated_at": row["updated_at"],
+        }
+
     async def fetch_sessions(self, limit: int = 50, offset: int = 0) -> List[dict[str, Any]]:
         pool = self._require_pool()
         async with pool.acquire() as connection:

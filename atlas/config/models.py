@@ -191,7 +191,7 @@ class AdaptiveProbeConfig(BaseModel):
     thresholds: AdaptiveProbeThresholds = Field(default_factory=AdaptiveProbeThresholds)
     fallback_mode: Literal["paired", "coach", "escalate"] = "paired"
     evidence_limit: int = Field(default=6, ge=1, le=32)
-    timeout_seconds: float = Field(default=15.0, ge=1.0)
+    timeout_seconds: float = Field(default=60.0, ge=1.0)
 
 
 class RewardObjectiveConfig(BaseModel):
@@ -286,6 +286,18 @@ class RIMConfig(BaseModel):
     parallel_workers: int = Field(default=4, ge=1, le=32)
     judge_prompt: str | None = None
 
+
+class LearningConfig(BaseModel):
+    """Configuration for the learning synthesizer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    llm: LLMParameters
+    prompt: str | None = None
+    max_history_entries: int = Field(default=8, ge=0, le=100)
+    updates_enabled: bool = True
+
+
 class OrchestrationConfig(BaseModel):
     """Controls sequential execution semantics."""
 
@@ -317,6 +329,7 @@ class AtlasConfig(BaseModel):
     teacher: TeacherConfig
     orchestration: OrchestrationConfig = Field(default_factory=OrchestrationConfig)
     rim: RIMConfig
+    learning: LearningConfig | None = None
     storage: StorageConfig | None = None
     prompt_rewrite: PromptRewriteConfig | None = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
