@@ -4,6 +4,15 @@ Atlas wraps your Bring-Your-Own-Agent (BYOA) in a guided Teacher → Student →
 
 > Atlas defaults to an in-memory workflow—leave `storage: null` in your config for quick experiments. You can add PostgreSQL later if you want durable telemetry.
 
+## What's New in v0.1.8
+
+- **Autodiscovery & CLI Upgrades** – `atlas env init` now scaffolds full configs, auto-loads `.env`/`PYTHONPATH`, and can replay discoveries with `atlas run --config` or the fake LLM smoke-test path (`ATLAS_FAKE_LLM=1`) to validate stacks offline ([#52](https://github.com/Arc-Computer/atlas-sdk/pull/52), [#70](https://github.com/Arc-Computer/atlas-sdk/pull/70), [#74](https://github.com/Arc-Computer/atlas-sdk/pull/74), [#75](https://github.com/Arc-Computer/atlas-sdk/pull/75)).
+- **Learning Playbooks in Runtime** – Student and Teacher personas fetch hashed “learning playbooks”, inject them into every planner/synthesizer/executor prompt, and track metadata so cached prompts stay in sync when playbooks change ([#76](https://github.com/Arc-Computer/atlas-sdk/pull/76)).
+- **Persistent Telemetry & Learning Reports** – Discovery and runtime sessions log directly to Postgres, and the new learning evaluation harness can filter by project/task/tags while generating model-level breakdowns in Markdown/JSON reports ([#72](https://github.com/Arc-Computer/atlas-sdk/pull/72), [#73](https://github.com/Arc-Computer/atlas-sdk/pull/73)).
+- **Safety Guardrails & Approvals** – Session exports require explicit approval, with CLI tooling to review/approve/quarantine runs and drift alerts captured alongside reward metadata ([#63](https://github.com/Arc-Computer/atlas-sdk/pull/63)).
+- **Expanded Evaluation Suites** – Added capability probe updates (xAI Grok support), dual-agent runtime benchmarking, and a reward model harness with packaged datasets and docs to keep offline validation comprehensive ([#55](https://github.com/Arc-Computer/atlas-sdk/pull/55), [#56](https://github.com/Arc-Computer/atlas-sdk/pull/56), [#57](https://github.com/Arc-Computer/atlas-sdk/pull/57)).
+- **Lean Learning History Payloads** – Capability probe history now respects an operator-defined cap, trims noisy fields, and keeps streak stats lightweight for faster probes ([#54](https://github.com/Arc-Computer/atlas-sdk/pull/54)).
+
 ## What's New in v0.1.7
 
 - **Adaptive Runtime** – Capability probe selects execution mode (`auto`, `paired`, `coach`, `escalate`) per request based on task complexity and historical performance.

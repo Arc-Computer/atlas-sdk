@@ -14,14 +14,14 @@ The Atlas SDK is a drop-in learning harness that enables your agent to learn fro
 
 With the split between SDK (runtime) and ATLAS (training) in mind, here's what our runtime gives you out of the box.
 
-## Key Highlights (v0.1.7)
+## Key Highlights (v0.1.8)
 
-- **Adaptive Runtime** – Every request is triaged up front. We run a quick “can the agent handle this?” probe and pick the right lane: stay fully automated when confidence is high, ask the teacher to double-check the final answer, or run step-by-step with retries when risk is higher.
-- **Persistent Learning Memory** – After each task, we store what guidance helped and what didn’t. Helpful tips are ready for the next run, and you can plug in Postgres when you want a durable trail of persona memories.
-- **Production Telemetry & Export** – Out of the box you get a terminal feed that shows lane decisions, probe confidence, certification flags, and reward scores. Export the same telemetry to JSONL with one CLI call (`arc-atlas`) so training pipelines can consume it without extra wiring.
-- **Learning Evaluation (no hints required)** – Telemetry persisted to Postgres contains `learning_key`, reward stats, adaptive mode history, and trajectory events. Run `scripts/eval_learning.py` to generate JSON + Markdown summaries (reward deltas, mode shifts, discovery references) even before experience hints land.
-- **Bring-Your-Own-Agent Harness** – Point the SDK at whatever agent you already run, OpenAI-compatible chat, a Python function, or an HTTP endpoint. Drop your prompts and tools into the provided YAML templates and the runtime handles the rest.
-- **Lightweight Defaults** – Your first run doesn’t spin up databases or exporters. All the heavier integrations (storage, dashboards, advanced telemetry) stay optional until you explicitly enable them.
+- **Autodiscovery-first CLI** – `atlas env init` now writes runnable configs, auto-loads `.env`/`PYTHONPATH`, and feeds straight into `atlas run --config` or the fake LLM smoke-test flow (`ATLAS_FAKE_LLM=1`) so you can validate stacks offline before hitting production creds ([docs](docs/learning_eval.md)).
+- **Learning Playbooks Everywhere** – Student and Teacher personas resolve hashed learning playbooks on every run, splice the guidance into planner/synthesizer/executor prompts, and update cache keys when playbooks change so prompt drift is eliminated.
+- **Persistent Telemetry & Reports** – Discovery and runtime sessions stream to Postgres, and the learning report harness filters by project/task/tags while breaking down model performance, reward deltas, and adaptive mode mix into Markdown/JSON artifacts (`scripts/eval_learning.py`).
+- **Safety Guardrails for Exports** – Session exports default to approved-only with CLI review, approval, and quarantine commands plus drift alerts embedded in metadata—production pipelines stay clean while local overrides remain available.
+- **Expanded Evaluation Suites** – New datasets + docs cover capability probe updates (xAI Grok), dual-agent runtime benchmarking, and reward model scoring; unit tests back each harness so you can extend with confidence.
+- **Offline Training Workflow** – `atlas train` reuses export filters, ships a sample dataset, and launches Atlas Core with Hydra overrides, making the export→train loop a single CLI hop when you’re ready to fine-tune.
 
 ---
 
