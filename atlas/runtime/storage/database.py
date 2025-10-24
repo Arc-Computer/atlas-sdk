@@ -139,11 +139,11 @@ class Database:
                 step_id,
             )
             records = [(session_id, step_id, index, note) for index, note in enumerate(notes, start=1)]
-        if records:
-            await connection.executemany(
-                "INSERT INTO guidance_notes(session_id, step_id, sequence, note) VALUES ($1, $2, $3, $4)",
-                records,
-            )
+            if records:
+                await connection.executemany(
+                    "INSERT INTO guidance_notes(session_id, step_id, sequence, note) VALUES ($1, $2, $3, $4)",
+                    records,
+                )
 
     async def log_discovery_run(
         self,
