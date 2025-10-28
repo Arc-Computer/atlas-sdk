@@ -1,0 +1,90 @@
+agent:
+  type: python
+  name: secrl-baseline-agent
+  import_path: SecRL.atlas_adapter
+  attribute: main
+  working_directory: ./
+  system_prompt: 'You need to answer a given security question by querying the database.
+
+    The logs are stored in a MySQL database, you can use SQL queries to retrieve entries
+    as needed.
+
+    Note there are more than 20 tables in the database, so you may need to explore
+    the schema or check example entries to understand the database structure.
+
+
+    Your response should always be a thought-action pair:
+
+    Thought: <your reasoning>
+
+    Action: <your SQL query>
+
+
+    In Thought, you can analyse and reason about the current situation,
+
+    Action can be one of the following:
+
+    (1) execute[<your query>], which executes the SQL query
+
+    (2) submit[<your answer>], which is the final answer to the question
+
+    '
+  tools: []
+  llm:
+    provider: openai
+    model: gpt-5-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.0
+    max_output_tokens: 32768
+    timeout_seconds: 120
+teacher:
+  llm:
+    provider: openai
+    model: gpt-5
+    api_key_env: OPENAI_API_KEY
+    max_output_tokens: 32768
+    timeout_seconds: 120
+  plan_cache_seconds: 180
+rim:
+  small_model:
+    provider: openai
+    model: gemini/gemini-2.5-flash
+    api_key_env: GOOGLE_API_KEY
+    max_output_tokens: 1
+    timeout_seconds: 5
+  large_model:
+    provider: openai
+    model: gemini/gemini-2.5-pro
+    api_key_env: GOOGLE_API_KEY
+    max_output_tokens: 1
+    timeout_seconds: 5
+  judge_prompt: 'Judge this SecRL investigation using the final answer, tool logs,
+    metadata, and `secrl_solution`.
+
+    - Confirm the submitted answer lines up with the canonical solution steps or direct
+    database evidence. Cite the specific table / field you used.
+
+    - If the answer is wrong or incomplete, compare the trajectory to `secrl_solution`
+    and name the missed step or decision.'
+  variance_threshold: 0.15
+  uncertainty_threshold: 0.3
+  active_judges:
+    process: false
+    helpfulness: false
+learning:
+  llm:
+    provider: openai
+    model: gemini/gemini-2.5-flash
+    api_key_env: GOOGLE_API_KEY
+    temperature: 0.2
+    max_output_tokens: 16384
+    timeout_seconds: 120
+  max_history_entries: 0
+  updates_enabled: false
+storage:
+  database_url: postgresql://atlas:atlas@localhost:5433/atlas
+  min_connections: 1
+  max_connections: 5
+  statement_timeout_seconds: 30
+adaptive_teaching:
+  mode_override: auto
