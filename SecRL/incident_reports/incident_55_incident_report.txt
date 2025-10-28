@@ -1,0 +1,121 @@
+Title of the Multi-Stage Attack  
+“Phishing-Enabled ADFS Key Exfiltration and Lateral Movement Campaign”
+
+EXECUTIVE SUMMARY  
+Between July 1 and July 10, 2024, an adversary executed a phishing-enabled, hands-on-keyboard campaign against AlpineSkiHouse’s Windows estate. Initial access was gained via a malicious URL in a spear-phishing email to internal mailboxes. Once a user clicked the URL, the attacker ran PowerShell scripts to harvest credentials (LSASS memory read), performed reconnaissance and hardware enumerations, then leveraged Impacket to move laterally from the initial endpoint (MB-WINCLIENT) to the ADFS server (MB-ADFS). On MB-ADFS they established persistence (scheduled tasks, service creation, renamed executables), injected code into trusted processes, stole ADFS private keys via LDAP queries, and executed a DCSync attack against the domain controller (MB-DC1) to replicate directory services. They also abused a compromised service account to add credentials to an OAuth application (SimulandApp) and launched an internal phishing campaign. The impact includes credential theft, unauthorized replication of AD data, exposure of ADFS signing keys, and persistent footholds.
+
+INCIDENT TIMELINE  
+2024-07-01 21:49 UTC  
+• “Email messages containing malicious URL removed after delivery” (O365 ATP – InitialAccess). Spear-phishing emails with URL  
+http://kn017721628.wittytree-b6f239d6.northeurope.azurecontainerapps.io delivered to user “Nina Sullivan” (santiago@vnevado…).
+
+2024-07-02 09:45–09:48 UTC  
+• User “bjenkins” on MB-WINCLIENT clicked the malicious URL (“Potentially malicious URL click detected”).  
+• PowerShell launched in user context to download/run Midnight14 payload.  
+• “Suspicious system hardware discovery” and “Malicious PowerShell Cmdlet invoked” alerts triggered.  
+• LSASS memory accessed and dumped (“Suspicious access to LSASS service” & “Sensitive credential memory read”).  
+• “ContosoADFSblatempcreds.ps1” executed under pwilson’s context to harvest ADFS creds (Process injection alert).  
+• Adversary performed reconnaissance (“Suspicious sequence of exploration activities”).  
+
+2024-07-02 09:47–09:48 UTC  
+• Attacker executed Impacket toolkit on MB-WINCLIENT (“Ongoing hands-on-keyboard attack via Impacket”).  
+• Used WMI/SMB to reach MB-ADFS (“Suspicious remote activity”).  
+• Created scheduled task “Run-ExportADFSTokenSigninCert…” via schtasks.exe on MB-ADFS (“Suspicious Task Scheduler activity”).  
+• Renamed system executable (iy2orr1e.rrg.exe – renamed PowerShell) and launched it to evade detection (“System executable renamed and launched”).  
+• Injected code into services.exe and svchost.exe (“Process was injected … malicious code”).  
+• Registered a malicious Windows service DDLOXJDSQSNGMUKKFUXQ (“Suspicious service registration” & Azure ATP “Suspicious service creation”).  
+• Performed LDAP queries against ADFS objects to extract private keys (“ADFS private key extraction attempt” & Azure ATP “Suspected AD FS DKM key read”).  
+
+2024-07-02 09:48 UTC  
+• DCSync replication request issued from MB-WINCLIENT to MB-DC1 (“Suspected DCSync attack”).  
+• Extracted NTDS.dit data and domain credentials.  
+
+2024-07-02 12:07–12:15 UTC  
+• pwilson added credentials of type Password to SimulandApp in Azure AD (MCAS “Unusual addition of credentials to an OAuth app”).  
+
+2024-07-02 15:01 UTC  
+• Compromised accounts sent internal phishing messages to other employees (“Internal phishing campaign”).  
+
+2024-07-03 and July 6–9  
+• Additional MCAS detections of dual-purpose tool executions under unexpected filenames and cleaning up proof-of-concept artifacts on MB-ADFS.  
+
+TECHNICAL ANALYSIS  
+1. Initial Access (T1566.002): Malicious URL delivered via O365 ATP, removed after delivery but clicked by bjenkins.  
+2. Execution (T1059): Powershell processes launched—Midnight14 payload in Downloads, ContosoADFSblatempcreds.ps1 to extract ADFS creds.  
+3. Discovery (T1082, T1016, T1087): Hardware enumeration and “whoami.exe” and network reconnaissance commands executed.  
+4. Credential Access (T1003, T1550): LSASS memory access and dump; DCSync requests to a domain controller.  
+5. Lateral Movement (T1021.002, T1105): Impacket toolkit used to pass WMI and SMB commands to MB-ADFS.  
+6. Persistence (T1053.005, T1543.003, T1098.001): Scheduled task creation, malicious service registration, OAuth app secret addition.  
+7. Defense Evasion (T1036.003): System executable renamed to “iy2orr1e.rrg.exe” to hide from default path checks.  
+8. Privilege Escalation (T1055, T1569.002): Code injection into trusted processes, service creation for elevated execution.  
+9. Credential Access – ADFS (T1087.002, T1528): LDAP queries to DKM and private key objects in ADFS, exfiltrating key material.  
+10. AD Replication (T1003.006): DCSync replication of directory services.  
+11. Phishing & Internal Recon (T1534): Compromised accounts sending phishing inside network.  
+
+AFFECTED ENTITIES  
+Hosts  
+• MB-WINCLIENT (initial compromise, credential harvesting, lateral pivot)  
+• MB-ADFS (persistence, code injection, ADFS key extraction)  
+• MB-DC1 (directory replication target)  
+
+Accounts  
+• bjenkins (clicked link, ran PowerShell, LSASS access)  
+• pwilson (executed ContosoADFSblatempcreds, Impacket lateral, DCSync source)  
+• gsmith (lateral pivot user on MB-ADFS, service creation, key read)  
+• santiago@vnevado (initial phishing target; internal sender)  
+• Nina Sullivan, Lucas Grey (mailboxes used/compromised)  
+
+Files & Processes  
+• powershell.exe (encoded commands, script execution)  
+• ContosoADFSblatempcreds.ps1 (ADFS credential extractor)  
+• iy2orr1e.rrg.exe (renamed PowerShell payload)  
+• schtasks.exe, services.exe, svchost.exe (persistence)  
+
+Network Indicators  
+• 72.5.72.208 (phishing URL host)  
+• 106.214.87.198 / 119.36.50.193 (sender IPs)  
+• phishing URLs:  
+ – http://kn017721628.wittytree-b6f239d6.northeurope.azurecontainerapps.io/  
+ – http://ym018491661.wittytree-b6f239d6.northeurope.azurecontainerapps.io/  
+
+OAuth & Cloud  
+• SimulandApp (OAuth App ID 4d9476b8-6ae6-459b-a273-5837c15b5981)  
+
+ATTACK METHODOLOGY (MITRE ATT&CK)  
+Initial Access T1566.002  
+Execution T1059.001, T1059.003  
+Persistence T1053.005, T1543.003, T1098.001  
+Privilege Escalation T1055, T1569.002  
+Defense Evasion T1036.003  
+Credential Access T1003.001, T1003.006, T1550.002, T1087.002, T1528  
+Discovery T1007, T1016, T1018, T1033, T1049, T1069, T1087  
+Lateral Movement T1021.002, T1105  
+Collection & Exfil implicit via DCSync  
+Command & Control observed in impacket remote session  
+Impact unauthorized data access & ADFS key theft  
+
+INDICATORS OF COMPROMISE  
+Files/Hashes  
+• ContosoADFSblatempcreds.ps1 SHA256: ad6997e67a2625a8663cb9f84d2461048b0a973b5015ae4f4cba717745cab602  
+• iy2orr1e.rrg.exe SHA256: 75d6634a676fb0bea5bfd8d424e2bd4f685f3885853637ea143b2671a3bb76e9  
+• DKM key object reads of GUID 4cac49d3-29d3-407e-8c9b-b7ebb21541b2  
+Processes  
+• svchost.exe -k netsvcs -p -s Winmgmt (PID 2880)  
+• powershell.exe -EncodedCommand QwA6…  
+Network  
+• 72.5.72.208  
+• 106.214.87.198, 119.36.50.193  
+• phishing URLs above  
+Scheduled task name  
+• Run-ExportADFSTokenSigninCert.2024-07-02_09_48_23  
+
+SEVERITY ASSESSMENT  
+Overall Impact: High  
+• Multiple accounts compromised.  
+• Domain controller replication via DCSync.  
+• Exfiltration of ADFS private keys and DKM keys enables forging SAML/ADFS tokens.  
+• Persistent footholds on AD FS server and cloud application (OAuth secret).  
+• Internal phishing indicates attacker control of user identities.  
+
+LABELS & KEYWORDS  
+Phishing, PowerShell, Impacket, Lateral Movement, DCSync, ADFS Key Theft, ADFS Distributed Key Manager, LSASS Dump, Scheduled Task, Service Creation, Code Injection, OAuth App Secret, Internal Phishing, Cloud App Security.

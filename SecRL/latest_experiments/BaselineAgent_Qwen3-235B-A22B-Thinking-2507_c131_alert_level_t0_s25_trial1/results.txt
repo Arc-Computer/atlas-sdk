@@ -1,0 +1,16 @@
+Model: Qwen3-235B-A22B-Thinking-2507, Attack: incident_38, Agent: BaselineAgent, Cache Seed: 131, Temperature: 0, Layer: alert, Max Steps: 25, Eval Model: gpt-4o, Num Trials: 1
+Success: 5/15=0.333, Avg Reward: 0.333
+Model: Qwen3-235B-A22B-Thinking-2507, Attack: incident_322, Agent: BaselineAgent, Cache Seed: 131, Temperature: 0, Layer: alert, Max Steps: 25, Eval Model: gpt-4o, Num Trials: 1
+Success: 24/109=0.220, Avg Reward: 0.226
+Model: Qwen3-235B-A22B-Thinking-2507, Attack: incident_134, Agent: BaselineAgent, Cache Seed: 131, Temperature: 0, Layer: alert, Max Steps: 25, Eval Model: gpt-4o, Num Trials: 1
+Success: 24/95=0.253, Avg Reward: 0.257
+Model: Qwen3-235B-A22B-Thinking-2507, Attack: incident_166, Agent: BaselineAgent, Cache Seed: 131, Temperature: 0, Layer: alert, Max Steps: 25, Eval Model: gpt-4o, Num Trials: 1
+Success: 17/162=0.105, Avg Reward: 0.120
+Model: Qwen3-235B-A22B-Thinking-2507, Attack: incident_55, Agent: BaselineAgent, Cache Seed: 131, Temperature: 0, Layer: alert, Max Steps: 25, Eval Model: gpt-4o, Num Trials: 1
+Success: 18/186=0.097, Avg Reward: 0.112
+Model: Qwen3-235B-A22B-Thinking-2507, Attack: incident_39, Agent: BaselineAgent, Cache Seed: 131, Temperature: 0, Layer: alert, Max Steps: 25, Eval Model: gpt-4o, Num Trials: 1
+Success: 26/194=0.134, Avg Reward: 0.138
+Model: Qwen3-235B-A22B-Thinking-2507, Attack: incident_34, Agent: BaselineAgent, Cache Seed: 131, Temperature: 0, Layer: alert, Max Steps: 25, Eval Model: gpt-4o, Num Trials: 1
+Success: 30/143=0.210, Avg Reward: 0.218
+Model: Qwen3-235B-A22B-Thinking-2507, Attack: incident_5, Agent: BaselineAgent, Cache Seed: 131, Temperature: 0, Layer: alert, Max Steps: 25, Eval Model: gpt-4o, Num Trials: 1
+Success: 26/187=0.139, Avg Reward: 0.145

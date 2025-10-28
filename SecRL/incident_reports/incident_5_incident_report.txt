@@ -1,0 +1,101 @@
+Title: Operation Alpine Lockbit – Multi-Stage Manatee Tempest Ransomware Campaign  
+
+EXECUTIVE SUMMARY  
+On June 20, 2024, the Russia-based Manatee Tempest threat actor initiated a coordinated, multi-host campaign against the Alpine Ski House environment. The attack began with a drive-by download (FakeUpdate/SocGholish) via vectorsandarrows.com, delivering a BLISTER loader and Cobalt Strike beacons. The actor executed credential theft (Mimikatz, LSASS memory dumps, Primary Refresh Token access), leveraged WMI and PsExec for lateral movement across five Windows hosts, disabled backup and recovery features (VSSAdmin, bcdedit), and finally deployed LockBit-style ransomware payloads (.lockbit extension) to encrypt critical user data. Multiple Microsoft Defender alerts confirmed each stage, and automated containment actions blocked SMB lateral movement. No evidence of data exfiltration was observed, but asset recovery will require rebuilt systems and password resets.
+
+INCIDENT TIMELINE  
+1. 2024-06-20 07:36 UTC – CredentialAccess: “Suspicious access to LSASS service” on vnevado-win10v via mimikatz.exe (Account: tgs2z).  
+2. 2024-06-20 08:51 – CredentialAccess: “Possible attempt to access Primary Refresh Token (PRT)” on vnevado-win10v by get-userprttoken.ps1 (tgs2z).  
+3. 2024-06-20 08:58 – Malware: “Mimikatz credential theft tool” detected on vnevado-win10v.  
+4. 2024-06-20 09:00 – CredentialAccess: “Malicious credential theft tool execution detected” on vnevado-win10v.  
+5. 2024-06-20 09:03 – Execution: “Suspicious WMI process creation” on vnevado-win10v (remote notepad spawn).  
+6. 2024-06-20 09:05 – Impact/CredentialAccess: LateralMovement: “PsExec launched a command on a remote device” from vnevado-win10v to vnevado-jump.  
+7. 2024-06-20 09:10 – DefenseEvasion/Impact: VSSAdmin & bcdedit tampering and “File backups were deleted” on win10s, win10r, win10v, win11u.  
+8. 2024-06-20 09:10 – CredentialAccess: Multiple “Possible attempt to access PRT” events and “Command and Control behavior was blocked” on win11u.  
+9. 2024-06-20 09:29 – InitialAccess: “Suspicious hands on keyboard user behavior” and “Manatee Tempest activity group” on win11t by curl vectorsandarrows.com.  
+10. 2024-06-20 09:29–09:31 – Drive-by download on win11t; backup tampering; multiple “Possible attempt to access PRT” and “Command and Control behavior was blocked.”  
+11. 2024-06-20 09:31 – LateralMovement/Impact: “Possible compromised user account delivering ransomware-related files” (dp5hn) drops kiters.7z, syncretic.7z, ponceau.7z, unstreaming.xlsx and associated .lockbit files on win11u and win11t.  
+12. 2024-06-20 09:32 – Ransomware deployment: “Ransomware payload remotely launched” on win11u; “System recovery setting tampering” on win11u; “Ransomware behavior detected in the file system” on win11t.  
+13. 2024-06-20 09:34 – “Ransomware behavior detected in the file system” on win11t.  
+14. 2024-06-20 09:35 – Microsoft 365 Defender: SMB LateralMovement blocked on win11t.  
+15. 2024-06-20 09:37–09:38 – “Potentially compromised assets exhibiting ransomware-like behavior” across win11u and win11t.  
+
+TECHNICAL ANALYSIS  
+1. InitialAccess (T1189): A SocGholish-style fake-update landing page vectorsandarrows.com delivered via curl.exe on hosts vnevado-win11u and vnevado-win11t.  
+2. Execution (T1569.002/T1047): PowerShell and WMI spawned processes across remote hosts, breaking process trees. Multiple “Suspicious remote activity” and “Suspicious WMI process creation” alerts.  
+3. Credential Access (T1003/T1550.002/T1528):  
+   – LSASS memory dumps (mimikatz.exe) on vnevado-win10v.  
+   – Use of get-userprttoken.ps1 to steal PRT tokens on win10v, win10r, win11u, win11t.  
+   – Multiple credential-theft tool detections (“Mimikatz credential theft tool,” “Malicious credential theft tool execution”).  
+4. Persistence/Defense Evasion (T1036/T1547.005):  
+   – Sysinternals tools renamed (mimikatz.exe, conhost.exe) to evade detection on vnevado-win10v.  
+   – Automated disabling of Windows recovery features (vssblatemp.exe, bcdedit.exe) across hosts, deleting shadow copies (T1490).  
+5. Lateral Movement (T1021; T1021.002; T1021.006):  
+   – PsExec from vnevado-win10v to vnevado-jump.  
+   – SMB file operations blocked by Microsoft 365 Defender on win11t.  
+6. Collection (T1039): “Possible ransomware activity based on a known malicious extension” on win11u and win11t, observing mass file changes and .lockbit extension rhombus.  
+7. Impact (T1486): Ransomware payloads (kiters.7z.lockbit, syncretic.7z.lockbit, ponceau.7z.lockbit, characterical.zip.lockbit, earlap.doc.lockbit, unstreaming.xlsx.lockbit) dropped and executed, with subsequent ransomware behavior alerts.  
+
+AFFECTED ENTITIES  
+Hosts:  
+• vnevado-win11u.vnevado.alpineskihouse.co  
+• vnevado-win11t.vnevado.alpineskihouse.co  
+• vnevado-win10s.vnevado.alpineskihouse.co  
+• vnevado-win10v.vnevado.alpineskihouse.co  
+• vnevado-win10r.vnevado.alpineskihouse.co  
+• vnevado-jump.vnevado.alpineskihouse.co  
+
+Accounts:  
+• dp5hn (Grace Chen) – compromised initial account and ransomware delivery.  
+• tgs2z – malicious credential theft and lateral movement.  
+• k1pt7ez, 4qs6v9m, kelseyq, taylorz – lateral movement and ransomware targets.  
+
+Files:  
+• curl.exe (legitimate Windows tool abused)  
+• vssblatemp.exe (shadow-copy deletion)  
+• bcdedit.exe (boot config tampering)  
+• wbem\WmiPrvSE.exe (WMI spawn)  
+• mimikatz.exe, mimidrv.sys, mimispool.dll, mimilove.exe (credential theft)  
+• get-userprttoken.ps1 (PRT theft)  
+• kiters.7z(.lockbit), syncretic.7z(.lockbit), ponceau.7z(.lockbit), characterical.zip(.lockbit), earlap.doc(.lockbit), unstreaming.xlsx(.lockbit) – ransomware artifacts.  
+
+Network Indicators:  
+• Domain: vectorsandarrows.com  
+• IPs: 198.43.121.209, 99.83.111.100, 107.224.99.179, 38.142.109.10, 141.216.110.153  
+
+ATTACK METHODOLOGY  
+Phase 1 – Initial Access: Malvertising drive-by through vectorsandarrows.com (curl download).  
+Phase 2 – Execution: SocGholish loader → Cobalt Strike beacon; WMI and PowerShell process spawns for stealth.  
+Phase 3 – Credential Access: Mimikatz LSASS dumps; PRT token theft.  
+Phase 4 – Lateral Movement: PsExec and SMB; WMI remote activity on multiple endpoints.  
+Phase 5 – Persistence/Evasion: Sysinternals tool renaming; shadow-copy & recovery disabling (VSSAdmin & bcdedit).  
+Phase 6 – Collection: Enumeration of user documents and compression.  
+Phase 7 – Impact: Ransomware payload dropped and executed (.lockbit extension), file-system changes detected.  
+
+INDICATORS OF COMPROMISE  
+Malicious Domains / URLs:  
+• vectorsandarrows.com  
+Malicious IPs:  
+• 198.43.121.209  
+• 99.83.111.100  
+• 107.224.99.179  
+• 38.142.109.10  
+• 141.216.110.153  
+Malicious Files & Hashes (SHA256):  
+• BLISTER loader (curl.exe misuse): 2bbad800bc5058cad5631dbffd39fb8a293616479250c47b38dc8e8eb61dc3da  
+• vssblatemp.exe: 8c1fabcc2196e4d096b7d155837c5f699ad7f55edbf84571e4f8e03500b7a8b0  
+• mimikatz.exe: 61c0810a23580cf492a6ba4f7654566108331e7a4134c968c2d6a05261b2d8a1  
+• mimidrv.sys: 4ff7578df7293e50c9bdd48657a6ba0c60e1f6d06a2dd334f605af34fe6f75a5  
+• mimispool.dll: 05842de51ede327c0f55df963f6de4e32ab88f43a73b9e0e1d827bc70199eff0  
+• kiters.7z.lockbit, syncretic.7z.lockbit, ponceau.7z.lockbit, characterical.zip.lockbit, earlap.doc.lockbit, unstreaming.xlsx.lockbit  
+
+SEVERITY ASSESSMENT  
+Overall Impact: High  
+• Multiple confirmed credential thefts and lateral movements.  
+• Automated disabling of backup and recovery features.  
+• Deployment and execution of ransomware payloads across key user data.  
+• Loss of data integrity and potential, though unconfirmed, data encryption.  
+• Significant operational disruption requiring system rebuilds and password resets.  
+
+KEY LABELS & KEYWORDS  
+Manatee Tempest, LockBit, SocGholish, BLISTER loader, Cobalt Strike, Mimikatz, LSASS dump, PRT theft, VSSAdmin, bcdedit, WMI, PsExec, Shadow copy deletion, Ransomware payload, .lockbit extension, Lateral Movement, Credential Access, Impact.

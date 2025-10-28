@@ -1,0 +1,132 @@
+Title  
+-----  
+Macro‐Enabled Document Dropper with PowerShell Backdoor Deployment and Dual Persistence Mechanisms  
+
+EXECUTIVE SUMMARY  
+-----------------  
+On June 26, 2024, the user “samuelf” on Windows 10 host vnevado-win10e opened a weaponized Word document (RS4_WinATP-Intro-Invoice.docm). A malicious macro triggered PowerShell execution in memory (T1059.001), which decoded and dropped a backdoor executable (WinATP-Intro-Backdoor.exe) to the user’s Desktop. The attacker established persistence via:  
+• A RunOnce registry key entry (T1547.001) pointing to the dropped backdoor.  
+• A one‐time Scheduled Task named “Yrei” (T1053.005) set to run the backdoor at a scheduled time.  
+
+Shortly thereafter, the backdoor initiated LDAP reconnaissance against the domain controller (T1018, T1087.x), obtaining directory information. Microsoft Defender ATP generated a sequence of alerts spanning “Execution,” “Persistence,” and “Discovery” tactics. Automated and manual investigations deemed some artifacts benign after remediation, but confirmed the attacker’s multi‐stage activity.  
+
+INCIDENT TIMELINE  
+-----------------  
+2024-06-26 11:57:19 UTC  
+ • winword.exe (PID 9780) launched via user opening RS4_WinATP-Intro-Invoice.docm.  
+ • PowerShell invoked by WINWORD.EXE with execution policy bypass to run embedded Base64 decoder script.  
+
+2024-06-26 12:00:39 UTC  
+ • Suspicious PowerShell command line detected (Alert #3, T1059.001).  
+ • PowerShell dropped WinATP‐Intro‐Backdoor.exe to Desktop and executed it (Alert #25).  
+
+2024-06-26 12:00:40 UTC  
+ • schtasks.exe created a one‐off scheduled task “Yrei” to run the backdoor (Alert #20).  
+ • schtasks.exe ran the “Yrei” task immediately, launching the backdoor (Alert #21).  
+
+2024-06-26 13:17:18 UTC  
+ • reg.exe added a RunOnce registry value under HKCU\…\RunOnce\Yrei to launch the backdoor on next logon (Alert #17 & #23).  
+
+2024-06-26 11:57:25 UTC  
+ • Backdoor (or payload script) executed an LDAP query against the domain controller to enumerate users and groups (Alert #24).  
+
+2024-07-04 22:35 UTC  
+ • Automated and user‐initiated investigations in MDATP triaged and resolved alerts.  
+
+TECHNICAL ANALYSIS  
+-------------------  
+1. Delivery & Initial Execution (T1204.002 → T1059.001)  
+ • Node 11: WINWORD.EXE opened the malicious .docm.  
+ • Nodes 7 & 8: PowerShell launched with “-Exec Bypass -Command” to assemble Base64 chunks and write WinATP-Intro-Backdoor.exe.  
+ • Alerts:  
+  – #3 “Suspicious process executed PowerShell command”  
+  – #10 “Suspicious PowerShell command line”  
+  – #26 “Suspicious PowerShell download or encoded command execution”  
+
+2. Payload Drop & Execution (T1059.001)  
+ • Node 16: WinATP-Intro-Backdoor.exe created on Desktop.  
+ • Alert #25: “PowerShell dropped a suspicious file on the machine.”  
+
+3. Persistence Mechanisms  
+ a. Scheduled Task (T1053.005)  
+  • Node 13 (PID 1348): schtasks.exe /create /SC ONCE /TN Yrei /TR “…Backdoor.exe”  
+  • Alert #20: “An anomalous scheduled task was created.”  
+  • Alert #21: “Suspicious Task Scheduler activity” when the task ran.  
+
+ b. Registry RunOnce (T1547.001)  
+  • Node 19 (PID 10208): reg.exe ADD HKCU\…\RunOnce /v Yrei /d %userprofile%\Desktop\Backdoor.exe  
+  • Alert #17: “Anomaly detected in ASEP registry”  
+  • Alert #23: “An uncommon file was created and added to a Run Key”  
+
+4. Discovery & Reconnaissance (T1018, T1069, T1087, T1558.003)  
+ • Node 24: LDAP query via backdoor or script to enumerate directory info.  
+ • Alert #24: “Suspicious LDAP query.”  
+
+5. Investigation & Triage  
+ • Node 0: Automated investigation started and marked benign for some artifacts.  
+ • Alerts resolved in MDATP console; manual follow‐up recommended (patch, AV, forensic).  
+
+AFFECTED ENTITIES  
+------------------  
+Hosts:  
+ • vnevado-win10e.vnevado.alpineskihouse.co (MdatpDeviceId cbb9f…, Windows 22H2)  
+
+Users/Accounts:  
+ • samuelf (UPN: samuelf@vnevado.alpineskihouse.co, SID S-1-5-21…-1193)  
+
+Processes:  
+ • WINWORD.EXE (PID 9780)  
+ • powershell.exe (PIDs 8604 & 200)  
+ • schtasks.exe (PIDs 1348 & 1616)  
+ • reg.exe (PID 10208)  
+ • cmd.exe (PID 2264)  
+
+Files:  
+ • RS4_WinATP-Intro-Invoice.docm (delivery document)  
+ • WinATP-Intro-Backdoor.exe (backdoor) – SHA1: 5e1c8874b29de480a0513516fb542cad2b049cc3; SHA256: 929cf5c2a2ce25d82699fc1bfe578bbe8abedce0e477a40980016ee32c2c7cbe  
+ • YreianBackdoor.ps1 (indicated in LDAP‐stage parent PS command)  
+
+Registry Keys/Values:  
+ • HKCU\…\RunOnce\Yrei → “%userprofile%\Desktop\WinATP-Intro-Backdoor.exe”  
+
+Network Indicators:  
+ • LDAP target domain controller (no external C2 observed)  
+ • External IP seen (72.5.72.208) associated with Run key anomaly  
+
+ATTACK METHODOLOGY  
+-------------------  
+Tactics & Techniques (MITRE):  
+Execution (T1059.001) – PowerShell  
+Persistence (T1053.005) – Scheduled Task  
+Persistence (T1547.001) – Registry Run Keys  
+Discovery (T1018, T1069, T1087.x) – LDAP, account enumeration  
+Privilege Escalation (T1112) – Potential credential theft via registry  
+Defense Evasion – Encoded commands in PowerShell  
+
+INDICATORS OF COMPROMISE  
+-------------------------  
+File Hashes:  
+ • WinATP-Intro-Backdoor.exe – SHA256 929cf5…7cbe  
+ • PowerShell.exe on device – SHA256 9785001b0dcf755eddb8af294a373c0b87b2498660f724e76c4d53f9c217c7a3  
+
+Registry:  
+ • HKCU\…\RunOnce\Yrei  
+
+Scheduled Task:  
+ • TaskName: Yrei – triggers C:\Users\samuelf\Desktop\WinATP-Intro-Backdoor.exe  
+
+Network:  
+ • 72.5.72.208 (external IP in registry anomaly)  
+
+Process Artifacts:  
+ • Command lines showing Base64 assembly and file write operations  
+
+SEVERITY ASSESSMENT  
+-------------------  
+Impact: High – execution of a persistent backdoor, credential and directory enumeration.  
+Confidentiality & Integrity: Attacker maintained foothold and could exfiltrate or modify data.  
+Availability: No direct impact observed, but persistence allows future disruptive actions.  
+
+Important Labels & Keywords  
+-----------------------------  
+T1059.001, T1053.005, T1547.001, T1018, T1087.002, T1087.003, T1558.003, WinATP-Intro-Backdoor.exe, RS4_WinATP-Intro-Invoice.docm, Yrei, RunOnce, schtasks, LDAP reconnaissance, Base64 PowerShell injector.

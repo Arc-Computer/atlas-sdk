@@ -1,0 +1,109 @@
+Title of the multi-stage attack  
+“Operation Alpine Storm”  
+
+EXECUTIVE SUMMARY  
+Between June 27, 2024 14:30 UTC and June 27, 2024 14:35 UTC, a human-operated intrusion chain hit AlpineSkiHouse’s environment. Starting with a malicious URL click, the adversary executed a PowerShell “DomainDominance27” script to drop dual-use tools (Mimikatz, Rubeus, PsExec), disabled real-time antivirus, harvested credentials via Mimikatz and Rubeus (kerberoasting), created a backup domain account (BDAdmin), injected SID history into that account for elevated privileges, performed DCSync against the domain controller, and used overpass-the-hash and pass-the-ticket techniques to move laterally. Core systems compromised: vnevado-Win10V (user tgs2z/Ethan Brooks), vnevado-Win10B (user fk8mq/Emma Clark), and vnevado-DC.  
+
+INCIDENT TIMELINE  
+2024-06-27 14:31:27 UTC  
+ • “Orchestrator.ps1” kicks off on vnevado-Win10V as user tgs2z.  
+2024-06-27 14:32:08  
+ • DomainDominance27.ps1 executed by tgs2z → drops PsExec, Mimikatz, Rubeus.  
+2024-06-27 14:32:12 → 14:32:25  
+ • Recon (whoami, net user/group/domain queries) by tgs2z (Discovery T1087).  
+2024-06-27 14:32:21  
+ • Antivirus alert: Kekeo malware detected (informational).  
+2024-06-27 14:32:35  
+ • Mimikatz “sekurlsa::logonpasswords” (Credential Access T1003).  
+2024-06-27 14:32:37  
+ • Mimikatz Pass-the-Hash (“sekurlsa::pth”) targeting accounts kyleg & fk8mq (T1550.003).  
+2024-06-27 14:32:46 → 14:32:52  
+ • Mimikatz “sekurlsa::pth /run:Get-KRBTicket.ps1” and Rubeus ticket theft (kerberoasting T1558.003).  
+ • Disable Windows Defender real-time monitoring (Defense Evasion T1562.001).  
+2024-06-27 14:33:14 → 14:33:27  
+ • PsExec from vnevado-Win10V to vnevado-Win10B to run Rubeus and dump service tickets (Lateral Movement T1021.002).  
+2024-06-27 14:33:32 → 14:33:38  
+ • Mimikatz “kerberos::ptt” and DCSync via “lsadump::dcsync” (Credential Access T1003.006).  
+2024-06-27 14:33:43  
+ • New domain user BDAdmin created on vnevado-Win10V (Persistence T1136.002).  
+2024-06-27 14:34:10  
+ • PowerShell adds SIDHistory for BDAdmin in NTDS and restarts service (Privilege Escalation T1134.005).  
+ • Suspicious service launched on vnevado-DC (Execution T1569.002).  
+2024-06-27 14:34:38 → 14:34:44  
+ • Additional SID history injection and suspicious service injection on DC.  
+2024-06-27 14:35  
+ • Root cause analysis and remediation completed (alerts resolved).  
+2024-06-27 17:04  
+ • tgs2z clicks malicious URL in quarantined email (Initial Access T1566.002).  
+
+TECHNICAL ANALYSIS  
+1. Initial Access (Phishing T1566.002):  
+   – vnevado-Win10V user tgs2z clicks URL “ac27145722.livelygrass-8d4c4013…” delivered via email.  
+2. Execution & Tool Deployment:  
+   – DomainDominance27.ps1 drops PsExec, Mimikatz, Rubeus. Tools hashed as:  
+     • PsExec.exe SHA256: 57492d33b7c0755bb411b22d2dfdfdf088cbbfcd010e30dd8d425d5fe66adff4  
+     • Mimikatz.exe SHA256: 912018ab3c6b16b39ee84f17745ff0c80a33cee241013ec35d0281e40c0658d9  
+     • Rubeus.exe SHA256: a1fddd460edd35ed449d32cc43bc15675c48a314a6fa5fb158e3bc4fea460be1  
+3. Defense Evasion & Persistence:  
+   – Disabled Defender real-time monitoring via Set-MpPreference.  
+   – Created BDAdmin account and injected SIDHistory (S-1-5-32-544) to escalate privileges.  
+4. Credential Access:  
+   – Mimikatz “sekurlsa::logonpasswords” dumps plaintext creds from LSASS.  
+   – Kerberoasting via Rubeus “dump /service:xfbzkp /user:lucasb” to steal service tickets.  
+   – Overpass-the-hash: forging TGT from NTLM hashes.  
+5. Lateral Movement (T1021.002):  
+   – PsExec remote executions to vnevado-Win10B and vnevado-DC to run Rubeus/Mimikatz.  
+6. Domain Persistence & Control:  
+   – SID history injection and NTDS restarts on vnevado-DC.  
+   – DCSync replication from DC to exfiltrate all account hashes (T1003.006).  
+7. Pass-the-Ticket (T1550.003):  
+   – Pass TGTs to authenticate as Julian Burke on alternate hosts.  
+
+AFFECTED ENTITIES  
+Hosts:  
+ • vnevado-Win10V (MachineID 7cc55a46…) – initial foothold, tgs2z “DomainDominance”.  
+ • vnevado-Win10B (MachineID 5c626a5b…) – lateral target for Rubeus.  
+ • vnevado-DC (MachineID 43a4c3f27…) – domain controller impacted by DCSync & SID injection.  
+Accounts:  
+ • tgs2z / Ethan Brooks (S-5-7-21-…1422) – initial operator account.  
+ • fk8mq / Emma Clark (S-1-5-21-…1517) – service account / ticket target.  
+ • lucasb / Julian Burke (S-1-5-21-…1120) – IT director, ticket impersonation.  
+ • BDAdmin – attacker-created backup domain admin.  
+Network & URLs:  
+ • IP 118.254.65.186 – phishing link source.  
+ • IP 141.216.110.153 – RDP lateral drop.  
+ • IP 35.202.74.47 – Win10B management.  
+ • URL https://ac27145722.livelygrass-8d4c4013.eastus2.azurecontainerapps.io/  
+
+ATTACK METHODOLOGY (MITRE ATT&CK)  
+• Initial Access: T1566.002 Phishing Link  
+• Execution: T1059.001 cmd, T1059.003 PowerShell  
+• Defense Evasion: T1562 (Disable AV), T1134.005 SID History Injection  
+• Persistence: T1136.002 New Account  
+• Privilege Escalation: T1134.005, T1550.002 Pass-the-Hash  
+• Credential Access: T1003.* (LSASS dump, DCSync), T1558.003 Kerberoasting  
+• Lateral Movement: T1021.002 PsExec, T1105 Remote File Copy  
+• Collection: T1550.003 Pass-the-Ticket  
+• Discovery: T1087, T1049 SMB sessions  
+• Impact: T1489 Service Stop (NTDS), T1543.003 Service Registry  
+
+INDICATORS OF COMPROMISE  
+File hashes:  
+ • Mimikatz.exe SHA256: 912018ab3c6b16b39ee84f17745ff0c80a33cee241013ec35d0281e40c0658d9  
+ • Rubeus.exe SHA256: a1fddd460edd35ed449d32cc43bc15675c48a314a6fa5fb158e3bc4fea460be1  
+ • PsExec.exe SHA256: 57492d33b7c0755bb411b22d2dfdfdf088cbbfcd010e30dd8d425d5fe66adff4  
+ • DomainDominance27.ps1 SHA256: b284932e65dd50b731f2c6dc266ab4fe46287581498ac4dc50f13922b58d8c72  
+Malicious URL:  
+ • https://ac27145722.livelygrass-8d4c4013.eastus2.azurecontainerapps.io/  
+Phishing IP:  
+ • 118.254.65.186  
+
+SEVERITY ASSESSMENT  
+Overall Impact: Critical  
+• Complete domain compromise via DCSync and account migration  
+• Backdoor domain admin created (BDAdmin)  
+• Credentials for all high-value accounts dumped  
+• Persistent access and full lateral control across environment  
+
+IMPORTANT LABELS AND KEYWORDS  
+AlpineSkiHouse, human-operated, DomainDominance27, Kerberoasting, DCSync, SIDHistory, overpass-the-hash, pass-the-ticket, Mimikatz, Rubeus, PsExec, Phishing, Zero-hour Auto Purge (ZAP), Domain Controller.

@@ -1,0 +1,75 @@
+Title  
+Multi‐Stage Fileless Attack: PowerShell Execution, Process Injection, and Covert C2 over Azure Blob and External IP  
+
+EXECUTIVE SUMMARY  
+On June 26, 2024, the AlpineSkiHouse host vnevado-win11a was compromised by a low-and-slow, fileless attack. The attacker used PowerShell to fetch and execute code from an Azure blob URL, performed reconnaissance (Application Window Discovery), injected malicious code into Notepad.exe to evade defenses, and established covert command-and-control (C2) communications with an external IP. No new files were written to disk; all steps leveraged living-off-the-land binaries and in-memory execution.  
+
+INCIDENT TIMELINE  
+2024-06-26 15:49:15 UTC  
+• WindowsTerminal (wt.exe) spawns PowerShell (PID 7472) with an encoded command referencing an Azure blob URL (WinATP-Intro-Fileless.txt).  
+2024-06-26 15:49:16 UTC  
+• Alert “Suspicious Application Window Discovery” (Low) triggered during reconnaissance (T1010) on host vnevado-win11a.  
+2024-06-26 15:49:41 UTC  
+• Second PowerShell instance (PID 4656) launched with execution-policy bypass and the same encoded C2 retrieval command.  
+2024-06-26 15:49:42 UTC  
+• Alert “Suspicious process injection observed” (Medium) marks the moment PowerShell (PID 4656) injects code into a target process (T1055.001).  
+2024-06-26 15:49:51 UTC  
+• Alert “Suspicious process injection observed” (Medium) again flags injection of code into Notepad.exe (PID 8932). Notepad launches with no arguments, exhibiting anomalous behavior.  
+2024-06-26 15:49:52 UTC  
+• Alert “Unexpected behavior by a process ran with no command line arguments” (Medium) records Notepad connecting out to IP 202.183.149.174 (T1218.011).  
+
+TECHNICAL ANALYSIS  
+1. Reconnaissance (T1010,T1518)  
+   • PowerShell enumeration commands gathered system and application window data.  
+   • Microsoft Defender ATP generated a low-severity “Suspicious Application Window Discovery” alert at 15:49:16.  
+2. Payload Retrieval & Execution (T1059.001)  
+   • Encoded PowerShell fetched content from https://wcdstaticfilesprdeus.blob.core.windows.net/.../WinATP-Intro-Fileless.txt.  
+   • No files dropped; execution happened in memory under “bypass” policy.  
+3. Process Injection (T1055, sub-techniques .001–.005)  
+   • The in-memory payload injected into Notepad.exe (PID 8932), hiding malicious code inside a trusted process.  
+   • Two separate Defender ATP alerts (“Suspicious process injection observed”, Medium) fired covering injection start and end times.  
+4. Masquerading & Unexpected Behavior (T1036,T1218.011)  
+   • Notepad.exe, normally benign, exhibited network behavior without CLI args.  
+   • It reached out to external IP 202.183.149.174, triggering the “Unexpected behavior” alert.  
+
+AFFECTED ENTITIES  
+Hosts  
+• vnevado-win11a.vnevado.alpineskihouse.co (DeviceId: 39d8c57f-2d08-4888-b0cd-12cd0679337a, RiskScore: Medium)  
+Accounts  
+• nathans (Luis Martinez; Sid: S-1-5-21-1240151660-3534038288-105586567-4122; UPN: nathans@vnevado.alpineskihouse.co)  
+Processes  
+• WindowsTerminal.exe (PID 9484 → 7472)  
+• PowerShell.exe (PID 7472, 4656)  
+• Notepad.exe (PID 8932)  
+External IPs & URLs  
+• 72.5.72.208 (public IP seen on host’s last external IP)  
+• 202.183.149.174 (C2 callback)  
+• https://wcdstaticfilesprdeus.blob.core.windows.net/.../WinATP-Intro-Fileless.txt  
+
+ATTACK METHODOLOGY  
+• Initial reconnaissance via built-in tools (MITRE T1010,T1518)  
+• Fileless payload retrieval and execution through PowerShell (T1059.001)  
+• In-memory code injection into Notepad for defense evasion and persistence (T1055.*)  
+• Masquerading / unexpected behavior detection in Notepad (T1036)  
+• Network-based C2 communication over HTTPs and direct IP (T1218.011)  
+
+INDICATORS OF COMPROMISE (IOCs)  
+File Hashes (PowerShell.exe – legitimate but abused)  
+• SHA256: 3247bcfd60f6dd25f34cb74b5889ab10ef1b3ec72b4d4b3d95b5b25b534560b8  
+Notepad.exe Hash (legitimate)  
+• SHA256: 93379a2f43ac1189f29533c4de3f594bb04db76461f1d704620b9cc7cc718eeb  
+URLs & Domains  
+• wcdstaticfilesprdeus.blob.core.windows.net – WinATP-Intro-Fileless.txt  
+External IPs  
+• 202.183.149.174 (C2)  
+• 72.5.72.208 (host external IP)  
+
+SEVERITY ASSESSMENT  
+Overall Impact: High  
+• Multi-stage, in-memory compromise without disk artifacts  
+• Successful defense evasion via living-off-the-land binaries and process injection  
+• Unauthenticated remote C2 established  
+• Potential pivot and credential theft risk  
+
+LABELS / KEYWORDS  
+#Fileless #Discovery #Execution #DefenseEvasion #ProcessInjection #PowerShell #Notepad #CobaltStrike #AzureBlob #C2 #T1059 #T1055 #T1010 #T1036 #T1218

