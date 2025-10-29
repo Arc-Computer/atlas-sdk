@@ -13,7 +13,10 @@ from atlas.config.models import PolicyGateRules, PolicyRubricWeights, PolicySche
 _DATE_PATTERN = re.compile(
     r"\b(?:20\d{2}|19\d{2})(?:[-/](?:0?[1-9]|1[0-2])(?:[-/](?:0?[1-9]|[12]\d|3[01]))?)?\b"
 )
-_INCIDENT_PATTERN = re.compile(r"\b(?:incident|case|ticket)[\s#_\-]*(\d+|[A-Za-z0-9\-]+)?", re.IGNORECASE)
+_INCIDENT_PATTERN = re.compile(
+    r"\b(?:incident|case|ticket)[\s#_\-]+[A-Za-z0-9][A-Za-z0-9_\-]*",
+    re.IGNORECASE,
+)
 _HASH = hashlib.sha256
 
 
