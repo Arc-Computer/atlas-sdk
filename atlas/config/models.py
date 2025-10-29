@@ -330,8 +330,8 @@ class LearningPrompts(BaseModel):
     synthesizer: str | None = None
 
 
-class PolicyGateRules(BaseModel):
-    """Gate configuration enforced on generated policy nuggets."""
+class PlaybookEntryGateRules(BaseModel):
+    """Gate configuration enforced on generated learning playbook entries."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -348,8 +348,8 @@ class PolicyGateRules(BaseModel):
     allow_length_overflow_margin: int = Field(default=20, ge=0, le=500)
 
 
-class PolicyRubricWeights(BaseModel):
-    """Weighted scoring rubric applied to policy nuggets."""
+class PlaybookEntryRubricWeights(BaseModel):
+    """Weighted scoring rubric applied to learning playbook entries."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -359,12 +359,12 @@ class PolicyRubricWeights(BaseModel):
     concision: float = Field(default=0.1, ge=0.0, le=1.0)
 
 
-class PolicySchemaConfig(BaseModel):
-    """Schema metadata for policy nugget synthesis."""
+class PlaybookEntrySchemaConfig(BaseModel):
+    """Schema metadata for playbook entry synthesis."""
 
     model_config = ConfigDict(extra="forbid")
 
-    version: str = "policy_nugget.v1"
+    version: str = "playbook_entry.v1"
     allowed_runtime_handles: List[str] = Field(default_factory=list)
     runtime_handle_prefixes: List[str] = Field(default_factory=list)
     cue_types: List[str] = Field(default_factory=lambda: ["regex", "keyword", "predicate"])
@@ -379,7 +379,7 @@ class LearningUsageConfig(BaseModel):
 
     enabled: bool = True
     capture_examples: bool = False
-    max_examples_per_nugget: int = Field(default=2, ge=0, le=20)
+    max_examples_per_entry: int = Field(default=2, ge=0, le=20)
 
 
 class LearningConfig(BaseModel):
@@ -394,9 +394,9 @@ class LearningConfig(BaseModel):
     history_limit: int = Field(default=10, ge=1, le=200)
     session_note_enabled: bool = True
     apply_to_prompts: bool = True
-    schema: PolicySchemaConfig = Field(default_factory=PolicySchemaConfig)
-    rubric_weights: PolicyRubricWeights = Field(default_factory=PolicyRubricWeights)
-    gates: PolicyGateRules = Field(default_factory=PolicyGateRules)
+    schema: PlaybookEntrySchemaConfig = Field(default_factory=PlaybookEntrySchemaConfig)
+    rubric_weights: PlaybookEntryRubricWeights = Field(default_factory=PlaybookEntryRubricWeights)
+    gates: PlaybookEntryGateRules = Field(default_factory=PlaybookEntryGateRules)
     usage_tracking: LearningUsageConfig = Field(default_factory=LearningUsageConfig)
 
 class RIMConfig(BaseModel):

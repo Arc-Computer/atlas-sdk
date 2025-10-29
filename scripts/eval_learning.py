@@ -126,9 +126,10 @@ def parse_args() -> argparse.Namespace:
         help="Document whether pamphlet injection was enabled, disabled, or toggled during this evaluation.",
     )
     parser.add_argument(
-        "--nugget-labels",
+        "--playbook-entry-labels",
         type=Path,
-        help="Optional JSON file mapping nugget ids to manual reinforcement/differentiation labels (referenced in manifest).",
+        dest="playbook_entry_labels",
+        help="Optional JSON file mapping playbook entry ids to manual reinforcement/differentiation labels (stored in the manifest).",
     )
     return parser.parse_args()
 
@@ -433,8 +434,8 @@ async def main() -> int:
         metadata_annotations["synthesis_models"] = args.synthesis_models
     if args.pamphlet_injection:
         metadata_annotations["pamphlet_injection"] = args.pamphlet_injection
-    if args.nugget_labels:
-        metadata_annotations["nugget_label_overrides"] = str(args.nugget_labels)
+    if args.playbook_entry_labels:
+        metadata_annotations["playbook_entry_label_overrides"] = str(args.playbook_entry_labels)
     if metadata_annotations:
         metadata_annotations["evaluated_at"] = datetime.now(timezone.utc).isoformat()
         run_metadata = metadata_annotations

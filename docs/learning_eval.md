@@ -6,7 +6,6 @@ persisted by the runtime today.
 
 > **Terminology update (2025-10-29):** Former "policy nugget" references have been renamed to **playbook entries**. Regenerate any stored telemetry created before 2025-10-29 to align with the new schema.
 
-
 ## Prompt Digest For Provider Limits
 
 Learning evaluations now route execution metadata through a **provider-aware prompt digest** before the adapter sends

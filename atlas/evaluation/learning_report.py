@@ -58,7 +58,7 @@ class RewardSnapshot:
 
 
 @dataclass(slots=True)
-class PolicyMetricsSummary:
+class PlaybookMetricsSummary:
     total_candidates: int
     passed: int
     failed: int
@@ -69,7 +69,7 @@ class PolicyMetricsSummary:
 
 
 @dataclass(slots=True)
-class LifecycleSummary:
+class PlaybookLifecycleSummary:
     reinforcement_active: int
     reinforcement_deprecated: int
     differentiation_active: int
@@ -123,8 +123,8 @@ class LearningSummary:
     review_statuses: dict[str, int] = field(default_factory=dict)
     discovery_runs: list[DiscoveryRunRef] = field(default_factory=list)
     sessions: list[SessionSnapshot] = field(default_factory=list)
-    policy_metrics: PolicyMetricsSummary | None = None
-    lifecycle_summary: LifecycleSummary | None = None
+    playbook_metrics: PlaybookMetricsSummary | None = None
+    playbook_lifecycle_summary: PlaybookLifecycleSummary | None = None
     usage_metrics: UsageMetrics | None = None
     efficiency: EfficiencySnapshot | None = None
 
@@ -192,7 +192,7 @@ async def _generate_learning_summary(
     trajectory_counts: dict[int, int] = {}
     if summary_only and session_ids:
         trajectory_counts = await database.fetch_trajectory_event_counts(session_ids)
-    latest_policy_meta: dict[str, Any] | None = None
+    latest_playbook_meta: dict[str, Any] | None = None
     rejected_candidates_total = 0
     cue_stats = {"cue_triggers": 0, "cue_sessions": 0, "unique_cue_steps": 0, "adoptions": 0, "success": 0}
     reward_with_cues: list[float] = []
@@ -216,10 +216,10 @@ async def _generate_learning_summary(
         token_usage = _coerce_dict(metadata.get("token_usage"))
         learning_usage_meta = _coerce_dict(metadata.get("learning_usage"))
         learning_state_meta = _coerce_dict(metadata.get("learning_state"))
-        policy_meta = _coerce_dict(learning_state_meta.get("metadata")) if learning_state_meta else {}
-        if policy_meta:
-            latest_policy_meta = policy_meta
-            failure_meta = _coerce_dict(policy_meta.get("last_failure"))
+        playbook_meta = _coerce_dict(learning_state_meta.get("metadata")) if learning_state_meta else {}
+        if playbook_meta:
+            latest_playbook_meta = playbook_meta
+            failure_meta = _coerce_dict(playbook_meta.get("last_failure"))
             rejected_list = _coerce_list(failure_meta.get("rejected_candidates")) if failure_meta else []
             rejected_candidates_total = len(rejected_list)
         if reward_score is not None:
@@ -302,8 +302,8 @@ async def _generate_learning_summary(
             else:
                 tokens_without_cues.append(token_total)
 
-    policy_metrics = _build_policy_metrics(latest_policy_meta)
-    lifecycle_summary = _build_lifecycle_summary(latest_policy_meta, rejected_candidates_total)
+    playbook_metrics = _build_playbook_metrics(latest_playbook_meta)
+    playbook_lifecycle_summary = _build_playbook_lifecycle_summary(latest_playbook_meta, rejected_candidates_total)
     usage_metrics = _build_usage_metrics(cue_stats, len(sessions))
     efficiency_snapshot = _build_efficiency_snapshot(
         reward_with_cues,
@@ -366,8 +366,8 @@ async def _generate_learning_summary(
         review_statuses=dict(sorted(review_counts.items())),
         discovery_runs=discovery_refs,
         sessions=sessions,
-        policy_metrics=policy_metrics,
-        lifecycle_summary=lifecycle_summary,
+        playbook_metrics=playbook_metrics,
+        playbook_lifecycle_summary=playbook_lifecycle_summary,
         usage_metrics=usage_metrics,
         efficiency=efficiency_snapshot,
     )
@@ -455,10 +455,10 @@ def summary_to_markdown(summary: LearningSummary) -> str:
         for ref in summary.discovery_runs:
             timestamp = ref.created_at or "unknown"
             lines.append(f"  - #{ref.run_id} [{ref.source}] task={ref.task!r} at {timestamp}")
-    if summary.policy_metrics:
-        metrics = summary.policy_metrics
+    if summary.playbook_metrics:
+        metrics = summary.playbook_metrics
         lines.append("")
-        lines.append("## Policy Nugget Quality")
+        lines.append("## Playbook Entry Quality")
         lines.append(
             f"- Candidates evaluated: {metrics.total_candidates} (pass rate: {_format_float(metrics.pass_rate)}; passed={metrics.passed}, failed={metrics.failed})"
         )
@@ -467,10 +467,10 @@ def summary_to_markdown(summary: LearningSummary) -> str:
         if metrics.gate_failures:
             failures = ", ".join(f"{name}: {count}" for name, count in metrics.gate_failures.items())
             lines.append(f"- Gate failures: {failures}")
-    if summary.lifecycle_summary:
-        lifecycle = summary.lifecycle_summary
+    if summary.playbook_lifecycle_summary:
+        lifecycle = summary.playbook_lifecycle_summary
         lines.append("")
-        lines.append("## Nugget Lifecycle")
+        lines.append("## Playbook Entry Lifecycle")
         lines.append(
             "- Reinforcement — active: {0}, deprecated: {1}".format(
                 lifecycle.reinforcement_active,
@@ -565,10 +565,10 @@ def summary_to_dict(summary: LearningSummary) -> dict[str, Any]:
     return asdict(summary)
 
 
-def _build_policy_metrics(policy_meta: dict[str, Any] | None) -> PolicyMetricsSummary | None:
-    if not isinstance(policy_meta, dict) or not policy_meta:
+def _build_playbook_metrics(playbook_meta: dict[str, Any] | None) -> PlaybookMetricsSummary | None:
+    if not isinstance(playbook_meta, dict) or not playbook_meta:
         return None
-    summary = _coerce_dict(policy_meta.get("policy_summary"))
+    summary = _coerce_dict(playbook_meta.get("playbook_summary"))
     if not summary:
         return None
     total = int(summary.get("total_candidates") or 0)
@@ -578,7 +578,7 @@ def _build_policy_metrics(policy_meta: dict[str, Any] | None) -> PolicyMetricsSu
     avg_weighted = _coerce_float(summary.get("average_weighted_score"))
     gate_failures = summary.get("gate_failures") if isinstance(summary.get("gate_failures"), dict) else {}
     weights = summary.get("weights") if isinstance(summary.get("weights"), dict) else None
-    return PolicyMetricsSummary(
+    return PlaybookMetricsSummary(
         total_candidates=total,
         passed=passed,
         failed=failed,
@@ -589,14 +589,17 @@ def _build_policy_metrics(policy_meta: dict[str, Any] | None) -> PolicyMetricsSu
     )
 
 
-def _build_lifecycle_summary(policy_meta: dict[str, Any] | None, rejected_count: int) -> LifecycleSummary | None:
-    if not isinstance(policy_meta, dict):
+def _build_playbook_lifecycle_summary(
+    playbook_meta: dict[str, Any] | None,
+    rejected_count: int,
+) -> PlaybookLifecycleSummary | None:
+    if not isinstance(playbook_meta, dict):
         return None
     reinforcement_active = reinforcement_deprecated = 0
     differentiation_active = differentiation_deprecated = 0
-    nuggets = policy_meta.get("policy_nuggets")
-    if isinstance(nuggets, list):
-        for entry in nuggets:
+    entries = playbook_meta.get("playbook_entries")
+    if isinstance(entries, list):
+        for entry in entries:
             if not isinstance(entry, dict):
                 continue
             provenance = entry.get("provenance") if isinstance(entry.get("provenance"), dict) else {}
@@ -615,7 +618,7 @@ def _build_lifecycle_summary(policy_meta: dict[str, Any] | None, rejected_count:
                     differentiation_deprecated += 1
     if not (reinforcement_active or reinforcement_deprecated or differentiation_active or differentiation_deprecated or rejected_count):
         return None
-    return LifecycleSummary(
+    return PlaybookLifecycleSummary(
         reinforcement_active=reinforcement_active,
         reinforcement_deprecated=reinforcement_deprecated,
         differentiation_active=differentiation_active,

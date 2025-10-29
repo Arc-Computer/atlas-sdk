@@ -79,19 +79,19 @@ learning:
       Role: Atlas learning synthesizer. Respond with strict JSON only (no prose, markdown, or explanations).
 
       Inputs:
-      - Existing student/teacher pamphlets and their policy nugget metadata (`metadata.policy_nuggets`), when available.
+      - Existing student/teacher pamphlets and their playbook entry metadata (`metadata.playbook_entries`), when available.
       - Latest session context: task, reward payload (score + rationale), execution telemetry.
       - Chronological history of prior sessions (may be empty).
 
-      You MUST emit a top-level JSON object matching the `policy_nugget.v1` schema below. Literal null means “no change”.
+      You MUST emit a top-level JSON object matching the `playbook_entry.v1` schema below. Literal null means “no change”.
 
       {
-        "version": "policy_nugget.v1",
+        "version": "playbook_entry.v1",
         "student_pamphlet": string | null,
         "teacher_pamphlet": string | null,
-        "policy_nuggets": [
+        "playbook_entries": [
           {
-            "id": string | null,                       # reuse existing ids when the nugget still applies
+            "id": string | null,                       # reuse existing ids when the entry still applies
             "audience": "student" | "teacher",
             "cue": {
               "type": "regex" | "keyword" | "predicate",
@@ -119,24 +119,24 @@ learning:
       }
 
       Objectives:
-      1. Preserve proven nuggets: keep ids, cues, and actions when the behaviour is still valuable; mark stale nuggets by omitting them.
+      1. Preserve proven entries: keep ids, cues, and actions when the behaviour is still valuable; mark stale entries by omitting them.
       2. Produce actionable, tool-aligned guidance. Every action must map cleanly to a runtime handle; avoid vague language.
       3. Enforce generality: no incident IDs, timestamps, customer names, or other one-off references. Prefer reusable patterns.
-      4. Distinguish reinforcement vs differentiation in `scope.category`; reserve teacher nuggets for interventions proven to help.
+      4. Distinguish reinforcement vs differentiation in `scope.category`; reserve teacher entries for interventions proven to help.
       5. Keep pamphlets crisp (<600 words, numbered/bulleted imperative statements). Trim or rewrite outdated lines before adding new ones.
       6. Populate per-session learning notes (`session_*`) only when there is a new takeaway; otherwise output null.
-      7. Always include `policy_nuggets` (empty array if none apply). Never add extra top-level keys.
+      7. Always include `playbook_entries` (empty array if none apply). Never add extra top-level keys.
 
       Additional instructions:
-      - Allowed runtime handles (use exactly one per nugget action, unless a prefix match is more precise):
+      - Allowed runtime handles (use exactly one per playbook entry action, unless a prefix match is more precise):
         logs.search, logs.tail, logs.filter, metrics.query, metrics.compare, metrics.alert_ack, data.query.run, data.query.sql, data.query.vector,
         alerts.notify, alerts.page, tickets.escalate, tickets.create, tickets.update, workflows.retry, workflows.rollback, workflows.trigger,
         incidents.open, incidents.update, incidents.close, runbooks.fetch, runbooks.update, security.rotate_credentials, security.patch.apply,
         diagnostics.trace.inspect
       - Allowed runtime handle prefixes when you need specificity: logs., metrics., data., alerts., tickets., workflows., incidents., runbooks., security., diagnostics., automation., playbooks.
       - If none of the handles precisely match, choose the closest prefix form (e.g., metrics.query.latency) so long as it starts with an allowed prefix.
-      - Never leave `action.runtime_handle` empty. If you cannot identify a handle, rewrite the nugget so it uses one of the allowed handles or prefixes.
-      - Emit at most 2 `policy_nuggets` per synthesis. Keep each `cue.pattern`, `action.imperative`, `expected_effect`, and `scope.constraints` under 120 characters.
+      - Never leave `action.runtime_handle` empty. If you cannot identify a handle, rewrite the entry so it uses one of the allowed handles or prefixes.
+      - Emit at most 2 `playbook_entries` per synthesis. Keep each `cue.pattern`, `action.imperative`, `expected_effect`, and `scope.constraints` under 120 characters.
       - Avoid banned tokens entirely (incident, ticket, case, postmortem). Rewrite or shorten content instead of using those words.
   history_limit: 10
   apply_to_prompts: true
@@ -184,7 +184,7 @@ learning:
   usage_tracking:
     enabled: true
     capture_examples: true
-    max_examples_per_nugget: 3
+    max_examples_per_entry: 3
   gates:
     enforce_actionability: true
     enforce_cue: true
