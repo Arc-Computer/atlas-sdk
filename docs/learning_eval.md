@@ -4,6 +4,98 @@ Atlas already captures the signals needed to explain what changed, how it change
 distillation ships. This guide documents the end-to-end workflow for analysing learning progress using the telemetry
 persisted by the runtime today.
 
+> **Terminology update (2025-10-29):** Former "policy nugget" references have been renamed to **playbook entries**. Regenerate any stored telemetry created before 2025-10-29 to align with the new schema.
+
+
+## Prompt Digest For Provider Limits
+
+Learning evaluations now route execution metadata through a **provider-aware prompt digest** before the adapter sends
+requests to the LLM. This prevents 200k+ token system messages from blocking Claude and other providers with
+smaller context windows while keeping the full telemetry available on disk.
+
+- The OpenAI-compatible adapter exposes a new `metadata_digest` block. Defaults trim large sections (reward audits,
+  session trajectories, validation blobs) to a high-signal summary capped at roughly 10% of each provider's context
+  window (≈20k characters for Anthropic).
+- Each digest produced for an LLM includes `digest_stats` (budget used, omitted metadata keys, and any sections
+  dropped to stay under budget). These diagnostics live in the system message payload for troubleshooting.
+- Override defaults per workflow:
+
+```yaml
+agent:
+  adapter:
+    type: openai
+    metadata_digest:
+      char_budget: 24000        # Optional hard cap for every provider
+      provider_char_budgets:
+        anthropic: 18000        # Override Claude/Sonnet to stay safely below 200k tokens
+      max_plan_steps: 6         # Control how many plan steps appear in the digest
+      max_learning_history_entries: 2
+      include_session_keys: [source, execution_mode, token_usage, reward_stats]
+```
+
+- Set `enabled: false` to revert to the legacy behaviour (not recommended for Claude/Bison-sized windows).
+- If the digest cannot fit under the configured budget after trimming optional sections it raises a descriptive
+  error instead of attempting to send the oversized payload.
+
+Gemini continues to receive the same or smaller prompts, while Anthropic and other providers now stay well within
+their context limits during benchmarking runs.
+
+
+## Playbook Entry Schema & Rubric
+
+Learning updates now revolve around structured **playbook entries**. Each playbook entry captures:
+
+- **cue** – regex/keyword trigger that can be machine-detected.
+- **action** – imperative phrasing plus the runtime handle/tool mapping.
+- **expected_effect** – why the action matters.
+- **scope** – whether the playbook entry reinforces an existing behaviour or introduces differentiation, including any constraints.
+- **provenance** – session id, teacher intervention digest, rubric scores, and lifecycle (`active`, `deprecated`, `rejected`).
+
+Three rubric gates run on every synthesis:
+
+1. **Actionability** – the handle must map to a real tool and the imperative cannot be empty.
+2. **Cue presence** – cues must be machine-detectable (valid regex/keyword/predicate).
+3. **Generality** – no incident IDs/dates or overfit proper nouns; playbook entries must respect a length budget.
+
+Scores for actionability, generality, hookability, and concision (weights: 0.4 / 0.3 / 0.2 / 0.1) are computed even when gates fail. If any gate fails the existing pamphlet is preserved and the rejection is recorded for auditing.
+
+### Configuring schema, gates, and instrumentation
+
+Atlas reads these rails from the existing `learning` block in your agent config (for example `configs/<project>.yaml`). If you omit the block, Atlas instantiates the default `LearningConfig`. To enable stricter constraints or adjust weights, add a section like:
+
+```yaml
+learning:
+  enabled: true
+  update_enabled: true
+  schema:
+    allowed_runtime_handles:
+      - logs.search
+      - data.query*
+    cue_types: [regex, keyword]
+    default_scope_category: reinforcement
+  gates:
+    enforce_actionability: true
+    enforce_cue: true
+    enforce_generality: true
+    max_text_length: 420
+    allowed_proper_nouns: [SQL, HTTP, JSON, Atlas]
+  rubric_weights:
+    actionability: 0.4
+    generality: 0.3
+    hookability: 0.2
+    concision: 0.1
+  usage_tracking:
+    enabled: true
+    capture_examples: true
+    max_examples_per_entry: 3
+```
+
+- `schema` constrains what the LLM can emit (permitted runtime handles/prefixes, cue types, default scope category).
+- `gates` toggles the rubric guards and tunes generalisation heuristics (length budget, banned tokens, allowlists).
+- `rubric_weights` rebias the weighted playbook entry score if you want concision or hookability to matter more/less.
+- `usage_tracking` enables cue/adoption logging and limits how many example snippets are stored per playbook entry.
+
+All other `learning` options (`llm`, `prompts`, `history_limit`, `session_note_enabled`, `apply_to_prompts`) behave as before. Once configured, every synthesis run honours these settings automatically.
 ## 1. Capture Telemetry
 
 1. **Discovery loop** – `atlas env init` records discovery telemetry per task in `discovery_runs` (Postgres) and

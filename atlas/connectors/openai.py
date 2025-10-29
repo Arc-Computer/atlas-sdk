@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Dict, List
 
@@ -15,11 +16,15 @@ except ModuleNotFoundError as exc:
     acompletion = None  # type: ignore[assignment]
     _LITELLM_ERROR = exc
 
+from atlas.connectors.prompt_digest import build_prompt_digest, PromptDigestTooLargeError
 from atlas.connectors.registry import AdapterError
 from atlas.connectors.registry import AgentAdapter
 from atlas.connectors.registry import register_adapter
 from atlas.connectors.utils import AdapterResponse, normalise_usage_payload
 from atlas.config.models import AdapterType, AdapterUnion, OpenAIAdapterConfig
+
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAIAdapter(AgentAdapter):
@@ -39,7 +44,17 @@ class OpenAIAdapter(AgentAdapter):
                 if converted:
                     messages.append(converted)
         elif metadata:
-            messages.append({"role": "system", "content": json.dumps(metadata)})
+            try:
+                digest = build_prompt_digest(metadata, self._config.llm, self._config.metadata_digest)
+            except PromptDigestTooLargeError as exc:
+                raise AdapterError(str(exc)) from exc
+            messages.append({"role": "system", "content": digest})
+            try:
+                stats = json.loads(digest).get("digest_stats", {})
+            except json.JSONDecodeError:
+                stats = {}
+            if stats.get("omitted_sections"):
+                logger.debug("metadata digest omitted sections: %s", stats["omitted_sections"])
         messages.append({"role": "user", "content": prompt})
         return messages
 
