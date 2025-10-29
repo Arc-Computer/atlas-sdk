@@ -132,6 +132,7 @@ class FactorySynthesizer:
         self._snippet_cache: dict[RoleLiteral, FactorySnippet] = {}
         self._error_history: dict[RoleLiteral, list[str]] = {}
         self._repository_cache: dict[str, Any] | None = None
+        self._analysis_cache: dict[RoleLiteral, tuple[bool, ClassContext, list[str]]] = {}
 
     def synthesise(
         self,
@@ -149,7 +150,7 @@ class FactorySynthesizer:
         if environment is not None or environment_summary is not None:
             env_context: ClassContext | RepositorySummary
             if environment is not None:
-                env_needed, env_context = self._analyse_candidate(environment, environment_kwargs)
+                env_needed, env_context, _env_missing = self._get_candidate_analysis(environment, environment_kwargs)
             else:
                 env_context = environment_summary or self._build_repository_summary(
                     "environment",
@@ -169,7 +170,7 @@ class FactorySynthesizer:
         if agent is not None or agent_summary is not None:
             agent_context: ClassContext | RepositorySummary
             if agent is not None:
-                agent_needed, agent_context = self._analyse_candidate(agent, agent_kwargs)
+                agent_needed, agent_context, _agent_missing = self._get_candidate_analysis(agent, agent_kwargs)
             else:
                 agent_context = agent_summary or self._build_repository_summary(
                     "agent",
@@ -187,7 +188,7 @@ class FactorySynthesizer:
                 outcome.agent_auto_wrapped = isinstance(agent_context, RepositorySummary)
 
         if snippets:
-            self._emit_module(snippets)
+            self._emit_module(dict(self._snippet_cache))
 
         return outcome
 
@@ -204,7 +205,7 @@ class FactorySynthesizer:
             snippets[role] = new_snippet
             self._snippet_cache[role] = new_snippet
         if snippets:
-            self._emit_module(snippets)
+            self._emit_module(dict(self._snippet_cache))
 
     def prepare_repository_summary(
         self,
@@ -214,6 +215,15 @@ class FactorySynthesizer:
     ) -> RepositorySummary:
         """Expose repository summary for callers that need to inspect it."""
         return self._build_repository_summary(role, provided_kwargs=provided_kwargs)
+
+    def emit_manual_snippets(self, snippets: dict[str, FactorySnippet]) -> None:
+        """Write caller-provided snippets without invoking LLM synthesis."""
+
+        if not snippets:
+            return
+        for role, snippet in snippets.items():
+            self._snippet_cache[role] = snippet
+        self._emit_module(dict(self._snippet_cache))
 
     # ------------------------------------------------------------------ #
     # Internal helpers
@@ -227,11 +237,32 @@ class FactorySynthesizer:
                 encoding="utf-8",
             )
 
+    def _get_candidate_analysis(
+        self,
+        candidate: Candidate,
+        provided_kwargs: dict[str, Any],
+    ) -> tuple[bool, ClassContext, list[str]]:
+        cached = self._analysis_cache.get(candidate.role)
+        if cached is not None:
+            return cached
+        result = self._analyse_candidate(candidate, provided_kwargs)
+        self._analysis_cache[candidate.role] = result
+        self._context_cache[candidate.role] = result[1]
+        return result
+
+    def needs_factory_for_candidate(
+        self,
+        candidate: Candidate,
+        provided_kwargs: dict[str, Any],
+    ) -> tuple[bool, list[str]]:
+        needs_factory, _context, missing = self._get_candidate_analysis(candidate, provided_kwargs)
+        return needs_factory, missing
+
     def _analyse_candidate(
         self,
         candidate: Candidate,
         provided_kwargs: dict[str, Any],
-    ) -> tuple[bool, ClassContext]:
+    ) -> tuple[bool, ClassContext, list[str]]:
         file_path = candidate.file_path
         source = file_path.read_text(encoding="utf-8")
         tree = ast.parse(source, filename=str(file_path))
@@ -259,9 +290,8 @@ class FactorySynthesizer:
             constants=constants,
             sample_invocations=usage,
         )
-        self._context_cache[candidate.role] = context
         missing = [arg for arg in required_args if arg not in provided_kwargs]
-        return (len(missing) > 0), context
+        return (len(missing) > 0), context, missing
 
     def _collect_sample_usage(self, class_name: str) -> list[str]:
         try:
@@ -809,11 +839,26 @@ class FactorySynthesizer:
                 timeout_seconds=60.0,
             ),
             LLMParameters(
-                provider=LLMProvider.GEMINI,
-                model="gemini/gemini-2.5-flash",
-                api_key_env="GEMINI_API_KEY",
-                temperature=0.1,
-                max_output_tokens=1536,
+                provider=LLMProvider.OPENAI,
+                model="gpt-5-mini",
+                api_key_env="OPENAI_API_KEY",
+                max_output_tokens=2048,
+                timeout_seconds=60.0,
+            ),
+            LLMParameters(
+                provider=LLMProvider.OPENAI,
+                model="gpt-4.1-mini",
+                api_key_env="OPENAI_API_KEY",
+                temperature=0.3,
+                max_output_tokens=2048,
+                timeout_seconds=60.0,
+            ),
+            LLMParameters(
+                provider=LLMProvider.ANTHROPIC,
+                model="claude-3.5-sonnet-latest",
+                api_key_env="ANTHROPIC_API_KEY",
+                temperature=0.3,
+                max_output_tokens=2048,
                 timeout_seconds=60.0,
             ),
         ]
