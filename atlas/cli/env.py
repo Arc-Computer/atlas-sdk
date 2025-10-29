@@ -199,18 +199,8 @@ def _build_basic_environment_factory_snippet(candidate: Candidate, defaults: dic
         auto_skip=False,
     )
 
-
-def _should_wrap_with_stepwise(capabilities: dict[str, bool]) -> bool:
-    if not capabilities:
-        return True
-    return not (capabilities.get("plan") and capabilities.get("summarize"))
-
-
 def _build_basic_agent_factory_snippet(candidate: Candidate, defaults: dict[str, object]) -> FactorySnippet:
-    needs_wrapper = _should_wrap_with_stepwise(candidate.capabilities)
-    imports = [f"from {candidate.module} import {candidate.qualname}"]
-    if needs_wrapper:
-        imports.append("from atlas.sdk.wrappers import StepwiseAgentAdapter")
+    imports = [f"from {candidate.module} import {candidate.qualname}", "from atlas.sdk.wrappers import StepwiseAgentAdapter"]
     defaults_literal = _format_kwargs_literal(defaults)
     preamble = ""
     lines: list[str] = []
@@ -221,10 +211,7 @@ def _build_basic_agent_factory_snippet(candidate: Candidate, defaults: dict[str,
     else:
         lines.append("    parameters = dict(kwargs)")
     lines.append(f"    instance = {candidate.qualname}(**parameters)")
-    if needs_wrapper:
-        lines.append("    return StepwiseAgentAdapter(instance)")
-    else:
-        lines.append("    return instance")
+    lines.append("    return StepwiseAgentAdapter(instance)")
     body_lines = [
         f"def {AGENT_FUNCTION_NAME}(**kwargs):",
         '    """Atlas-generated agent factory."""',
@@ -232,8 +219,7 @@ def _build_basic_agent_factory_snippet(candidate: Candidate, defaults: dict[str,
     ]
     factory_body = preamble + "\n".join(body_lines)
     notes = [f"Generated agent factory wrapping {candidate.dotted_path()}."]
-    if needs_wrapper:
-        notes.append("StepwiseAgentAdapter applied so act-only agents integrate safely with Atlas.")
+    notes.append("StepwiseAgentAdapter applied so act-only agents integrate safely with Atlas.")
     return FactorySnippet(
         function_name=AGENT_FUNCTION_NAME,
         imports=imports,
@@ -703,69 +689,35 @@ def _compose_full_config_payload(
         agent_block["llm"] = llm_block
     config_payload["agent"] = agent_block
 
-    runtime_block = config_payload.get("runtime") if isinstance(config_payload.get("runtime"), dict) else {}
-    runtime_behavior = capabilities.get("control_loop") if isinstance(capabilities, dict) else None
-    if runtime_behavior is None:
-        runtime_behavior = "self"
-    runtime_block["behavior"] = runtime_behavior
-    runtime_block["environment"] = targets.environment.dotted_path()
-    runtime_block["agent"] = targets.agent.dotted_path()
-    runtime_block["control_loop"] = capabilities.get("control_loop", runtime_behavior)
-    runtime_block["supports_stepwise"] = bool(capabilities.get("supports_stepwise", False))
-    preferred_mode = capabilities.get("preferred_mode", "auto")
-    runtime_block["preferred_mode"] = preferred_mode
+    runtime_block = {
+        "behavior": capabilities.get("control_loop", "self"),
+        "environment": f"{targets.environment.factory[0]}:{targets.environment.factory[1]}"
+        if targets.environment.factory
+        else targets.environment.dotted_path(),
+        "agent": f"{targets.agent.factory[0]}:{targets.agent.factory[1]}"
+        if targets.agent.factory
+        else targets.agent.dotted_path(),
+        "control_loop": capabilities.get("control_loop", "self"),
+        "supports_stepwise": bool(capabilities.get("supports_stepwise", False)),
+        "preferred_mode": capabilities.get("preferred_mode", "auto"),
+    }
+    preferred_mode = runtime_block["preferred_mode"]
     plan_description = capabilities.get("plan_description")
     if isinstance(plan_description, str) and plan_description.strip():
         runtime_block["plan_description"] = plan_description
     config_payload["runtime"] = runtime_block
 
-    orchestration_template = config_payload.get("orchestration") if isinstance(config_payload.get("orchestration"), dict) else {}
-    orchestration_template["forced_mode"] = preferred_mode
-    config_payload["orchestration"] = orchestration_template
+    config_payload["orchestration"] = {"forced_mode": preferred_mode}
 
     teacher_template = config_payload.get("teacher") if isinstance(config_payload.get("teacher"), dict) else {}
     teacher_block = copy.deepcopy(teacher_template)
     teacher_block["llm"] = _build_llm_block(teacher_template.get("llm") if isinstance(teacher_template, dict) else None, llm_provider, llm_model)
     config_payload["teacher"] = teacher_block
 
-    if not isinstance(config_payload.get("learning"), dict):
-        config_payload["learning"] = LearningConfig().model_dump()
-    if not isinstance(config_payload.get("runtime_safety"), dict):
-        config_payload["runtime_safety"] = RuntimeSafetyConfig().model_dump()
+    config_payload.pop("learning", None)
+    config_payload.pop("runtime_safety", None)
 
-    metadata_block = config_payload.get("metadata") if isinstance(config_payload.get("metadata"), dict) else {}
-    discovery_meta: dict[str, Any] = {}
-    env_runtime_meta = runtime_metadata.get("environment") if runtime_metadata else {}
-    if env_runtime_meta and isinstance(env_runtime_meta, dict):
-        if env_runtime_meta.get("parameters"):
-            discovery_meta["environment_parameters"] = env_runtime_meta["parameters"]
-    if agent_runtime_meta and isinstance(agent_runtime_meta, dict):
-        if agent_runtime_meta.get("parameters"):
-            discovery_meta["agent_parameters"] = agent_runtime_meta["parameters"]
-        if agent_block.get("system_prompt"):
-            discovery_meta["agent_prompt_preview"] = agent_block["system_prompt"][:2000]
-    env_metadata = _build_factory_metadata(targets.environment)
-    if env_metadata:
-        discovery_meta["environment_factory"] = env_metadata
-    agent_metadata = _build_factory_metadata(targets.agent)
-    if agent_metadata:
-        discovery_meta["agent_factory"] = agent_metadata
-    if llm_provider or llm_model or llm_source:
-        discovery_meta["llm"] = {
-            "provider": llm_provider,
-            "model": llm_model,
-            "source": llm_source,
-        }
-    if discovery_meta:
-        metadata_block = copy.deepcopy(metadata_block)
-        existing_discovery = metadata_block.get("discovery")
-        if isinstance(existing_discovery, dict):
-            merged = copy.deepcopy(existing_discovery)
-            merged.update(discovery_meta)
-        else:
-            merged = discovery_meta
-        metadata_block["discovery"] = merged
-        config_payload["metadata"] = metadata_block
+    config_payload.pop("metadata", None)
 
     info = {
         "llm_provider": llm_provider,
@@ -1079,6 +1031,8 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         return synthesizer
 
     auto_snippets: dict[str, FactorySnippet] = {}
+    manual_env_snippet = False
+    manual_agent_snippet = False
     generated_factories_path = atlas_dir / "generated_factories.py"
     if targets.environment.candidate is not None and targets.environment.factory is None:
         synth = _ensure_synthesizer()
@@ -1110,6 +1064,8 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
                 synthesis_notes.append(
                     f"Agent constructor expects: {', '.join(agent_missing_required)}"
                 )
+            if agent_missing_required and not agent_wrapper_required:
+                agent_candidate_requires_adapter = False
     if (
         targets.environment.factory is None
         and targets.environment.candidate is not None
@@ -1121,6 +1077,8 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         )
         auto_snippets["environment"] = env_snippet
         targets.environment.factory = (GENERATED_MODULE, env_snippet.function_name)
+        manual_env_snippet = True
+        env_candidate_requires_adapter = False
     if (
         targets.agent.factory is None
         and targets.agent.candidate is not None
@@ -1132,6 +1090,8 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         )
         auto_snippets["agent"] = agent_snippet
         targets.agent.factory = (GENERATED_MODULE, agent_snippet.function_name)
+        manual_agent_snippet = True
+        agent_candidate_requires_adapter = False
     if auto_snippets:
         synthesizer = _ensure_synthesizer()
         synthesizer.emit_manual_snippets(auto_snippets)
