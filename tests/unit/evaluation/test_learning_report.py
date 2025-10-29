@@ -106,8 +106,8 @@ async def test_generate_learning_summary_computes_fields():
     assert student_models == {"student-alpha": 1, "student-beta": 1}
     teacher_models = {entry.model_id: entry.session_count for entry in summary.model_breakdown if entry.role == "teacher"}
     assert teacher_models == {"teacher-prime": 2}
-    assert summary.policy_metrics is None
-    assert summary.lifecycle_summary is None
+    assert summary.playbook_metrics is None
+    assert summary.playbook_lifecycle_summary is None
     assert summary.usage_metrics is None
     assert summary.efficiency is not None
     assert summary.efficiency.sessions_with_cues == 0
@@ -137,4 +137,4 @@ async def test_generate_learning_summary_summary_only_uses_event_counts():
     assert database.event_count_session_ids == [1, 2]
     assert database.trajectory_calls == []
     assert all(snapshot.trajectory_events == 2 for snapshot in summary.sessions)
-    assert summary.policy_metrics is None
+    assert summary.playbook_metrics is None

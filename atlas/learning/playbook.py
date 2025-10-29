@@ -59,9 +59,10 @@ def resolve_playbook(
     if isinstance(metadata, dict):
         try:
             tracker = get_tracker()
-            tracker.register_nuggets(role, metadata.get("policy_nuggets"))
+            entries = metadata.get("playbook_entries")
+            tracker.register_entries(role, entries or [])
         except Exception:  # pragma: no cover - instrumentation must not fail core flow
-            logger.debug("Unable to register policy nuggets for role %s", role, exc_info=True)
+            logger.debug("Unable to register playbook entries for role %s", role, exc_info=True)
 
     cache = context.metadata.setdefault("_learning_playbooks", {})
     cached = cache.get(role)

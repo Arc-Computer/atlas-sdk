@@ -1,4 +1,4 @@
-"""Runtime usage instrumentation for policy nuggets."""
+"""Runtime usage instrumentation for playbook entries."""
 
 from __future__ import annotations
 
@@ -23,10 +23,11 @@ class LearningUsageTracker:
         self._context = context
         metadata = context.metadata
         raw_config = metadata.get("learning_usage_config") or {}
+        max_examples_config = raw_config.get("max_examples_per_entry", 2)
         self._config = _TrackerConfig(
             enabled=bool(raw_config.get("enabled", True)),
             capture_examples=bool(raw_config.get("capture_examples", False)),
-            max_examples=int(raw_config.get("max_examples_per_nugget", 2) or 0),
+            max_examples=int(max_examples_config or 0),
         )
         usage_store = metadata.setdefault("learning_usage", {})
         usage_store.setdefault("roles", {})
@@ -42,38 +43,38 @@ class LearningUsageTracker:
     def enabled(self) -> bool:
         return self._config.enabled
 
-    def register_nuggets(self, role: str, nuggets: Iterable[Dict[str, Any]]) -> None:
+    def register_entries(self, role: str, entries: Iterable[Dict[str, Any]]) -> None:
         if not self.enabled:
             return
         role_store = self._usage_store["roles"].setdefault(role, {})
         detector_store = self._usage_store["detectors"].setdefault(role, [])
-        existing_detector_ids = {entry.get("nugget_id") for entry in detector_store}
-        for nugget in nuggets or []:
-            nugget_id = nugget.get("id")
-            if not nugget_id:
+        existing_detector_ids = {entry.get("entry_id") for entry in detector_store}
+        for entry_payload in entries or []:
+            entry_id = entry_payload.get("id")
+            if not entry_id:
                 continue
-            entry = role_store.setdefault(
-                nugget_id,
+            entry_store = role_store.setdefault(
+                entry_id,
                 {
                     "cue_hits": 0,
                     "action_adoptions": 0,
                     "successful_adoptions": 0,
                     "step_ids": [],
                     "adoption_steps": [],
-                    "runtime_handle": nugget.get("action", {}).get("runtime_handle"),
-                    "category": nugget.get("scope", {}).get("category"),
+                    "runtime_handle": entry_payload.get("action", {}).get("runtime_handle"),
+                    "category": entry_payload.get("scope", {}).get("category"),
                 },
             )
-            entry.setdefault("metadata", {})
-            entry["metadata"].setdefault("cue", nugget.get("cue"))
-            entry["metadata"].setdefault("scope", nugget.get("scope"))
-            entry["metadata"].setdefault("expected_effect", nugget.get("expected_effect"))
-            if nugget_id not in existing_detector_ids:
+            entry_store.setdefault("metadata", {})
+            entry_store["metadata"].setdefault("cue", entry_payload.get("cue"))
+            entry_store["metadata"].setdefault("scope", entry_payload.get("scope"))
+            entry_store["metadata"].setdefault("expected_effect", entry_payload.get("expected_effect"))
+            if entry_id not in existing_detector_ids:
                 detector_store.append(
                     {
-                        "nugget_id": nugget_id,
-                        "type": (nugget.get("cue", {}) or {}).get("type"),
-                        "pattern": (nugget.get("cue", {}) or {}).get("pattern"),
+                        "entry_id": entry_id,
+                        "type": (entry_payload.get("cue", {}) or {}).get("type"),
+                        "pattern": (entry_payload.get("cue", {}) or {}).get("pattern"),
                     }
                 )
 
@@ -90,20 +91,20 @@ class LearningUsageTracker:
         detectors = self._usage_store.get("detectors", {}).get(role) or []
         matches: List[Dict[str, Any]] = []
         for detector in detectors:
-            nugget_id = detector.get("nugget_id")
+            entry_id = detector.get("entry_id")
             pattern = detector.get("pattern")
             cue_type = str(detector.get("type") or "").lower()
-            if not nugget_id or not pattern:
+            if not entry_id or not pattern:
                 continue
             if _cue_matches(cue_type, pattern, text):
-                self.record_cue_hit(role, nugget_id, step_id=step_id, snippet=context_hint or text)
-                matches.append({"nugget_id": nugget_id, "pattern": pattern, "type": cue_type})
+                self.record_cue_hit(role, entry_id, step_id=step_id, snippet=context_hint or text)
+                matches.append({"entry_id": entry_id, "pattern": pattern, "type": cue_type})
         return matches
 
     def record_cue_hit(
         self,
         role: str,
-        nugget_id: str,
+        entry_id: str,
         *,
         step_id: int | None,
         snippet: str | None = None,
@@ -111,7 +112,7 @@ class LearningUsageTracker:
         if not self.enabled:
             return
         role_store = self._usage_store["roles"].setdefault(role, {})
-        entry = role_store.get(nugget_id)
+        entry = role_store.get(entry_id)
         if entry is None:
             return
         entry["cue_hits"] = int(entry.get("cue_hits", 0)) + 1
@@ -142,7 +143,7 @@ class LearningUsageTracker:
             return
         role_store = self._usage_store["roles"].setdefault(role, {})
         matched = False
-        for nugget_id, entry in role_store.items():
+        for entry_id, entry in role_store.items():
             if entry.get("runtime_handle") == runtime_handle:
                 matched = True
                 entry["action_adoptions"] = int(entry.get("action_adoptions", 0)) + 1

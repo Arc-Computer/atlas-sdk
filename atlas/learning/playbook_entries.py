@@ -1,4 +1,4 @@
-"""Policy nugget schema utilities, gating, and rubric scoring."""
+"""Playbook entry schema utilities, gating, and rubric scoring."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
 
-from atlas.config.models import PolicyGateRules, PolicyRubricWeights, PolicySchemaConfig
+from atlas.config.models import PlaybookEntryGateRules, PlaybookEntryRubricWeights, PlaybookEntrySchemaConfig
 
 _DATE_PATTERN = re.compile(
     r"\b(?:20\d{2}|19\d{2})(?:[-/](?:0?[1-9]|1[0-2])(?:[-/](?:0?[1-9]|[12]\d|3[01]))?)?\b"
@@ -21,8 +21,8 @@ _HASH = hashlib.sha256
 
 
 @dataclass
-class NuggetEvaluation:
-    """Rubric and gate results for a single policy nugget."""
+class PlaybookEntryEvaluation:
+    """Rubric and gate results for a single learning playbook entry."""
 
     gates: Dict[str, bool]
     scores: Dict[str, float]
@@ -42,64 +42,64 @@ class NuggetEvaluation:
 
 
 @dataclass
-class EvaluatedNugget:
-    """Wrapper struct pairing a normalised nugget with evaluation results."""
+class EvaluatedPlaybookEntry:
+    """Wrapper struct pairing a normalised entry with evaluation results."""
 
-    nugget: Dict[str, Any]
-    evaluation: NuggetEvaluation
+    entry: Dict[str, Any]
+    evaluation: PlaybookEntryEvaluation
 
     def passed(self) -> bool:
         return self.evaluation.passed()
 
     def to_metadata(self) -> Dict[str, Any]:
-        payload = dict(self.nugget)
+        payload = dict(self.entry)
         payload["rubric"] = self.evaluation.to_dict()
         payload.setdefault("generated_at", datetime.now(timezone.utc).isoformat())
         return payload
 
 
-def normalise_candidates(
+def normalise_playbook_entries(
     raw_candidates: Iterable[Dict[str, Any] | str],
     *,
-    schema: PolicySchemaConfig,
+    schema: PlaybookEntrySchemaConfig,
     default_audience: str,
 ) -> List[Dict[str, Any]]:
-    """Coerce raw LLM payloads into structured nugget dictionaries."""
+    """Coerce raw LLM payloads into structured entry dictionaries."""
 
     candidates: List[Dict[str, Any]] = []
     for index, raw in enumerate(raw_candidates or []):
-        nugget = _coerce_nugget(raw, schema=schema, default_audience=default_audience, sequence=index)
-        candidates.append(nugget)
+        entry = _coerce_entry(raw, schema=schema, default_audience=default_audience, sequence=index)
+        candidates.append(entry)
     return candidates
 
 
-def evaluate_candidates(
+def evaluate_playbook_entries(
     candidates: Sequence[Dict[str, Any]],
     *,
-    gates: PolicyGateRules,
-    weights: PolicyRubricWeights,
-    schema: PolicySchemaConfig,
+    gates: PlaybookEntryGateRules,
+    weights: PlaybookEntryRubricWeights,
+    schema: PlaybookEntrySchemaConfig,
     allowed_handles: Sequence[str],
     allowed_prefixes: Sequence[str],
-) -> Tuple[List[EvaluatedNugget], Dict[str, Any]]:
-    """Evaluate each candidate nugget against rubric gates and weights."""
+) -> Tuple[List[EvaluatedPlaybookEntry], Dict[str, Any]]:
+    """Evaluate each candidate playbook entry against rubric gates and weights."""
 
     allowed_set = {handle.strip() for handle in allowed_handles if handle}
     prefix_set = {prefix.strip() for prefix in allowed_prefixes if prefix}
-    evaluations: List[EvaluatedNugget] = []
+    evaluations: List[EvaluatedPlaybookEntry] = []
     gate_failure_totals: Dict[str, int] = {"actionability": 0, "cue": 0, "generality": 0}
     weighted_scores: List[float] = []
 
-    for nugget in candidates:
-        evaluation = _evaluate_nugget(
-            nugget,
+    for entry in candidates:
+        evaluation = _evaluate_entry(
+            entry,
             gates=gates,
             weights=weights,
             schema=schema,
             allowed_handles=allowed_set,
             allowed_prefixes=prefix_set,
         )
-        evaluations.append(EvaluatedNugget(nugget=nugget, evaluation=evaluation))
+        evaluations.append(EvaluatedPlaybookEntry(entry=entry, evaluation=evaluation))
         for gate_name, gate_passed in evaluation.gates.items():
             if not gate_passed:
                 gate_failure_totals[gate_name] = gate_failure_totals.get(gate_name, 0) + 1
@@ -119,25 +119,25 @@ def evaluate_candidates(
     return evaluations, summary
 
 
-def stabilise_nugget_id(nugget: Dict[str, Any]) -> str:
-    """Derive a stable identifier for the nugget."""
+def stabilise_playbook_entry_id(entry: Dict[str, Any]) -> str:
+    """Derive a stable identifier for the playbook entry."""
 
     parts = [
-        nugget.get("audience") or "",
-        nugget.get("cue", {}).get("type") or "",
-        nugget.get("cue", {}).get("pattern") or nugget.get("cue", {}).get("text") or "",
-        nugget.get("action", {}).get("imperative") or "",
-        nugget.get("action", {}).get("runtime_handle") or "",
-        nugget.get("scope", {}).get("constraints") or "",
+        entry.get("audience") or "",
+        entry.get("cue", {}).get("type") or "",
+        entry.get("cue", {}).get("pattern") or entry.get("cue", {}).get("text") or "",
+        entry.get("action", {}).get("imperative") or "",
+        entry.get("action", {}).get("runtime_handle") or "",
+        entry.get("scope", {}).get("constraints") or "",
     ]
     digest = _HASH("||".join(parts).encode("utf-8")).hexdigest()
-    return f"nugget-{digest[:12]}"
+    return f"playbook-entry-{digest[:12]}"
 
 
-def _coerce_nugget(
+def _coerce_entry(
     raw: Dict[str, Any] | str,
     *,
-    schema: PolicySchemaConfig,
+    schema: PlaybookEntrySchemaConfig,
     default_audience: str,
     sequence: int,
 ) -> Dict[str, Any]:
@@ -163,11 +163,11 @@ def _coerce_nugget(
             payload["action"]["runtime_handle"] = runtime_mapping.get("runtime_handle")
         payload["metadata"].setdefault("runtime_mapping", runtime_mapping)
     payload.setdefault("sequence", sequence)
-    payload.setdefault("id", payload.get("id") or stabilise_nugget_id(payload))
+    payload.setdefault("id", payload.get("id") or stabilise_playbook_entry_id(payload))
     return payload
 
 
-def _coerce_cue(cue: Any, schema: PolicySchemaConfig) -> Dict[str, Any]:
+def _coerce_cue(cue: Any, schema: PlaybookEntrySchemaConfig) -> Dict[str, Any]:
     if isinstance(cue, dict):
         payload = dict(cue)
     elif isinstance(cue, str):
@@ -187,7 +187,7 @@ def _coerce_cue(cue: Any, schema: PolicySchemaConfig) -> Dict[str, Any]:
     return payload
 
 
-def _coerce_action(action: Any, schema: PolicySchemaConfig) -> Dict[str, Any]:
+def _coerce_action(action: Any, schema: PlaybookEntrySchemaConfig) -> Dict[str, Any]:
     if isinstance(action, dict):
         payload = dict(action)
     elif isinstance(action, str):
@@ -211,7 +211,7 @@ def _coerce_action(action: Any, schema: PolicySchemaConfig) -> Dict[str, Any]:
     return payload
 
 
-def _coerce_scope(scope: Any, schema: PolicySchemaConfig) -> Dict[str, Any]:
+def _coerce_scope(scope: Any, schema: PlaybookEntrySchemaConfig) -> Dict[str, Any]:
     if isinstance(scope, dict):
         payload = dict(scope)
     else:
@@ -227,20 +227,20 @@ def _coerce_scope(scope: Any, schema: PolicySchemaConfig) -> Dict[str, Any]:
     return payload
 
 
-def _evaluate_nugget(
-    nugget: Dict[str, Any],
+def _evaluate_entry(
+    entry: Dict[str, Any],
     *,
-    gates: PolicyGateRules,
-    weights: PolicyRubricWeights,
-    schema: PolicySchemaConfig,
+    gates: PlaybookEntryGateRules,
+    weights: PlaybookEntryRubricWeights,
+    schema: PlaybookEntrySchemaConfig,
     allowed_handles: Iterable[str],
     allowed_prefixes: Iterable[str],
-) -> NuggetEvaluation:
+) -> PlaybookEntryEvaluation:
     gate_results: Dict[str, bool] = {}
     failure_reasons: List[str] = []
 
-    handle = nugget.get("action", {}).get("runtime_handle")
-    imperative = nugget.get("action", {}).get("imperative")
+    handle = entry.get("action", {}).get("runtime_handle")
+    imperative = entry.get("action", {}).get("imperative")
     handle_valid = _handle_is_allowed(handle, allowed_handles, allowed_prefixes)
     action_gate = bool(imperative) and (handle_valid or schema.allow_missing_tool_mapping)
     gate_results["actionability"] = (not gates.enforce_actionability) or action_gate
@@ -250,14 +250,14 @@ def _evaluate_nugget(
             message = "imperative missing"
         failure_reasons.append(f"actionability_gate:{message}")
 
-    cue_payload = nugget.get("cue", {})
+    cue_payload = entry.get("cue", {})
     cue_valid = _cue_is_valid(cue_payload, schema)
     gate_results["cue"] = (not gates.enforce_cue) or cue_valid
     if gates.enforce_cue and not cue_valid:
         failure_reasons.append("cue_gate:invalid cue pattern")
 
     generality_passed, generality_reason = _generality_gate(
-        nugget,
+        entry,
         gates=gates,
     )
     gate_results["generality"] = (not gates.enforce_generality) or generality_passed
@@ -265,7 +265,7 @@ def _evaluate_nugget(
         failure_reasons.append(f"generality_gate:{generality_reason}")
 
     scores = _compute_scores(
-        nugget,
+        entry,
         weights=weights,
         gates=gates,
         gate_results=gate_results,
@@ -274,7 +274,7 @@ def _evaluate_nugget(
     weights_map = _normalised_weights(weights)
     weighted_total = sum(scores[name] * weights_map[name] for name in weights_map)
 
-    return NuggetEvaluation(
+    return PlaybookEntryEvaluation(
         gates=gate_results,
         scores=scores,
         weighted_total=weighted_total,
@@ -283,10 +283,10 @@ def _evaluate_nugget(
 
 
 def _compute_scores(
-    nugget: Dict[str, Any],
+    entry: Dict[str, Any],
     *,
-    weights: PolicyRubricWeights,
-    gates: PolicyGateRules,
+    weights: PlaybookEntryRubricWeights,
+    gates: PlaybookEntryGateRules,
     gate_results: Dict[str, bool],
     cue_valid: bool,
 ) -> Dict[str, float]:
@@ -296,7 +296,7 @@ def _compute_scores(
 
     generality_score = 1.0 if gate_results.get("generality", True) else 0.0
 
-    cue = nugget.get("cue", {})
+    cue = entry.get("cue", {})
     cue_type = (cue.get("type") or "").lower()
     hookability_score = 1.0 if cue_type == "regex" else 0.6 if cue_type == "predicate" else 0.4
     if not cue_valid:
@@ -305,10 +305,10 @@ def _compute_scores(
     combined = " ".join(
         segment
         for segment in (
-            nugget.get("action", {}).get("imperative"),
-            nugget.get("expected_effect"),
-            nugget.get("scope", {}).get("constraints"),
-            nugget.get("cue", {}).get("pattern"),
+            entry.get("action", {}).get("imperative"),
+            entry.get("expected_effect"),
+            entry.get("scope", {}).get("constraints"),
+            entry.get("cue", {}).get("pattern"),
         )
         if isinstance(segment, str)
     )
@@ -343,7 +343,7 @@ def _handle_is_allowed(handle: str | None, allowed_handles: Iterable[str], allow
     return False
 
 
-def _cue_is_valid(cue: Dict[str, Any], schema: PolicySchemaConfig) -> bool:
+def _cue_is_valid(cue: Dict[str, Any], schema: PlaybookEntrySchemaConfig) -> bool:
     cue_type = (cue.get("type") or "").lower()
     if cue_type not in schema.cue_types:
         return False
@@ -359,14 +359,14 @@ def _cue_is_valid(cue: Dict[str, Any], schema: PolicySchemaConfig) -> bool:
 
 
 def _generality_gate(
-    nugget: Dict[str, Any],
+    entry: Dict[str, Any],
     *,
-    gates: PolicyGateRules,
+    gates: PlaybookEntryGateRules,
 ) -> Tuple[bool, str]:
     text_segments: List[str] = []
-    cue = nugget.get("cue", {})
-    action = nugget.get("action", {})
-    scope = nugget.get("scope", {})
+    cue = entry.get("cue", {})
+    action = entry.get("action", {})
+    scope = entry.get("scope", {})
     analysis_segments: List[str] = []
     text_segments.extend(
         segment
@@ -374,7 +374,7 @@ def _generality_gate(
             cue.get("pattern"),
             cue.get("description"),
             action.get("imperative"),
-            nugget.get("expected_effect"),
+            entry.get("expected_effect"),
             scope.get("constraints"),
             scope.get("applies_when"),
         )
@@ -428,7 +428,7 @@ def _normalise_string(value: Any) -> str:
     return str(value).strip()
 
 
-def _normalised_weights(weights: PolicyRubricWeights) -> Dict[str, float]:
+def _normalised_weights(weights: PlaybookEntryRubricWeights) -> Dict[str, float]:
     raw = {
         "actionability": max(weights.actionability, 0.0),
         "generality": max(weights.generality, 0.0),
@@ -440,9 +440,9 @@ def _normalised_weights(weights: PolicyRubricWeights) -> Dict[str, float]:
 
 
 __all__ = [
-    "EvaluatedNugget",
-    "NuggetEvaluation",
-    "evaluate_candidates",
-    "normalise_candidates",
-    "stabilise_nugget_id",
+    "EvaluatedPlaybookEntry",
+    "PlaybookEntryEvaluation",
+    "evaluate_playbook_entries",
+    "normalise_playbook_entries",
+    "stabilise_playbook_entry_id",
 ]

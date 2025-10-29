@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from atlas.config.models import LearningConfig, PolicySchemaConfig
+from atlas.config.models import LearningConfig, PlaybookEntrySchemaConfig
 from atlas.learning.synthesizer import LearningSynthesizer
 
 
@@ -35,12 +35,22 @@ async def test_learning_synthesizer_merges_state_and_trims_history():
         update_enabled=True,
         llm=None,
         history_limit=2,
-        schema=PolicySchemaConfig(allowed_runtime_handles=["validate_assumptions"]),
+        schema=PlaybookEntrySchemaConfig(allowed_runtime_handles=["validate_assumptions"]),
     )
     existing_state = {
         "student_learning": "Existing guidance block.",
         "teacher_learning": None,
-        "metadata": {"version": 1},
+        "metadata": {
+            "version": 1,
+            "playbook_entries": [
+                {
+                    "id": "legacy",
+                    "audience": "student",
+                    "scope": {"category": "reinforcement"},
+                    "provenance": {"status": {"category": "reinforcement", "lifecycle": "active"}},
+                }
+            ],
+        },
     }
     history = {
         "entries": [{"id": 1}, {"id": 2}, {"id": 3}],
@@ -48,14 +58,14 @@ async def test_learning_synthesizer_merges_state_and_trims_history():
     }
     response_payload = json.dumps(
         {
-            "version": "policy_nugget.v1",
+            "version": "playbook_entry.v1",
             "student_pamphlet": "Existing guidance block.\n- Validate assumptions early.",
             "teacher_pamphlet": "Prompt them to enumerate blockers.",
             "session_student_learning": "Focus on validating assumptions before acting.",
             "session_teacher_learning": "Prompt the student to list blocking factors.",
-            "policy_nuggets": [
+            "playbook_entries": [
                 {
-                    "id": "nugget-validate",
+                    "id": "entry-validate",
                     "audience": "student",
                     "cue": {
                         "type": "keyword",
@@ -95,10 +105,17 @@ async def test_learning_synthesizer_merges_state_and_trims_history():
     assert result.teacher_learning == "Prompt the student to list blocking factors."
     assert result.learning_state["student_learning"].startswith("Existing guidance block.")
     assert result.learning_state["teacher_learning"] == "Prompt them to enumerate blockers."
-    assert result.learning_state["metadata"]["version"] == 2
-    policy_meta = result.learning_state["metadata"].get("policy_nuggets")
-    assert policy_meta and policy_meta[0]["provenance"]["status"]["lifecycle"] == "active"
-    assert result.policy_nuggets is not None and len(result.policy_nuggets) == 1
+    metadata = result.learning_state["metadata"]
+    assert metadata["version"] == 2
+    assert "policy_nuggets" not in metadata
+    playbook_entries = metadata.get("playbook_entries")
+    assert playbook_entries
+    statuses = {entry["id"]: entry["provenance"]["status"]["lifecycle"] for entry in playbook_entries}
+    assert statuses["entry-validate"] == "active"
+    assert statuses.get("legacy") == "deprecated"
+    assert result.playbook_entries is not None
+    active_entries = [entry for entry in result.playbook_entries if entry["provenance"]["status"]["lifecycle"] == "active"]
+    assert len(active_entries) == 1
     assert result.rubric_summary is not None and result.rubric_summary.get("accepted") is True
     assert result.session_note == "Student: Focus on validating assumptions before acting. Teacher: Prompt the student to list blocking factors."
     message_payload = json.loads(client.messages[-1]["content"])
@@ -131,12 +148,12 @@ async def test_learning_synthesizer_rejects_on_gate_failure():
         enabled=True,
         update_enabled=True,
         llm=None,
-        schema=PolicySchemaConfig(allowed_runtime_handles=["valid_handle"]),
+        schema=PlaybookEntrySchemaConfig(allowed_runtime_handles=["valid_handle"]),
     )
     baseline_state = {
         "student_learning": "Keep queries focused.",
         "metadata": {
-            "policy_nuggets": [
+            "playbook_entries": [
                 {
                     "id": "existing",
                     "audience": "student",
@@ -148,9 +165,9 @@ async def test_learning_synthesizer_rejects_on_gate_failure():
     }
     response_payload = json.dumps(
         {
-            "version": "policy_nugget.v1",
+            "version": "playbook_entry.v1",
             "student_pamphlet": "Replace with risky guidance",
-            "policy_nuggets": [
+            "playbook_entries": [
                 {
                     "audience": "student",
                     "cue": {"type": "keyword", "pattern": "incident 5"},
@@ -173,7 +190,8 @@ async def test_learning_synthesizer_rejects_on_gate_failure():
     )
     assert result.learning_state["student_learning"] == "Keep queries focused."
     metadata = result.learning_state["metadata"]
-    assert metadata["policy_nuggets"][0]["provenance"]["status"]["lifecycle"] == "active"
+    assert "policy_nuggets" not in metadata
+    assert metadata["playbook_entries"][0]["provenance"]["status"]["lifecycle"] == "active"
     assert metadata["last_failure"]["rejected_candidates"]
-    assert result.policy_nuggets[0]["provenance"]["status"]["lifecycle"] == "active"
+    assert result.playbook_entries[0]["provenance"]["status"]["lifecycle"] == "active"
     assert result.rubric_summary["accepted"] is False

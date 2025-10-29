@@ -4,21 +4,24 @@ Atlas already captures the signals needed to explain what changed, how it change
 distillation ships. This guide documents the end-to-end workflow for analysing learning progress using the telemetry
 persisted by the runtime today.
 
-## Policy Nugget Schema & Rubric
+> **Terminology update (2025-10-29):** Former "policy nugget" references have been renamed to **playbook entries**. Regenerate any stored telemetry created before 2025-10-29 to align with the new schema.
 
-Learning updates now revolve around structured **policy nuggets**. Each nugget captures:
+
+## Playbook Entry Schema & Rubric
+
+Learning updates now revolve around structured **playbook entries**. Each playbook entry captures:
 
 - **cue** – regex/keyword trigger that can be machine-detected.
 - **action** – imperative phrasing plus the runtime handle/tool mapping.
 - **expected_effect** – why the action matters.
-- **scope** – whether the nugget reinforces an existing behaviour or introduces differentiation, including any constraints.
+- **scope** – whether the playbook entry reinforces an existing behaviour or introduces differentiation, including any constraints.
 - **provenance** – session id, teacher intervention digest, rubric scores, and lifecycle (`active`, `deprecated`, `rejected`).
 
 Three rubric gates run on every synthesis:
 
 1. **Actionability** – the handle must map to a real tool and the imperative cannot be empty.
 2. **Cue presence** – cues must be machine-detectable (valid regex/keyword/predicate).
-3. **Generality** – no incident IDs/dates or overfit proper nouns; nuggets must respect a length budget.
+3. **Generality** – no incident IDs/dates or overfit proper nouns; playbook entries must respect a length budget.
 
 Scores for actionability, generality, hookability, and concision (weights: 0.4 / 0.3 / 0.2 / 0.1) are computed even when gates fail. If any gate fails the existing pamphlet is preserved and the rejection is recorded for auditing.
 
@@ -50,13 +53,13 @@ learning:
   usage_tracking:
     enabled: true
     capture_examples: true
-    max_examples_per_nugget: 3
+    max_examples_per_entry: 3
 ```
 
 - `schema` constrains what the LLM can emit (permitted runtime handles/prefixes, cue types, default scope category).
 - `gates` toggles the rubric guards and tunes generalisation heuristics (length budget, banned tokens, allowlists).
-- `rubric_weights` rebias the weighted policy nugget score if you want concision or hookability to matter more/less.
-- `usage_tracking` enables cue/adoption logging and limits how many example snippets are stored per nugget.
+- `rubric_weights` rebias the weighted playbook entry score if you want concision or hookability to matter more/less.
+- `usage_tracking` enables cue/adoption logging and limits how many example snippets are stored per playbook entry.
 
 All other `learning` options (`llm`, `prompts`, `history_limit`, `session_note_enabled`, `apply_to_prompts`) behave as before. Once configured, every synthesis run honours these settings automatically.
 
@@ -127,7 +130,7 @@ python scripts/eval_learning.py \
 - `--prompt-variant` – label the prompt/meta-prompt variant under test.
 - `--synthesis-model` – record the LLM(s) used for pamphlet generation (repeatable, feeds model benchmarking comparisons).
 - `--pamphlet-injection` – annotate whether pamphlet injection was on/off/toggled for transfer tests.
-- `--nugget-labels` – reference a JSON file with manual nugget category overrides (stored in the manifest for downstream tooling).
+- `--playbook-entry-labels` – reference a JSON file with manual playbook entry category overrides (stored in the manifest for downstream tooling).
 
 Summary mode is ideal for nightly or CI jobs where you just need reward deltas and model trends. Run the full-detail mode (default) when you want trajectory event counts sampled per session and are comfortable with additional database reads.
 
@@ -136,7 +139,7 @@ Outputs:
 - `results/learning/<slug>_summary.json` – machine-readable payload (sessions, reward windows, discovery references).
 - `results/learning/<slug>_summary.md` – human-friendly digest highlighting reward deltas, adaptive behaviour, and model breakdowns.
 - `results/learning/index.json` – manifest listing every generated artifact, plus the comparison/aggregate tables when `--compare-to` is provided.
-- `run_metadata` (in `index.json`) – captures prompt variant, synthesis models, pamphlet toggle mode, and optional nugget label overrides supplied via CLI flags.
+- `run_metadata` (in `index.json`) – captures prompt variant, synthesis models, pamphlet toggle mode, and optional playbook entry label overrides supplied via CLI flags.
 
 Pass `--learning-key ...` to target specific keys or `--no-markdown` when you only need JSON.
 
@@ -152,8 +155,8 @@ Each summary provides:
 - **Discovery context** – pointers to matching discovery/runtime telemetry (`discovery_runs`) for the same task so you
   can replay the original traces.
 - **Latest sessions** – compact view of recent runs with reward/uncertainty snapshots and trajectory event counts.
-- **Policy Nugget Quality** – aggregates the rubric outputs: candidate counts, gate failures, weighted score averages, and the weighting used.
-- **Nugget Lifecycle** – reinforcement vs differentiation counts split by `active`/`deprecated`, plus rejected candidates from the latest run.
+- **Playbook Entry Quality** – aggregates the rubric outputs: candidate counts, gate failures, weighted score averages, and the weighting used.
+- **Playbook Entry Lifecycle** – reinforcement vs differentiation counts split by `active`/`deprecated`, plus rejected candidates from the latest run.
 - **Runtime Usage** – cue trigger totals, adoption counts, success rates, and trigger/adoption rates across sessions.
 - **Efficiency Snapshot** – comparison of reward/tokens in sessions with cue hits versus those without, including deltas.
 

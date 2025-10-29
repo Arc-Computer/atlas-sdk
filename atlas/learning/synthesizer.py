@@ -14,11 +14,15 @@ from typing import Any, Dict, List
 from atlas.config.models import (
     LearningConfig,
     LLMParameters,
-    PolicyGateRules,
-    PolicyRubricWeights,
-    PolicySchemaConfig,
+    PlaybookEntryGateRules,
+    PlaybookEntryRubricWeights,
+    PlaybookEntrySchemaConfig,
 )
-from atlas.learning.nuggets import evaluate_candidates, normalise_candidates, stabilise_nugget_id
+from atlas.learning.playbook_entries import (
+    evaluate_playbook_entries,
+    normalise_playbook_entries,
+    stabilise_playbook_entry_id,
+)
 from atlas.learning.prompts import LEARNING_SYNTHESIS_PROMPT
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.utils.llm_client import LLMClient
@@ -35,7 +39,7 @@ class LearningSynthesisResult:
     learning_state: Dict[str, Any]
     session_note: str | None = None
     audit: Dict[str, Any] | None = None
-    policy_nuggets: List[Dict[str, Any]] | None = None
+    playbook_entries: List[Dict[str, Any]] | None = None
     rubric_summary: Dict[str, Any] | None = None
     gate_failures: List[Dict[str, Any]] | None = None
 
@@ -52,9 +56,9 @@ class LearningSynthesizer:
     ) -> None:
         self._config = config
         self._prompt = (config.prompts.synthesizer if config.prompts and config.prompts.synthesizer else LEARNING_SYNTHESIS_PROMPT)
-        self._schema: PolicySchemaConfig = config.schema
-        self._rubric_weights: PolicyRubricWeights = config.rubric_weights
-        self._gate_rules: PolicyGateRules = config.gates
+        self._schema: PlaybookEntrySchemaConfig = config.schema
+        self._rubric_weights: PlaybookEntryRubricWeights = config.rubric_weights
+        self._gate_rules: PlaybookEntryGateRules = config.gates
         llm_params = config.llm or fallback_llm
         if config.enabled and llm_params is None and client is None:
             raise ValueError("learning.llm must be configured when the learning synthesizer is enabled")
@@ -180,9 +184,9 @@ class LearningSynthesizer:
         }
         if isinstance(metadata_payload, dict):
             payload["pamphlet_metadata"] = metadata_payload
-            current_nuggets = metadata_payload.get("policy_nuggets")
-            if isinstance(current_nuggets, list):
-                payload["current_policy_nuggets"] = current_nuggets
+            current_entries = metadata_payload.get("playbook_entries")
+            if isinstance(current_entries, list):
+                payload["current_playbook_entries"] = current_entries
         if history:
             payload["history"] = self._trim_history(history)
         return payload
@@ -221,9 +225,9 @@ class LearningSynthesizer:
         if not isinstance(current_metadata, dict):
             current_metadata = {}
 
-        policy_eval = self._evaluate_policy_candidates(payload, current_metadata, context)
-        metadata = policy_eval["metadata"]
-        accepted = policy_eval["accepted"]
+        playbook_eval = self._evaluate_playbook_entries(payload, current_metadata, context)
+        metadata = playbook_eval["metadata"]
+        accepted = playbook_eval["accepted"]
 
         student_pamphlet = candidate_student if accepted and candidate_student is not None else (current_student or "")
         teacher_pamphlet = candidate_teacher if accepted and candidate_teacher is not None else current_teacher
@@ -247,13 +251,13 @@ class LearningSynthesizer:
             teacher_learning=session_teacher,
             learning_state=learning_state,
             session_note=session_note,
-            policy_nuggets=metadata.get("policy_nuggets") if isinstance(metadata, dict) else None,
-            rubric_summary=policy_eval.get("summary"),
-            gate_failures=policy_eval.get("failures") or None,
+            playbook_entries=metadata.get("playbook_entries") if isinstance(metadata, dict) else None,
+            rubric_summary=playbook_eval.get("summary"),
+            gate_failures=playbook_eval.get("failures") or None,
         )
         return result
 
-    def _evaluate_policy_candidates(
+    def _evaluate_playbook_entries(
         self,
         payload: Dict[str, Any],
         current_metadata: Dict[str, Any],
@@ -263,27 +267,27 @@ class LearningSynthesizer:
         incoming_metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None
         if isinstance(incoming_metadata, dict):
             metadata.update(copy.deepcopy(incoming_metadata))
-        baseline_nuggets = []
-        if isinstance(metadata.get("policy_nuggets"), list):
-            baseline_nuggets = copy.deepcopy(metadata.get("policy_nuggets"))
-        baseline_by_id = {
-            entry.get("id"): entry for entry in baseline_nuggets if isinstance(entry, dict) and entry.get("id")
+        baseline_entries: List[Dict[str, Any]] = []
+        if isinstance(metadata.get("playbook_entries"), list):
+            baseline_entries = copy.deepcopy(metadata.get("playbook_entries"))
+        baseline_entries_by_id = {
+            entry.get("id"): entry for entry in baseline_entries if isinstance(entry, dict) and entry.get("id")
         }
 
-        raw_candidates = payload.get("policy_nuggets")
+        raw_candidates = payload.get("playbook_entries")
         if not isinstance(raw_candidates, list):
             raw_candidates = []
         handles = self._resolve_runtime_handles(context)
 
-        candidates = normalise_candidates(raw_candidates, schema=self._schema, default_audience="student")
+        candidates = normalise_playbook_entries(raw_candidates, schema=self._schema, default_audience="student")
         for candidate in candidates:
             candidate_id = candidate.get("id")
-            if candidate_id and candidate_id in baseline_by_id:
-                baseline_audience = baseline_by_id[candidate_id].get("audience")
+            if candidate_id and candidate_id in baseline_entries_by_id:
+                baseline_audience = baseline_entries_by_id[candidate_id].get("audience")
                 if baseline_audience:
                     candidate["audience"] = baseline_audience
 
-        evaluations, summary = evaluate_candidates(
+        evaluations, summary = evaluate_playbook_entries(
             candidates,
             gates=self._gate_rules,
             weights=self._rubric_weights,
@@ -300,7 +304,7 @@ class LearningSynthesizer:
                 summary["accepted"] = False
                 failures.append(
                     {
-                        "id": item.nugget.get("id"),
+                        "id": item.entry.get("id"),
                         "gates": item.evaluation.gates,
                         "scores": item.evaluation.scores,
                         "reasons": item.evaluation.failure_reasons,
@@ -309,14 +313,14 @@ class LearningSynthesizer:
 
         accepted = summary["accepted"]
         timestamp = datetime.now(timezone.utc).isoformat()
-        metadata["policy_version"] = self._schema.version
+        metadata["playbook_version"] = self._schema.version
         metadata["last_evaluation"] = {
             "timestamp": timestamp,
             "summary": summary,
             "candidates": [
                 {
-                    "id": item.nugget.get("id"),
-                    "audience": item.nugget.get("audience"),
+                    "id": item.entry.get("id"),
+                    "audience": item.entry.get("audience"),
                     "rubric": item.evaluation.to_dict(),
                 }
                 for item in evaluations
@@ -324,8 +328,8 @@ class LearningSynthesizer:
         }
 
         if accepted and not evaluations and not raw_candidates:
-            metadata.setdefault("policy_nuggets", baseline_nuggets)
-            metadata["policy_summary"] = summary
+            metadata.setdefault("playbook_entries", baseline_entries)
+            metadata["playbook_summary"] = summary
             metadata.setdefault("last_updated_at", timestamp)
             return {
                 "metadata": metadata,
@@ -340,52 +344,52 @@ class LearningSynthesizer:
             for item in evaluations:
                 if not item.passed():
                     continue
-                nugget_payload = item.to_metadata()
-                nugget_payload.pop("sequence", None)
-                nugget_id = nugget_payload.get("id") or stabilise_nugget_id(nugget_payload)
-                nugget_payload["id"] = nugget_id
-                if not nugget_payload.get("audience"):
-                    nugget_payload["audience"] = "student"
-                scope = nugget_payload.get("scope")
+                entry_payload = item.to_metadata()
+                entry_payload.pop("sequence", None)
+                entry_id = entry_payload.get("id") or stabilise_playbook_entry_id(entry_payload)
+                entry_payload["id"] = entry_id
+                if not entry_payload.get("audience"):
+                    entry_payload["audience"] = "student"
+                scope = entry_payload.get("scope")
                 if not isinstance(scope, dict):
                     scope = {}
-                    nugget_payload["scope"] = scope
+                    entry_payload["scope"] = scope
                 if not scope.get("category"):
-                    prior_scope = baseline_by_id.get(nugget_id, {}).get("scope") if nugget_id in baseline_by_id else {}
+                    prior_scope = baseline_entries_by_id.get(entry_id, {}).get("scope") if entry_id in baseline_entries_by_id else {}
                     category = (prior_scope or {}).get("category") or self._schema.default_scope_category
                     scope["category"] = category
-                nugget_payload["rubric"]["weights"] = self._normalised_weights_map()
-                prior_entry = baseline_by_id.get(nugget_id)
-                nugget_payload["provenance"] = self._build_provenance(
-                    nugget_payload,
+                entry_payload["rubric"]["weights"] = self._normalised_weights_map()
+                prior_entry = baseline_entries_by_id.get(entry_id)
+                entry_payload["provenance"] = self._build_provenance(
+                    entry_payload,
                     prior_entry,
                     context,
                     lifecycle="active",
                 )
-                active_entries.append(nugget_payload)
-                seen_ids.add(nugget_id)
-            for nugget_id, prior in baseline_by_id.items():
-                if nugget_id in seen_ids:
+                active_entries.append(entry_payload)
+                seen_ids.add(entry_id)
+            for entry_id, prior in baseline_entries_by_id.items():
+                if entry_id in seen_ids:
                     continue
                 stale = copy.deepcopy(prior)
                 stale["provenance"] = self._build_provenance(stale, prior, context, lifecycle="deprecated")
                 active_entries.append(stale)
-            metadata["policy_nuggets"] = active_entries
-            metadata["policy_summary"] = summary
+            metadata["playbook_entries"] = active_entries
+            metadata["playbook_summary"] = summary
             metadata["last_updated_at"] = timestamp
         else:
-            metadata["policy_summary"] = summary
-            metadata.setdefault("policy_nuggets", baseline_nuggets)
+            metadata["playbook_summary"] = summary
+            metadata.setdefault("playbook_entries", baseline_entries)
             metadata["last_failure"] = {
                 "timestamp": timestamp,
                 "failures": failures,
                 "rejected_candidates": [
                     {
-                        "id": item.nugget.get("id") or stabilise_nugget_id(item.nugget),
-                        "audience": item.nugget.get("audience"),
-                        "scope": item.nugget.get("scope"),
+                        "id": item.entry.get("id") or stabilise_playbook_entry_id(item.entry),
+                        "audience": item.entry.get("audience"),
+                        "scope": item.entry.get("scope"),
                         "status": {
-                            "category": (item.nugget.get("scope") or {}).get("category") or self._schema.default_scope_category,
+                            "category": (item.entry.get("scope") or {}).get("category") or self._schema.default_scope_category,
                             "lifecycle": "rejected",
                         },
                         "rubric": item.evaluation.to_dict(),
@@ -439,7 +443,7 @@ class LearningSynthesizer:
 
     def _build_provenance(
         self,
-        nugget_payload: Dict[str, Any],
+        entry_payload: Dict[str, Any],
         prior_entry: Dict[str, Any] | None,
         context: ExecutionContext,
         *,
@@ -461,7 +465,7 @@ class LearningSynthesizer:
         if guidance_digest:
             provenance["teacher_guidance_digest"] = guidance_digest
             provenance["source_teacher_intervention_hash"] = guidance_digest
-        scope = nugget_payload.get("scope") if isinstance(nugget_payload.get("scope"), dict) else {}
+        scope = entry_payload.get("scope") if isinstance(entry_payload.get("scope"), dict) else {}
         category = (scope or {}).get("category")
         if not isinstance(category, str) or not category.strip():
             if isinstance(prior_entry, dict):
@@ -470,12 +474,12 @@ class LearningSynthesizer:
             category = category or self._schema.default_scope_category
             if isinstance(scope, dict):
                 scope["category"] = category
-                nugget_payload["scope"] = scope
+                entry_payload["scope"] = scope
         provenance["status"] = {
             "category": category,
             "lifecycle": lifecycle,
         }
-        provenance["rubric"] = copy.deepcopy(nugget_payload.get("rubric"))
+        provenance["rubric"] = copy.deepcopy(entry_payload.get("rubric"))
         provenance["weights"] = self._normalised_weights_map()
         return provenance
 
