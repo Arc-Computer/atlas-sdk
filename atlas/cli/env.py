@@ -493,23 +493,40 @@ def _build_llm_block(template_block: dict[str, Any] | None, provider: str | None
 
 
 def _load_full_config_template() -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    template_root = Path(__file__).resolve().parents[2] / "configs" / "examples"
-    template_path = template_root / FULL_CONFIG_TEMPLATE
-    info: dict[str, Any] = {"template_path": str(template_path)}
+    info: dict[str, Any] = {}
     if yaml is None:
         info["reason"] = "pyyaml-missing"
         return None, info
-    if not template_path.exists():
-        info["reason"] = "template-missing"
-        return None, info
+
+    raw: str | None = None
+
     try:
-        raw = template_path.read_text(encoding="utf-8")
-    except OSError as exc:  # pragma: no cover - filesystem edge case
-        info["reason"] = f"template-read-error: {exc}"
-        return None, info
+        from importlib import resources as importlib_resources
+
+        template_resource = importlib_resources.files("atlas.templates").joinpath(FULL_CONFIG_TEMPLATE)
+        if template_resource.is_file():
+            raw = template_resource.read_text(encoding="utf-8")
+            info["template_path"] = str(template_resource)
+            info["template_source"] = "package"
+    except (ModuleNotFoundError, FileNotFoundError, AttributeError):
+        template_resource = None
+
+    if raw is None:
+        template_root = Path(__file__).resolve().parents[2] / "configs" / "examples"
+        template_path = template_root / FULL_CONFIG_TEMPLATE
+        info.setdefault("template_path", str(template_path))
+        if not template_path.exists():
+            info["reason"] = "template-missing"
+            return None, info
+        try:
+            raw = template_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            info["reason"] = f"template-read-error: {exc}"
+            return None, info
+
     try:
         payload = yaml.safe_load(raw) or {}
-    except Exception as exc:  # pragma: no cover - defensive guard
+    except Exception as exc:
         info["reason"] = f"template-parse-error: {exc}"
         return None, info
     if not isinstance(payload, dict):

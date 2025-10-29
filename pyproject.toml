@@ -62,3 +62,6 @@ include-package-data = true
     "synthetic_runtime_tasks.jsonl",
     "reward_eval_trajectories.jsonl",
 ]
+"atlas.templates" = [
+    "*.yaml",
+]

@@ -30,9 +30,6 @@ rim:
     api_key_env: GEMINI_API_KEY
     max_output_tokens: 768
   judge_prompt: 'Reward runs that follow the plan, stay safe, and finish the task.'
-  active_judges:
-    process: true
-    helpfulness: true
   variance_threshold: 0.15
   uncertainty_threshold: 0.3
 
