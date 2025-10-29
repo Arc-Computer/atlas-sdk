@@ -113,6 +113,42 @@ class LLMProvider(str, Enum):
     GEMINI = "gemini"
     XAI = "xai"
 
+class MetadataDigestConfig(BaseModel):
+    """Controls how execution metadata is projected into LLM-facing prompts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    char_budget: int | None = Field(default=None, ge=1024)
+    provider_char_budgets: Dict[LLMProvider, int] = Field(default_factory=dict)
+    include_session_keys: List[str] = Field(
+        default_factory=lambda: [
+            "source",
+            "execution_mode",
+            "adaptive_summary",
+            "token_usage",
+            "reward_summary",
+            "reward_stats",
+            "reward_audit_summary",
+            "triage_dossier",
+            "drift_alert",
+            "learning_usage",
+            "student_learning",
+            "teacher_learning",
+            "session_learning_note",
+            "notes",
+        ]
+    )
+    max_plan_steps: int = Field(default=5, ge=0, le=20)
+    max_step_summaries: int = Field(default=5, ge=0, le=20)
+    max_attempt_summaries: int = Field(default=1, ge=0, le=5)
+    max_learning_history_entries: int = Field(default=3, ge=0, le=10)
+    max_reward_audit_entries: int = Field(default=3, ge=0, le=10)
+    max_prompt_rewrite_chars: int = Field(default=2000, ge=256, le=20000)
+    max_section_chars: int = Field(default=4000, ge=512, le=20000)
+    max_string_chars: int = Field(default=1000, ge=128, le=4000)
+
+
 class LLMParameters(BaseModel):
     """Configuration for an LLM request path."""
 
@@ -137,6 +173,7 @@ class OpenAIAdapterConfig(AdapterConfig):
     type: Literal[AdapterType.OPENAI] = AdapterType.OPENAI
     llm: LLMParameters
     response_format: Dict[str, Any] | None = None
+    metadata_digest: MetadataDigestConfig = Field(default_factory=MetadataDigestConfig)
 
     @field_validator("llm")
     @classmethod

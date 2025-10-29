@@ -48,6 +48,18 @@ def test_openai_adapter_builds_messages_from_metadata():
     assert messages[5] == {"role": "user", "content": "Prompt"}
 
 
+def test_openai_adapter_trims_large_metadata_blob():
+    adapter = build_adapter()
+    oversized = "payload" * 50000
+    metadata = {"session_learning_audit": [oversized]}
+    messages = adapter._build_messages("Prompt", metadata)
+    system_message = messages[1]
+    assert system_message["role"] == "system"
+    digest = json.loads(system_message["content"])
+    assert digest["digest_stats"]["size_chars"] <= digest["digest_stats"]["char_budget"]
+    assert "payload" * 100 not in system_message["content"]
+
+
 def test_openai_adapter_parses_usage_model_response():
     adapter = build_adapter()
     usage = Usage(prompt_tokens=12, completion_tokens=8, total_tokens=20)

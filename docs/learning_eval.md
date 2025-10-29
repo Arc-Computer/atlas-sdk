@@ -7,6 +7,39 @@ persisted by the runtime today.
 > **Terminology update (2025-10-29):** Former "policy nugget" references have been renamed to **playbook entries**. Regenerate any stored telemetry created before 2025-10-29 to align with the new schema.
 
 
+## Prompt Digest For Provider Limits
+
+Learning evaluations now route execution metadata through a **provider-aware prompt digest** before the adapter sends
+requests to the LLM. This prevents 200k+ token system messages from blocking Claude and other providers with
+smaller context windows while keeping the full telemetry available on disk.
+
+- The OpenAI-compatible adapter exposes a new `metadata_digest` block. Defaults trim large sections (reward audits,
+  session trajectories, validation blobs) to a high-signal summary capped at ~20k characters per provider.
+- Each digest produced for an LLM includes `digest_stats` (budget used, omitted metadata keys, and any sections
+  dropped to stay under budget). These diagnostics live in the system message payload for troubleshooting.
+- Override defaults per workflow:
+
+```yaml
+agent:
+  adapter:
+    type: openai
+    metadata_digest:
+      char_budget: 24000        # Optional hard cap for every provider
+      provider_char_budgets:
+        anthropic: 18000        # Override Claude/Sonnet to stay safely below 200k tokens
+      max_plan_steps: 6         # Control how many plan steps appear in the digest
+      max_learning_history_entries: 2
+      include_session_keys: [source, execution_mode, token_usage, reward_stats]
+```
+
+- Set `enabled: false` to revert to the legacy behaviour (not recommended for Claude/Bison-sized windows).
+- If the digest cannot fit under the configured budget after trimming optional sections it raises a descriptive
+  error instead of attempting to send the oversized payload.
+
+Gemini continues to receive the same or smaller prompts, while Anthropic and other providers now stay well within
+their context limits during benchmarking runs.
+
+
 ## Playbook Entry Schema & Rubric
 
 Learning updates now revolve around structured **playbook entries**. Each playbook entry captures:
