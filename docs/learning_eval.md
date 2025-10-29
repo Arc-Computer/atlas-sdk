@@ -40,7 +40,6 @@ agent:
 Gemini continues to receive the same or smaller prompts, while Anthropic and other providers now stay well within
 their context limits during benchmarking runs.
 
-
 ## Playbook Entry Schema & Rubric
 
 Learning updates now revolve around structured **playbook entries**. Each playbook entry captures:
@@ -96,6 +95,7 @@ learning:
 - `usage_tracking` enables cue/adoption logging and limits how many example snippets are stored per playbook entry.
 
 All other `learning` options (`llm`, `prompts`, `history_limit`, `session_note_enabled`, `apply_to_prompts`) behave as before. Once configured, every synthesis run honours these settings automatically.
+
 ## 1. Capture Telemetry
 
 1. **Discovery loop** – `atlas env init` records discovery telemetry per task in `discovery_runs` (Postgres) and
@@ -139,7 +139,10 @@ python scripts/eval_learning.py \
   --database-url postgresql://atlas:atlas@localhost:5433/atlas \
   --recent-window 10 \
   --baseline-window 50 \
-  --limit 5
+  --limit 5 \
+  --prompt-variant schema_v2 \
+  --synthesis-model gpt-4o-mini --synthesis-model claude-3-sonnet \
+  --pamphlet-injection toggle
 ```
 
 > **Pamphlet verification**: leave `learning.apply_to_prompts` at its default
@@ -157,6 +160,10 @@ python scripts/eval_learning.py \
 - `--learning-key` – analyze explicit keys instead of querying Postgres for the top-N recent keys.
 - `--compare-to results/learning/index.json` – diff the current run against a previous harness export; the manifest stores per-key deltas and Markdown files append a comparison section.
 - `--no-markdown` – emit only machine-readable JSON for automation scenarios.
+- `--prompt-variant` – label the prompt/meta-prompt variant under test.
+- `--synthesis-model` – record the LLM(s) used for pamphlet generation (repeatable, feeds model benchmarking comparisons).
+- `--pamphlet-injection` – annotate whether pamphlet injection was on/off/toggled for transfer tests.
+- `--playbook-entry-labels` – reference a JSON file with manual playbook entry category overrides (stored in the manifest for downstream tooling).
 
 Summary mode is ideal for nightly or CI jobs where you just need reward deltas and model trends. Run the full-detail mode (default) when you want trajectory event counts sampled per session and are comfortable with additional database reads.
 
@@ -165,6 +172,7 @@ Outputs:
 - `results/learning/<slug>_summary.json` – machine-readable payload (sessions, reward windows, discovery references).
 - `results/learning/<slug>_summary.md` – human-friendly digest highlighting reward deltas, adaptive behaviour, and model breakdowns.
 - `results/learning/index.json` – manifest listing every generated artifact, plus the comparison/aggregate tables when `--compare-to` is provided.
+- `run_metadata` (in `index.json`) – captures prompt variant, synthesis models, pamphlet toggle mode, and optional playbook entry label overrides supplied via CLI flags.
 
 Pass `--learning-key ...` to target specific keys or `--no-markdown` when you only need JSON.
 
@@ -180,6 +188,10 @@ Each summary provides:
 - **Discovery context** – pointers to matching discovery/runtime telemetry (`discovery_runs`) for the same task so you
   can replay the original traces.
 - **Latest sessions** – compact view of recent runs with reward/uncertainty snapshots and trajectory event counts.
+- **Playbook Entry Quality** – aggregates the rubric outputs: candidate counts, gate failures, weighted score averages, and the weighting used.
+- **Playbook Entry Lifecycle** – reinforcement vs differentiation counts split by `active`/`deprecated`, plus rejected candidates from the latest run.
+- **Runtime Usage** – cue trigger totals, adoption counts, success rates, and trigger/adoption rates across sessions.
+- **Efficiency Snapshot** – comparison of reward/tokens in sessions with cue hits versus those without, including deltas.
 
 Because everything keys off `learning_key`, you can join the summary back to:
 
@@ -194,6 +206,7 @@ When you pass `--compare-to`, the harness looks up the previous `index.json`, lo
 - Reward trends (recent mean, latest score)
 - Session counts per learning key
 - Model-level utilisation and reward mean changes
+- Cue hit/adoption changes (derived from the usage metrics section)
 
 The new manifest includes `comparisons` and aggregate leaderboards (best/worst deltas), while each Markdown report gains a “Comparison vs previous run” section.
 
@@ -203,6 +216,7 @@ The new manifest includes `comparisons` and aggregate leaderboards (best/worst d
   new entry points without touching live services.
 - To keep the workflow reproducible, commit the generated summaries or re-run the script as part of your evaluation
   pipeline once fresh telemetry lands.
+- When experimenting with prompt variants or different synthesis models, record the configuration via the new CLI flags so the manifest preserves the experimental context.
 
 With these pieces in place we can meaningfully answer “what changed, how it changed, and why” today, deferring the
 hint-specific analytics until the hint pipeline arrives.

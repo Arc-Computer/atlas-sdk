@@ -6,6 +6,7 @@ import hashlib
 import logging
 from typing import Any, Dict, Tuple
 
+from atlas.learning.usage import get_tracker
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,13 @@ def resolve_playbook(
     raw_value = state.get(key)
     metadata = state.get("metadata") if isinstance(state.get("metadata"), dict) else None
 
+    if isinstance(metadata, dict):
+        try:
+            tracker = get_tracker()
+            tracker.register_nuggets(role, metadata.get("policy_nuggets"))
+        except Exception:  # pragma: no cover - instrumentation must not fail core flow
+            logger.debug("Unable to register policy nuggets for role %s", role, exc_info=True)
+
     cache = context.metadata.setdefault("_learning_playbooks", {})
     cached = cache.get(role)
     if cached and cached.get("raw") == raw_value:
@@ -79,4 +87,3 @@ def resolve_playbook(
     digest = hashlib.sha256(trimmed.encode("utf-8")).hexdigest()
     cache[role] = {"raw": raw_value, "text": trimmed, "digest": digest}
     return trimmed, digest, metadata
-
