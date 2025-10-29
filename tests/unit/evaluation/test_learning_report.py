@@ -2,6 +2,8 @@ import pytest
 
 from atlas.evaluation.learning_report import (
     LearningSummary,
+    PlaybookImpactEntry,
+    RewardSnapshot,
     generate_learning_summary,
     summary_to_dict,
     summary_to_markdown,
@@ -108,6 +110,7 @@ async def test_generate_learning_summary_computes_fields():
     assert teacher_models == {"teacher-prime": 2}
     assert summary.playbook_metrics is None
     assert summary.playbook_lifecycle_summary is None
+    assert summary.playbook_impact == []
     assert summary.usage_metrics is None
     assert summary.efficiency is not None
     assert summary.efficiency.sessions_with_cues == 0
@@ -138,3 +141,49 @@ async def test_generate_learning_summary_summary_only_uses_event_counts():
     assert database.trajectory_calls == []
     assert all(snapshot.trajectory_events == 2 for snapshot in summary.sessions)
     assert summary.playbook_metrics is None
+    assert summary.playbook_impact == []
+
+
+def test_summary_to_markdown_includes_impact_section():
+    summary = LearningSummary(
+        learning_key="demo",
+        session_count=1,
+        reward=RewardSnapshot(
+            recent_mean=0.62,
+            recent_count=1,
+            baseline_mean=0.5,
+            baseline_count=5,
+            delta=0.12,
+            latest_score=0.62,
+        ),
+        playbook_impact=[
+            PlaybookImpactEntry(
+                entry_id="entry-1",
+                audience="student",
+                cue_pattern="check logs",
+                runtime_handle="logs.search",
+                total_cue_hits=5,
+                adoption_events=3,
+                successful_adoptions=2,
+                adoption_rate=0.4,
+                average_reward_with=0.72,
+                average_reward_without=0.5,
+                reward_delta=0.22,
+                average_tokens_with=150.0,
+                average_tokens_without=210.0,
+                token_delta=-60.0,
+                unique_incidents=2,
+                transfer_success=True,
+                failure_avoidance={
+                    "retry_avg": 1.5,
+                    "retry_samples": 2,
+                    "failure_events": 1,
+                    "failed_adoptions": 1,
+                },
+                impact_score=0.088,
+            )
+        ],
+    )
+    markdown = summary_to_markdown(summary)
+    assert "Playbook Entry Impact" in markdown
+    assert "impact score" in markdown

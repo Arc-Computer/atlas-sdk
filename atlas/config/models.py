@@ -181,8 +181,19 @@ class OpenAIAdapterConfig(AdapterConfig):
     @field_validator("llm")
     @classmethod
     def ensure_openai_provider(cls, value: LLMParameters):
-        if value.provider not in {LLMProvider.OPENAI, LLMProvider.AZURE_OPENAI}:
-            raise ValueError("openai adapter requires an OpenAI compatible provider")
+        allowed = {
+            LLMProvider.OPENAI,
+            LLMProvider.AZURE_OPENAI,
+            LLMProvider.ANTHROPIC,
+            LLMProvider.GEMINI,
+            LLMProvider.BEDROCK,
+            LLMProvider.XAI,
+        }
+        if value.provider not in allowed:
+            raise ValueError(
+                "openai adapter requires an OpenAI-compatible provider (OpenAI/Azure) or LiteLLM-supported provider "
+                f"({', '.join(provider.value for provider in allowed if provider not in {LLMProvider.OPENAI, LLMProvider.AZURE_OPENAI})})"
+            )
         return value
 
 AdapterUnion = HTTPAdapterConfig | PythonAdapterConfig | OpenAIAdapterConfig

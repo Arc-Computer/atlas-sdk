@@ -78,6 +78,28 @@ class PlaybookLifecycleSummary:
 
 
 @dataclass(slots=True)
+class PlaybookImpactEntry:
+    entry_id: str
+    audience: str | None
+    cue_pattern: str | None
+    runtime_handle: str | None
+    total_cue_hits: int
+    adoption_events: int
+    successful_adoptions: int
+    adoption_rate: float | None
+    average_reward_with: float | None
+    average_reward_without: float | None
+    reward_delta: float | None
+    average_tokens_with: float | None
+    average_tokens_without: float | None
+    token_delta: float | None
+    unique_incidents: int
+    transfer_success: bool
+    failure_avoidance: dict[str, Any] | None = None
+    impact_score: float | None = None
+
+
+@dataclass(slots=True)
 class UsageMetrics:
     cue_triggers: int
     cue_trigger_sessions: int
@@ -125,6 +147,7 @@ class LearningSummary:
     sessions: list[SessionSnapshot] = field(default_factory=list)
     playbook_metrics: PlaybookMetricsSummary | None = None
     playbook_lifecycle_summary: PlaybookLifecycleSummary | None = None
+    playbook_impact: list[PlaybookImpactEntry] = field(default_factory=list)
     usage_metrics: UsageMetrics | None = None
     efficiency: EfficiencySnapshot | None = None
 
@@ -304,6 +327,7 @@ async def _generate_learning_summary(
 
     playbook_metrics = _build_playbook_metrics(latest_playbook_meta)
     playbook_lifecycle_summary = _build_playbook_lifecycle_summary(latest_playbook_meta, rejected_candidates_total)
+    playbook_impact = _build_playbook_impact(latest_playbook_meta)
     usage_metrics = _build_usage_metrics(cue_stats, len(sessions))
     efficiency_snapshot = _build_efficiency_snapshot(
         reward_with_cues,
@@ -368,6 +392,7 @@ async def _generate_learning_summary(
         sessions=sessions,
         playbook_metrics=playbook_metrics,
         playbook_lifecycle_summary=playbook_lifecycle_summary,
+        playbook_impact=playbook_impact,
         usage_metrics=usage_metrics,
         efficiency=efficiency_snapshot,
     )
@@ -484,6 +509,30 @@ def summary_to_markdown(summary: LearningSummary) -> str:
             )
         )
         lines.append(f"- Rejected candidates (latest run): {lifecycle.rejected}")
+    if summary.playbook_impact:
+        lines.append("")
+        lines.append("## Playbook Entry Impact")
+        top_entries = summary.playbook_impact[:10]
+        for entry in top_entries:
+            adoption = _format_percent(entry.adoption_rate)
+            reward_delta = _format_float(entry.reward_delta)
+            token_delta = _format_float(entry.token_delta)
+            impact_score = _format_float(entry.impact_score)
+            transfer = "yes" if entry.transfer_success else "no"
+            lines.append(
+                f"- `{entry.entry_id}` ({entry.audience or 'student'}) — hits {entry.total_cue_hits}, adoptions {entry.adoption_events}, adoption rate {adoption}, reward Δ {reward_delta}, tokens Δ {token_delta}, transfer {transfer}, impact score {impact_score}"
+            )
+            failure_stats = entry.failure_avoidance or {}
+            if failure_stats:
+                retry_avg = _format_float(failure_stats.get("retry_avg"))
+                retry_samples = failure_stats.get("retry_samples", 0)
+                failure_events = failure_stats.get("failure_events", 0)
+                lines.append(
+                    f"  - Failure avoidance: retry avg {retry_avg} across {retry_samples} sessions; failure events {failure_events} (failed adoptions {failure_stats.get('failed_adoptions', 0)})"
+                )
+        if len(summary.playbook_impact) > len(top_entries):
+            remaining = len(summary.playbook_impact) - len(top_entries)
+            lines.append(f"- … plus {remaining} additional entries documented in JSON output.")
     if summary.usage_metrics:
         usage = summary.usage_metrics
         lines.append("")
@@ -625,6 +674,89 @@ def _build_playbook_lifecycle_summary(
         differentiation_deprecated=differentiation_deprecated,
         rejected=rejected_count,
     )
+
+
+def _build_playbook_impact(playbook_meta: dict[str, Any] | None) -> list[PlaybookImpactEntry]:
+    if not isinstance(playbook_meta, dict):
+        return []
+    entries = playbook_meta.get("playbook_entries")
+    if not isinstance(entries, list):
+        return []
+    impact_entries: list[PlaybookImpactEntry] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        impact = entry.get("impact")
+        if not isinstance(impact, dict):
+            continue
+        entry_id = entry.get("id") or ""
+        audience = entry.get("audience")
+        cue = entry.get("cue") if isinstance(entry.get("cue"), dict) else {}
+        action = entry.get("action") if isinstance(entry.get("action"), dict) else {}
+        total_cue_hits = int(impact.get("total_cue_hits") or 0)
+        adoption_events = int(impact.get("total_adoptions") or 0)
+        successful_adoptions = int(impact.get("successful_adoptions") or 0)
+        failed_adoptions = int(impact.get("failed_adoptions") or 0)
+        adoption_rate = _safe_ratio(successful_adoptions, total_cue_hits)
+        avg_reward_with = _safe_ratio(impact.get("reward_with_sum"), impact.get("reward_with_count"))
+        avg_reward_without = _safe_ratio(impact.get("reward_without_sum"), impact.get("reward_without_count"))
+        reward_delta = None
+        if avg_reward_with is not None and avg_reward_without is not None:
+            reward_delta = avg_reward_with - avg_reward_without
+        avg_tokens_with = _safe_ratio(impact.get("tokens_with_sum"), impact.get("tokens_with_count"))
+        avg_tokens_without = _safe_ratio(impact.get("tokens_without_sum"), impact.get("tokens_without_count"))
+        token_delta = None
+        if avg_tokens_with is not None and avg_tokens_without is not None:
+            token_delta = avg_tokens_with - avg_tokens_without
+        incident_ids = []
+        raw_incidents = impact.get("incident_ids")
+        if isinstance(raw_incidents, list):
+            incident_ids = [str(item) for item in raw_incidents if isinstance(item, str)]
+        unique_incidents = len(set(incident_ids))
+        transfer_success = unique_incidents > 1
+        retry_avg = _safe_ratio(impact.get("retry_sum"), impact.get("retry_samples"))
+        failure_events = int(impact.get("failure_events") or 0)
+        failure_stats = None
+        if retry_avg is not None or failure_events:
+            failure_stats = {
+                "retry_avg": retry_avg,
+                "retry_samples": int(impact.get("retry_samples") or 0),
+                "failure_events": failure_events,
+                "failed_adoptions": failed_adoptions,
+            }
+        impact_score = None
+        if adoption_rate is not None and reward_delta is not None:
+            impact_score = adoption_rate * reward_delta
+        impact_entries.append(
+            PlaybookImpactEntry(
+                entry_id=str(entry_id),
+                audience=audience if isinstance(audience, str) else None,
+                cue_pattern=cue.get("pattern") if isinstance(cue.get("pattern"), str) else None,
+                runtime_handle=action.get("runtime_handle") if isinstance(action.get("runtime_handle"), str) else None,
+                total_cue_hits=total_cue_hits,
+                adoption_events=adoption_events,
+                successful_adoptions=successful_adoptions,
+                adoption_rate=adoption_rate,
+                average_reward_with=avg_reward_with,
+                average_reward_without=avg_reward_without,
+                reward_delta=reward_delta,
+                average_tokens_with=avg_tokens_with,
+                average_tokens_without=avg_tokens_without,
+                token_delta=token_delta,
+                unique_incidents=unique_incidents,
+                transfer_success=transfer_success,
+                failure_avoidance=failure_stats,
+                impact_score=impact_score,
+            )
+        )
+    impact_entries.sort(
+        key=lambda item: (
+            _sort_desc(item.impact_score),
+            _sort_desc(item.reward_delta),
+            item.entry_id,
+        )
+    )
+    return impact_entries
 
 
 def _build_usage_metrics(cue_stats: dict[str, int], total_sessions: int) -> UsageMetrics | None:
@@ -821,6 +953,22 @@ def _coerce_float(value: Any) -> float | None:
         return None
 
 
+def _safe_ratio(numerator: Any, denominator: Any) -> float | None:
+    numerator_value = _coerce_float(numerator)
+    denominator_value = _coerce_float(denominator)
+    if numerator_value is None or denominator_value is None:
+        return None
+    if denominator_value == 0:
+        return None
+    return numerator_value / denominator_value
+
+
+def _sort_desc(value: float | None) -> float:
+    if value is None:
+        return float("inf")
+    return -value
+
+
 def _trim_optional_str(value: Any) -> str | None:
     if isinstance(value, str):
         stripped = value.strip()
@@ -840,3 +988,9 @@ def _format_float(value: float | None) -> str:
     if value is None:
         return "n/a"
     return f"{value:.3f}"
+
+
+def _format_percent(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value * 100:.1f}%"
