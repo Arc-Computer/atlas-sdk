@@ -30,7 +30,15 @@ from atlas.cli.utils import (
     parse_key_value_flags,
 )
 from atlas.config.models import LearningConfig, RuntimeSafetyConfig
-from atlas.sdk.discovery import Candidate, Role, discover_candidates, serialize_candidate, split_candidates, write_discovery_payload
+from atlas.sdk.discovery import (
+    Candidate,
+    Role,
+    collect_runtime_metadata,
+    discover_candidates,
+    serialize_candidate,
+    split_candidates,
+    write_discovery_payload,
+)
 from atlas.sdk.factory_synthesis import (
     AGENT_FUNCTION_NAME,
     ENV_FUNCTION_NAME,
@@ -244,6 +252,7 @@ class TargetSpec:
     kwargs: Dict[str, object] = field(default_factory=dict)
     config: dict[str, object] | None = None
     auto_wrapped: bool = False
+    metadata: dict[str, object] | None = None
 
     def dotted_path(self) -> str:
         if self.candidate is not None:
@@ -628,6 +637,8 @@ def _compose_full_config_payload(
     targets: SelectedTargets,
     project_root: Path,
     llm_capabilities: dict[str, Any],
+    capabilities: dict[str, object],
+    runtime_metadata: dict[str, dict[str, object]] | None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     config_payload = copy.deepcopy(template_payload)
     agent_module, agent_qualname = _resolve_callable_reference(targets.agent)
@@ -650,15 +661,67 @@ def _compose_full_config_payload(
     tools_section = agent_template.get("tools") if isinstance(agent_template, dict) else []
     if isinstance(tools_section, list):
         agent_block["tools"] = copy.deepcopy(tools_section)
+    agent_runtime_meta = runtime_metadata.get("agent") if runtime_metadata else {}
+    prompt_literals = agent_runtime_meta.get("prompts") if isinstance(agent_runtime_meta, dict) else []
+    if isinstance(prompt_literals, list) and prompt_literals:
+        agent_block["system_prompt"] = prompt_literals[0]
+    tool_entries = agent_runtime_meta.get("tools") if isinstance(agent_runtime_meta, dict) else []
+    if isinstance(tool_entries, list) and tool_entries:
+        agent_block["tools"] = copy.deepcopy(tool_entries)
 
     llm_provider = llm_capabilities.get("provider") if isinstance(llm_capabilities, dict) else None
     llm_model = llm_capabilities.get("model") if isinstance(llm_capabilities, dict) else None
     llm_source = llm_capabilities.get("source") if isinstance(llm_capabilities, dict) else None
     llm_template = agent_template.get("llm") if isinstance(agent_template, dict) else None
     llm_block = _build_llm_block(llm_template, llm_provider, llm_model)
+    if not llm_block:
+        config_literals = agent_runtime_meta.get("config_literals") if isinstance(agent_runtime_meta, dict) else []
+        candidate_config = None
+        for entry in config_literals or []:
+            if isinstance(entry, list) and entry:
+                candidate = entry[0]
+            else:
+                candidate = entry
+            if isinstance(candidate, dict):
+                candidate_config = candidate
+                break
+        if isinstance(candidate_config, dict):
+            provider_override = candidate_config.get("api_type") or candidate_config.get("provider")
+            model_override = candidate_config.get("model")
+            api_key_env = candidate_config.get("api_key_env")
+            llm_block = {
+                "provider": provider_override or llm_provider or "openai",
+                "model": model_override or llm_model or "unknown-model",
+            }
+            if api_key_env:
+                llm_block["api_key_env"] = api_key_env
+            if candidate_config.get("temperature") is not None:
+                llm_block["temperature"] = candidate_config.get("temperature")
+            if candidate_config.get("max_output_tokens") is not None:
+                llm_block["max_output_tokens"] = candidate_config.get("max_output_tokens")
     if llm_block:
         agent_block["llm"] = llm_block
     config_payload["agent"] = agent_block
+
+    runtime_block = config_payload.get("runtime") if isinstance(config_payload.get("runtime"), dict) else {}
+    runtime_behavior = capabilities.get("control_loop") if isinstance(capabilities, dict) else None
+    if runtime_behavior is None:
+        runtime_behavior = "self"
+    runtime_block["behavior"] = runtime_behavior
+    runtime_block["environment"] = targets.environment.dotted_path()
+    runtime_block["agent"] = targets.agent.dotted_path()
+    runtime_block["control_loop"] = capabilities.get("control_loop", runtime_behavior)
+    runtime_block["supports_stepwise"] = bool(capabilities.get("supports_stepwise", False))
+    preferred_mode = capabilities.get("preferred_mode", "auto")
+    runtime_block["preferred_mode"] = preferred_mode
+    plan_description = capabilities.get("plan_description")
+    if isinstance(plan_description, str) and plan_description.strip():
+        runtime_block["plan_description"] = plan_description
+    config_payload["runtime"] = runtime_block
+
+    orchestration_template = config_payload.get("orchestration") if isinstance(config_payload.get("orchestration"), dict) else {}
+    orchestration_template["forced_mode"] = preferred_mode
+    config_payload["orchestration"] = orchestration_template
 
     teacher_template = config_payload.get("teacher") if isinstance(config_payload.get("teacher"), dict) else {}
     teacher_block = copy.deepcopy(teacher_template)
@@ -672,6 +735,15 @@ def _compose_full_config_payload(
 
     metadata_block = config_payload.get("metadata") if isinstance(config_payload.get("metadata"), dict) else {}
     discovery_meta: dict[str, Any] = {}
+    env_runtime_meta = runtime_metadata.get("environment") if runtime_metadata else {}
+    if env_runtime_meta and isinstance(env_runtime_meta, dict):
+        if env_runtime_meta.get("parameters"):
+            discovery_meta["environment_parameters"] = env_runtime_meta["parameters"]
+    if agent_runtime_meta and isinstance(agent_runtime_meta, dict):
+        if agent_runtime_meta.get("parameters"):
+            discovery_meta["agent_parameters"] = agent_runtime_meta["parameters"]
+        if agent_block.get("system_prompt"):
+            discovery_meta["agent_prompt_preview"] = agent_block["system_prompt"][:2000]
     env_metadata = _build_factory_metadata(targets.environment)
     if env_metadata:
         discovery_meta["environment_factory"] = env_metadata
@@ -708,6 +780,7 @@ def _prepare_full_config_payload(
     project_root: Path,
     targets: SelectedTargets,
     capabilities: dict[str, object],
+    runtime_metadata: dict[str, dict[str, object]] | None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     template_payload, template_info = _load_full_config_template()
     info = dict(template_info)
@@ -716,7 +789,14 @@ def _prepare_full_config_payload(
     llm_capabilities = capabilities.get("llm") if isinstance(capabilities, dict) else {}
     if not isinstance(llm_capabilities, dict):
         llm_capabilities = {}
-    payload, compose_info = _compose_full_config_payload(template_payload, targets, project_root, llm_capabilities)
+    payload, compose_info = _compose_full_config_payload(
+        template_payload,
+        targets,
+        project_root,
+        llm_capabilities,
+        capabilities,
+        runtime_metadata,
+    )
     info.update(compose_info or {})
     if payload is None:
         info.setdefault("reason", compose_info.get("reason") if compose_info else "full-config-unavailable")
@@ -725,7 +805,12 @@ def _prepare_full_config_payload(
     return payload, info
 
 
-def _write_stub_config(destination: Path, targets: SelectedTargets, capabilities: dict[str, object]) -> None:
+def _write_stub_config(
+    destination: Path,
+    targets: SelectedTargets,
+    capabilities: dict[str, object],
+    runtime_metadata: dict[str, dict[str, object]] | None,
+) -> None:
     control_loop = capabilities.get("control_loop", "self")
     supports_stepwise = bool(capabilities.get("supports_stepwise", False))
     preferred_mode = capabilities.get("preferred_mode", "auto")
@@ -743,6 +828,22 @@ def _write_stub_config(destination: Path, targets: SelectedTargets, capabilities
         f"  supports_stepwise: {str(supports_stepwise).lower()}",
         f"  preferred_mode: {preferred_mode}",
     ]
+    agent_runtime_meta = runtime_metadata.get("agent") if runtime_metadata else {}
+    prompt_literals = agent_runtime_meta.get("prompts") if isinstance(agent_runtime_meta, dict) else []
+    if isinstance(prompt_literals, list) and prompt_literals:
+        prompt = prompt_literals[0]
+        if prompt:
+            lines.append("  system_prompt: |")
+            for line in prompt.splitlines() or [""]:
+                lines.append(f"    {line}")
+    tool_entries = agent_runtime_meta.get("tools") if isinstance(agent_runtime_meta, dict) else []
+    if isinstance(tool_entries, list) and tool_entries:
+        lines.append("  tools:")
+        for entry in tool_entries:
+            if isinstance(entry, dict) and entry.get("name"):
+                lines.append(f"    - name: {entry['name']}")
+            elif isinstance(entry, str):
+                lines.append(f"    - name: {entry}")
     if plan_description:
         indented_plan = plan_description.replace(chr(10), chr(10) + "    ")
         lines.append("  plan_description: |")
@@ -763,13 +864,14 @@ def _write_generated_config(
     project_root: Path,
     targets: SelectedTargets,
     capabilities: dict[str, object],
+    runtime_metadata: dict[str, dict[str, object]] | None,
     *,
     force: bool,
     scaffold_full: bool,
 ) -> dict[str, Any]:
     _ensure_write(destination, force=force)
     if scaffold_full:
-        payload, info = _prepare_full_config_payload(project_root, targets, capabilities)
+        payload, info = _prepare_full_config_payload(project_root, targets, capabilities, runtime_metadata)
         if payload is not None and yaml is not None:
             rendered = yaml.safe_dump(payload, sort_keys=False)
             destination.write_text(rendered, encoding="utf-8")
@@ -778,7 +880,7 @@ def _write_generated_config(
         fallback_info = info if isinstance(info, dict) else {}
     else:
         fallback_info = {}
-    _write_stub_config(destination, targets, capabilities)
+    _write_stub_config(destination, targets, capabilities, runtime_metadata)
     fallback_info.setdefault("mode", "stub")
     return fallback_info
 
@@ -955,6 +1057,11 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
             agent_wrapper_required = True
     else:
         agent_candidates = []
+
+    if targets.environment.candidate is not None:
+        targets.environment.metadata = collect_runtime_metadata(project_root, targets.environment.candidate)
+    if targets.agent.candidate is not None:
+        targets.agent.metadata = collect_runtime_metadata(project_root, targets.agent.candidate)
 
     atlas_dir = project_root / ".atlas"
     synthesis_notes: list[str] = []
@@ -1283,6 +1390,10 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     )
     capabilities = metadata.get("capabilities") if isinstance(metadata.get("capabilities"), dict) else {}
     write_discovery_payload(discovery_path, metadata=metadata)
+    runtime_metadata = {
+        "environment": targets.environment.metadata or {},
+        "agent": targets.agent.metadata or {},
+    }
     try:
         want_full_config = bool(getattr(args, "scaffold_config_full", False)) or yaml is not None
         scaffold_info = _write_generated_config(
@@ -1290,6 +1401,7 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
             project_root,
             targets,
             capabilities,
+            runtime_metadata=runtime_metadata,
             force=args.force,
             scaffold_full=want_full_config,
         )

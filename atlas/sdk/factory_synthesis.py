@@ -835,7 +835,7 @@ class FactorySynthesizer:
                 model="claude-haiku-4-5",
                 api_key_env="ANTHROPIC_API_KEY",
                 temperature=0.1,
-                max_output_tokens=2048,
+                max_output_tokens=16000,
                 timeout_seconds=60.0,
             ),
             LLMParameters(
@@ -843,7 +843,7 @@ class FactorySynthesizer:
                 model="gemini/gemini-2.5-flash",
                 api_key_env="GEMINI_API_KEY",
                 temperature=0.1,
-                max_output_tokens=1536,
+                max_output_tokens=16000,
                 timeout_seconds=60.0,
             ),
         ]
