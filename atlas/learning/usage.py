@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 
@@ -34,8 +34,17 @@ class LearningUsageTracker:
         session_block = usage_store.setdefault("session", {})
         session_block.setdefault("cue_hits", 0)
         session_block.setdefault("action_adoptions", 0)
+        session_block.setdefault("failed_adoptions", 0)
         session_block.setdefault("unique_cue_steps", [])
         session_block.setdefault("unique_adoption_steps", [])
+        session_block.setdefault("reward_score", None)
+        session_block.setdefault("token_usage", {})
+        session_block.setdefault("incident_id", None)
+        session_block.setdefault("task_identifier", None)
+        session_block.setdefault("incident_tags", [])
+        session_block.setdefault("retry_count", 0)
+        session_block.setdefault("failure_flag", False)
+        session_block.setdefault("failure_events", [])
         usage_store.setdefault("detectors", {})
         self._usage_store = usage_store
 
@@ -59,6 +68,7 @@ class LearningUsageTracker:
                     "cue_hits": 0,
                     "action_adoptions": 0,
                     "successful_adoptions": 0,
+                    "failed_adoptions": 0,
                     "step_ids": [],
                     "adoption_steps": [],
                     "runtime_handle": entry_payload.get("action", {}).get("runtime_handle"),
@@ -149,6 +159,8 @@ class LearningUsageTracker:
                 entry["action_adoptions"] = int(entry.get("action_adoptions", 0)) + 1
                 if success:
                     entry["successful_adoptions"] = int(entry.get("successful_adoptions", 0)) + 1
+                else:
+                    entry["failed_adoptions"] = int(entry.get("failed_adoptions", 0)) + 1
                 if step_id is not None and step_id not in entry["adoption_steps"]:
                     entry["adoption_steps"].append(step_id)
                 if self._config.capture_examples and metadata:
@@ -158,8 +170,73 @@ class LearningUsageTracker:
         if matched:
             session_block = self._usage_store["session"]
             session_block["action_adoptions"] = int(session_block.get("action_adoptions", 0)) + 1
+            if not success:
+                session_block["failed_adoptions"] = int(session_block.get("failed_adoptions", 0)) + 1
             if step_id is not None and step_id not in session_block["unique_adoption_steps"]:
                 session_block["unique_adoption_steps"].append(step_id)
+
+    def record_session_outcome(
+        self,
+        *,
+        reward_score: float | None = None,
+        token_usage: Optional[Dict[str, Any]] = None,
+        incident_id: str | None = None,
+        task_identifier: str | None = None,
+        incident_tags: Sequence[str] | None = None,
+        retry_count: int | None = None,
+        failure_flag: bool | None = None,
+        failure_events: Sequence[Dict[str, Any]] | None = None,
+    ) -> None:
+        if not self.enabled:
+            return
+        session_block = self._usage_store["session"]
+        if reward_score is not None:
+            session_block["reward_score"] = float(reward_score)
+        if isinstance(token_usage, dict):
+            tracked = session_block.setdefault("token_usage", {})
+            prompt_tokens = token_usage.get("prompt_tokens")
+            completion_tokens = token_usage.get("completion_tokens")
+            total_tokens = token_usage.get("total_tokens")
+            calls = token_usage.get("calls")
+            if prompt_tokens is not None:
+                numeric = _as_number(prompt_tokens)
+                if numeric is not None:
+                    tracked["prompt_tokens"] = numeric
+            if completion_tokens is not None:
+                numeric = _as_number(completion_tokens)
+                if numeric is not None:
+                    tracked["completion_tokens"] = numeric
+            if total_tokens is not None:
+                numeric = _as_number(total_tokens)
+                if numeric is not None:
+                    tracked["total_tokens"] = numeric
+            if calls is not None:
+                numeric = _as_number(calls)
+                if numeric is not None:
+                    tracked["calls"] = numeric
+        if incident_id is not None:
+            session_block["incident_id"] = incident_id
+        if task_identifier is not None:
+            session_block["task_identifier"] = task_identifier
+        if incident_tags:
+            existing = session_block.setdefault("incident_tags", [])
+            for tag in incident_tags:
+                if not isinstance(tag, str):
+                    continue
+                normalised = tag.strip()
+                if normalised and normalised not in existing:
+                    existing.append(normalised)
+        if retry_count is not None:
+            session_block["retry_count"] = int(retry_count)
+        if failure_flag is not None:
+            session_block["failure_flag"] = bool(failure_flag)
+        if failure_events:
+            cleaned: list[Dict[str, Any]] = []
+            for event in failure_events:
+                if isinstance(event, dict):
+                    cleaned.append({key: value for key, value in event.items() if key and value is not None})
+            if cleaned:
+                session_block["failure_events"] = cleaned
 
     def snapshot(self) -> Dict[str, Any]:
         """Return the current usage store (already JSON-serialisable)."""
@@ -184,6 +261,15 @@ def _cue_matches(cue_type: str, pattern: str, text: str) -> bool:
     if cue_type in {"keyword", "predicate"}:
         return pattern.lower() in lowered
     return False
+
+
+def _as_number(value: Any) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 __all__ = ["LearningUsageTracker", "get_tracker"]

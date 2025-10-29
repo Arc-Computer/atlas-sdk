@@ -96,6 +96,32 @@ Each JSONL record surfaces:
 - `learning_key`, `reward_stats`, `reward_audit`, and `session_reward`
 - `trajectory_events` with `event_type` and `actor`
 
+## Impact Metrics (Adaptive Efficiency & Transfer)
+
+Runtime instrumentation now enriches every session with an `impact` snapshot so we can reason about how each
+playbook entry contributes to adaptive efficiency (faster wins on known tasks) and cross-incident transfer (reusing
+guidance when the incident changes). The tracker captures reward/token deltas, incident identifiers, retry counts,
+and failure summaries per entry. The evaluation harness aggregates these into the playbook metadata under
+`playbook_entries[].impact` and exposes a dedicated **Playbook Entry Impact** section in both JSON and Markdown.
+
+- **Adoption rate** – successful adoptions ÷ cue hits. A hit without adoption indicates guidance being seen but not
+  followed; sustained adoption >60 % is a good reinforcement signal.
+- **Reward delta** – average reward for sessions where the entry fired minus the average reward when it did not.
+  Positive deltas demonstrate adaptive efficiency (more wins when guidance triggers); negative deltas suggest
+  the entry may be stale or misleading.
+- **Token delta** – average tokens with the entry firing minus tokens without it. Negative numbers imply efficiency
+  gains (doing the job in fewer tokens); positive spikes highlight regressions in runtime cost.
+- **Transfer success** – marked true when the entry triggers across at least two distinct incident/task identifiers.
+  This is the lightweight proxy for cross-incident reuse described in the *Continual Learning Online Adaptation* memo.
+- **Failure avoidance stats** – rolling average retries and recorded failure events when the entry fires. Falling retry
+  counts or zero failure events indicate the entry is preventing repeat mistakes.
+- **Impact score** – `adoption_rate × reward_delta`. This composite favors entries that are both frequently adopted and
+  deliver positive reward deltas. Treat it as a prioritisation heuristic when curating the playbook: entries with
+  negative scores should be audited first.
+
+The same signals are stored session-by-session under `metadata.learning_usage.session` so you can audit individual
+runs or recompute experiment-specific aggregates.
+
 ## 3. Run the Learning Evaluation Script
 
 Use the new `scripts/eval_learning.py` helper to assemble structured summaries per learning key. The script queries
@@ -139,6 +165,7 @@ Outputs:
 - `results/learning/<slug>_summary.json` – machine-readable payload (sessions, reward windows, discovery references).
 - `results/learning/<slug>_summary.md` – human-friendly digest highlighting reward deltas, adaptive behaviour, and model breakdowns.
 - `results/learning/index.json` – manifest listing every generated artifact, plus the comparison/aggregate tables when `--compare-to` is provided.
+- `playbook_impact` (in both JSON + Markdown summaries) – per-entry adoption, reward/token delta, transfer, failure avoidance, and composite `impact_score` metrics for adaptive-efficiency tracking.
 - `run_metadata` (in `index.json`) – captures prompt variant, synthesis models, pamphlet toggle mode, and optional playbook entry label overrides supplied via CLI flags.
 
 Pass `--learning-key ...` to target specific keys or `--no-markdown` when you only need JSON.
@@ -157,6 +184,7 @@ Each summary provides:
 - **Latest sessions** – compact view of recent runs with reward/uncertainty snapshots and trajectory event counts.
 - **Playbook Entry Quality** – aggregates the rubric outputs: candidate counts, gate failures, weighted score averages, and the weighting used.
 - **Playbook Entry Lifecycle** – reinforcement vs differentiation counts split by `active`/`deprecated`, plus rejected candidates from the latest run.
+- **Playbook Entry Impact** – adoption rate, reward/token deltas, transfer success, failure avoidance signals, and the composite `impact_score` for each entry so you can prioritise curation according to adaptive-efficiency gains.
 - **Runtime Usage** – cue trigger totals, adoption counts, success rates, and trigger/adoption rates across sessions.
 - **Efficiency Snapshot** – comparison of reward/tokens in sessions with cue hits versus those without, including deltas.
 
@@ -176,6 +204,19 @@ When you pass `--compare-to`, the harness looks up the previous `index.json`, lo
 - Cue hit/adoption changes (derived from the usage metrics section)
 
 The new manifest includes `comparisons` and aggregate leaderboards (best/worst deltas), while each Markdown report gains a “Comparison vs previous run” section.
+
+## 6. Suggested Experiments
+
+To stress-test the learning synthesizer and meta-prompt variants, run targeted sweeps with the configs under
+`configs/eval/`:
+
+- `learning_overhaul_base.yaml` — baseline Gemini 2.5 Flash synthesiser and reinforcement-focused prompt.
+- `learning_overhaul_scope_shift.yaml` — emphasises differentiation and transfer hypotheses; default scope category set to `differentiation`.
+- `learning_overhaul_claude.yaml` — Claude Haiku/Sonnet stack for student/teacher/synthesiser evaluation.
+
+Generate fresh telemetry for each config (same dataset, different `learning_key`s), then compare `playbook_impact`
+sections across runs. Prioritise variants that increase adoption rate without regressing token deltas, and flag any
+entries with negative impact scores for remediation.
 
 ## 6. Automate & Test
 

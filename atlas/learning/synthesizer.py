@@ -366,6 +366,10 @@ class LearningSynthesizer:
                     context,
                     lifecycle="active",
                 )
+                if isinstance(prior_entry, dict):
+                    prior_impact = prior_entry.get("impact")
+                    if isinstance(prior_impact, dict):
+                        entry_payload["impact"] = copy.deepcopy(prior_impact)
                 active_entries.append(entry_payload)
                 seen_ids.add(entry_id)
             for entry_id, prior in baseline_entries_by_id.items():
