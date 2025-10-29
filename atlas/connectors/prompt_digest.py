@@ -156,23 +156,14 @@ class _PromptDigestBuilder:
         digest_stats["sections"] = section_sizes
         digest["digest_stats"] = digest_stats
 
-        encoded_with_stats = self._encode(digest)
-        if len(encoded_with_stats) > self._budget:
-            if "sections" in digest_stats:
-                digest_stats.pop("sections", None)
-                encoded_with_stats = self._encode(digest)
-        if len(encoded_with_stats) > self._budget:
-            digest_stats.pop("omitted", None)
-            encoded_with_stats = self._encode(digest)
+        encoded_with_stats = self._ensure_stats_within_budget(digest, digest_stats)
         final_size = len(encoded_with_stats)
         if final_size > self._budget:
             raise PromptDigestTooLargeError(
                 f"metadata digest exceeded provider budget ({final_size} > {self._budget} chars)"
             )
 
-        digest_stats["size"] = final_size
         utilisation = final_size / self._budget if self._budget else 0.0
-        digest_stats["util"] = utilisation
         if utilisation >= 0.75:
             logger.warning(
                 "metadata digest consuming %.1f%% of provider budget (%s/%s chars)",
@@ -191,6 +182,32 @@ class _PromptDigestBuilder:
 
     def _encode(self, payload: Mapping[str, Any]) -> str:
         return json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+
+    def _ensure_stats_within_budget(self, digest: Dict[str, Any], digest_stats: Dict[str, Any]) -> str:
+        encoded = self._finalise_stats(digest, digest_stats)
+        if len(encoded) <= self._budget:
+            return encoded
+
+        for key in ("sections", "omitted", "omitted_sections"):
+            if key in digest_stats:
+                digest_stats.pop(key)
+                encoded = self._finalise_stats(digest, digest_stats)
+                if len(encoded) <= self._budget:
+                    return encoded
+        return encoded
+
+    def _finalise_stats(self, digest: Dict[str, Any], digest_stats: Dict[str, Any]) -> str:
+        previous_len = None
+        encoded = self._encode(digest)
+        for _ in range(4):
+            current_len = len(encoded)
+            if current_len == previous_len:
+                break
+            digest_stats["size"] = current_len
+            digest_stats["util"] = round(current_len / self._budget, 6) if self._budget else 0.0
+            previous_len = current_len
+            encoded = self._encode(digest)
+        return encoded
 
     def _build_summary_section(self) -> Dict[str, Any]:
         summary: Dict[str, Any] = {}

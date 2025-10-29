@@ -23,6 +23,7 @@ def test_build_prompt_digest_trims_large_sections():
     digest_json = build_prompt_digest(metadata, _llm_params())
     digest = json.loads(digest_json)
     assert digest["digest_stats"]["size"] <= 20000
+    assert len(digest_json) == digest["digest_stats"]["size"]
     assert "session_learning_audit" in digest["digest_stats"].get("omitted", [])
     audit_summary = digest["session"]["session_reward_audit_summary"]
     assert audit_summary["entries"] == 50
@@ -74,4 +75,6 @@ def test_build_prompt_digest_handles_stats_overhead_without_error():
     config = MetadataDigestConfig(char_budget=4400, max_section_chars=1000, max_string_chars=500)
     digest_json = build_prompt_digest(metadata, _llm_params(), config)
     digest = json.loads(digest_json)
-    assert digest["digest_stats"]["size"] <= config.char_budget
+    stats = digest["digest_stats"]
+    assert stats["size"] <= config.char_budget
+    assert len(digest_json) == stats["size"]

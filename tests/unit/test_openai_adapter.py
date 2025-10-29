@@ -58,6 +58,7 @@ def test_openai_adapter_trims_large_metadata_blob():
     digest = json.loads(system_message["content"])
     stats = digest["digest_stats"]
     assert stats["size"] <= stats["budget"]
+    assert len(system_message["content"]) == stats["size"]
     assert "payload" * 100 not in system_message["content"]
 
 
