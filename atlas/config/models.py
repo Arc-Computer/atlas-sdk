@@ -290,6 +290,58 @@ class LearningPrompts(BaseModel):
     synthesizer: str | None = None
 
 
+class PolicyGateRules(BaseModel):
+    """Gate configuration enforced on generated policy nuggets."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enforce_actionability: bool = True
+    enforce_cue: bool = True
+    enforce_generality: bool = True
+    max_text_length: int = Field(default=420, ge=100, le=2000)
+    allowed_proper_nouns: List[str] = Field(
+        default_factory=lambda: ["SQL", "HTTP", "JSON", "Atlas", "API"]
+    )
+    banned_incident_tokens: List[str] = Field(
+        default_factory=lambda: ["incident", "ticket", "case", "postmortem"]
+    )
+    allow_length_overflow_margin: int = Field(default=20, ge=0, le=500)
+
+
+class PolicyRubricWeights(BaseModel):
+    """Weighted scoring rubric applied to policy nuggets."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actionability: float = Field(default=0.4, ge=0.0, le=1.0)
+    generality: float = Field(default=0.3, ge=0.0, le=1.0)
+    hookability: float = Field(default=0.2, ge=0.0, le=1.0)
+    concision: float = Field(default=0.1, ge=0.0, le=1.0)
+
+
+class PolicySchemaConfig(BaseModel):
+    """Schema metadata for policy nugget synthesis."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: str = "policy_nugget.v1"
+    allowed_runtime_handles: List[str] = Field(default_factory=list)
+    runtime_handle_prefixes: List[str] = Field(default_factory=list)
+    cue_types: List[str] = Field(default_factory=lambda: ["regex", "keyword", "predicate"])
+    default_scope_category: str = "differentiation"
+    allow_missing_tool_mapping: bool = False
+
+
+class LearningUsageConfig(BaseModel):
+    """Runtime usage instrumentation toggles."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    capture_examples: bool = False
+    max_examples_per_nugget: int = Field(default=2, ge=0, le=20)
+
+
 class LearningConfig(BaseModel):
     """Controls the learning pamphlet synthesizer."""
 
@@ -302,6 +354,10 @@ class LearningConfig(BaseModel):
     history_limit: int = Field(default=10, ge=1, le=200)
     session_note_enabled: bool = True
     apply_to_prompts: bool = True
+    schema: PolicySchemaConfig = Field(default_factory=PolicySchemaConfig)
+    rubric_weights: PolicyRubricWeights = Field(default_factory=PolicyRubricWeights)
+    gates: PolicyGateRules = Field(default_factory=PolicyGateRules)
+    usage_tracking: LearningUsageConfig = Field(default_factory=LearningUsageConfig)
 
 class RIMConfig(BaseModel):
     """Aggregate reward model configuration."""

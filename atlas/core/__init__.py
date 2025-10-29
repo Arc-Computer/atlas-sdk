@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import logging
 import os
@@ -124,6 +125,7 @@ async def arun(
     evaluator = _build_evaluator_instance(config, getattr(adaptive_teaching_cfg, "reward", None))
     learning_synthesizer = _build_learning_synthesizer(config)
     execution_context.metadata["adaptive_default_tags"] = list(getattr(adaptive_teaching_cfg, "default_tags", []) or [])
+    execution_context.metadata["learning_usage_config"] = learning_cfg.usage_tracking.model_dump()
     triage_adapter = _load_triage_adapter(getattr(adaptive_teaching_cfg, "triage_adapter", None))
     session_meta = execution_context.metadata.setdefault("session_metadata", {})
     learning_key = _build_learning_key(task, config, session_meta)
@@ -142,6 +144,8 @@ async def arun(
             )
             metadata = execution_context.metadata.get("session_metadata")
             session_id = await database.create_session(task, metadata=metadata)
+            if session_id is not None:
+                execution_context.metadata["session_id"] = session_id
             if publisher is not None and session_id is not None:
                 publisher.publish_control_event(
                     "session-started",
@@ -617,6 +621,17 @@ def _collect_session_insights(context: ExecutionContext, result: Result | None) 
         payload["reward_stats"] = dict(reward_stats)
     if isinstance(reward_audit, list):
         payload["reward_audit"] = [dict(entry) for entry in reward_audit if isinstance(entry, dict)]
+    token_usage = context.metadata.get("token_usage") if isinstance(context.metadata, dict) else None
+    if isinstance(token_usage, dict) and token_usage:
+        payload["token_usage"] = {
+            "prompt_tokens": token_usage.get("prompt_tokens"),
+            "completion_tokens": token_usage.get("completion_tokens"),
+            "total_tokens": token_usage.get("total_tokens"),
+            "calls": token_usage.get("calls"),
+        }
+    learning_usage = context.metadata.get("learning_usage") if isinstance(context.metadata, dict) else None
+    if isinstance(learning_usage, dict) and learning_usage:
+        payload["learning_usage"] = copy.deepcopy(learning_usage)
     student_learning = context.metadata.get("session_student_learning") if isinstance(context.metadata, dict) else None
     if isinstance(student_learning, str) and student_learning.strip():
         payload["student_learning"] = student_learning

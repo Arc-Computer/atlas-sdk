@@ -32,6 +32,7 @@ from atlas.prompts import RewrittenStudentPrompts
 from atlas.types import Plan
 from atlas.types import Step
 from atlas.learning.playbook import resolve_playbook
+from atlas.learning.usage import get_tracker
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +75,28 @@ class Student:
         self._graph_system_prompt: str | None = None
         self._refresh_graph_builder()
         self._llm_stream_state: Dict[str, Dict[str, Any]] = {}
+        self._record_runtime_handles()
+
+    def _record_runtime_handles(self) -> None:
+        """Record available tool handles for downstream instrumentation."""
+        try:
+            context = ExecutionContext.get()
+        except Exception:  # pragma: no cover - context may be missing in tests
+            return
+        handles: List[str] = []
+        for tool in self._tools or []:
+            name = getattr(tool, "name", None)
+            if isinstance(name, str) and name.strip():
+                handles.append(name.strip())
+        if not handles:
+            return
+        store = context.metadata.setdefault("runtime_handles", [])
+        if not isinstance(store, list):
+            context.metadata["runtime_handles"] = list(handles)
+            return
+        for handle in handles:
+            if handle not in store:
+                store.append(handle)
 
     def _apply_usage_payload(self, usage: Any) -> Dict[str, int] | None:
         normalised = normalise_usage_payload(usage)
@@ -269,6 +292,7 @@ class Student:
             metadata["reason"] = guidance_reason
         if raw_text is not None:
             metadata["text"] = raw_text
+        self._record_student_action_adoption(step, final_state.messages, structured_output, metadata)
         output_payload = raw_text if isinstance(raw_text, str) else json.dumps(structured_output, ensure_ascii=False)
         return StudentStepResult(
             trace=trace,
@@ -405,10 +429,12 @@ class Student:
         user_message = "\n".join(payload)
         executor_prompt = self._compose_system_prompt(self._prompts.executor, "Student Playbook")
         self._refresh_graph_builder()
-        return [
+        messages = [
             SystemMessage(content=executor_prompt),
             HumanMessage(content=user_message),
         ]
+        self._record_student_cue_hits(user_message, step.id)
+        return messages
 
     def _refresh_graph_builder(self) -> None:
         prompt = self._compose_system_prompt(self._prompts.executor, "Student Playbook")
@@ -433,6 +459,57 @@ class Student:
         base = base_prompt.strip()
         segments = [segment for segment in (block, base) if segment]
         return "\n\n".join(segments) if segments else ""
+
+    def _record_student_cue_hits(self, text: str, step_id: int) -> None:
+        if not text:
+            return
+        try:
+            tracker = get_tracker()
+            tracker.detect_and_record("student", text, step_id=step_id, context_hint=text)
+        except Exception:  # pragma: no cover - instrumentation best effort
+            logger.debug("Failed to record cue hits for step %s", step_id, exc_info=True)
+
+    def _record_student_action_adoption(
+        self,
+        step: Step,
+        messages: Sequence[BaseMessage],
+        structured_output: Dict[str, Any],
+        metadata: Dict[str, Any],
+    ) -> None:
+        try:
+            tracker = get_tracker()
+        except Exception:  # pragma: no cover - instrumentation must not break execution
+            logger.debug("Unable to initialise learning usage tracker for step %s", step.id, exc_info=True)
+            return
+        if not getattr(tracker, "enabled", False):
+            return
+        runtime_handles: set[str] = set()
+        for message in messages or []:
+            if isinstance(message, AIMessage) and getattr(message, "tool_calls", None):
+                for call in message.tool_calls:
+                    name = getattr(call, "name", None)
+                    if isinstance(name, str) and name.strip():
+                        runtime_handles.add(name.strip())
+        if isinstance(step.tool, str) and step.tool.strip():
+            runtime_handles.add(step.tool.strip())
+        if not runtime_handles:
+            return
+        status_value = (structured_output.get("status") or metadata.get("status") or "").lower()
+        success = status_value in {"ok", "success", "completed", "done"}
+        if not success:
+            success = bool(structured_output.get("deliverable"))
+        adoption_meta = {
+            "status": structured_output.get("status"),
+            "step_id": step.id,
+        }
+        for handle in runtime_handles:
+            tracker.record_action_adoption(
+                "student",
+                handle,
+                success=success,
+                step_id=step.id,
+                metadata=adoption_meta,
+            )
 
     def _format_playbook_block(
         self,

@@ -33,6 +33,8 @@ class SessionSnapshot:
     trajectory_events: int
     student_model_id: str | None = None
     teacher_model_id: str | None = None
+    token_usage: dict[str, Any] | None = None
+    learning_usage: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -53,6 +55,49 @@ class RewardSnapshot:
     latest_score: float | None
     recent_window: WindowSpec | None = None
     baseline_window: WindowSpec | None = None
+
+
+@dataclass(slots=True)
+class PolicyMetricsSummary:
+    total_candidates: int
+    passed: int
+    failed: int
+    pass_rate: float | None
+    gate_failures: dict[str, int]
+    average_weighted_score: float | None
+    weights: dict[str, float] | None = None
+
+
+@dataclass(slots=True)
+class LifecycleSummary:
+    reinforcement_active: int
+    reinforcement_deprecated: int
+    differentiation_active: int
+    differentiation_deprecated: int
+    rejected: int
+
+
+@dataclass(slots=True)
+class UsageMetrics:
+    cue_triggers: int
+    cue_trigger_sessions: int
+    unique_cue_steps: int
+    adoption_events: int
+    successful_adoptions: int
+    adoption_rate: float | None
+    cue_trigger_rate: float | None
+
+
+@dataclass(slots=True)
+class EfficiencySnapshot:
+    sessions_with_cues: int
+    sessions_without_cues: int
+    average_reward_with_cues: float | None
+    average_reward_without_cues: float | None
+    average_tokens_with_cues: float | None
+    average_tokens_without_cues: float | None
+    reward_delta: float | None
+    token_delta: float | None
 
 
 @dataclass(slots=True)
@@ -78,6 +123,10 @@ class LearningSummary:
     review_statuses: dict[str, int] = field(default_factory=dict)
     discovery_runs: list[DiscoveryRunRef] = field(default_factory=list)
     sessions: list[SessionSnapshot] = field(default_factory=list)
+    policy_metrics: PolicyMetricsSummary | None = None
+    lifecycle_summary: LifecycleSummary | None = None
+    usage_metrics: UsageMetrics | None = None
+    efficiency: EfficiencySnapshot | None = None
 
 
 async def generate_learning_summary(
@@ -143,6 +192,13 @@ async def _generate_learning_summary(
     trajectory_counts: dict[int, int] = {}
     if summary_only and session_ids:
         trajectory_counts = await database.fetch_trajectory_event_counts(session_ids)
+    latest_policy_meta: dict[str, Any] | None = None
+    rejected_candidates_total = 0
+    cue_stats = {"cue_triggers": 0, "cue_sessions": 0, "unique_cue_steps": 0, "adoptions": 0, "success": 0}
+    reward_with_cues: list[float] = []
+    reward_without_cues: list[float] = []
+    tokens_with_cues: list[float] = []
+    tokens_without_cues: list[float] = []
 
     for row in rows:
         metadata = _coerce_dict(row.get("metadata"))
@@ -157,6 +213,15 @@ async def _generate_learning_summary(
             review_counts[review_status] = review_counts.get(review_status, 0) + 1
         reward_score = _extract_score(reward_stats, session_reward)
         reward_uncertainty = _extract_uncertainty(reward_stats, session_reward)
+        token_usage = _coerce_dict(metadata.get("token_usage"))
+        learning_usage_meta = _coerce_dict(metadata.get("learning_usage"))
+        learning_state_meta = _coerce_dict(metadata.get("learning_state"))
+        policy_meta = _coerce_dict(learning_state_meta.get("metadata")) if learning_state_meta else {}
+        if policy_meta:
+            latest_policy_meta = policy_meta
+            failure_meta = _coerce_dict(policy_meta.get("last_failure"))
+            rejected_list = _coerce_list(failure_meta.get("rejected_candidates")) if failure_meta else []
+            rejected_candidates_total = len(rejected_list)
         if reward_score is not None:
             reward_scores.append(reward_score)
         created_at_raw = row.get("created_at")
@@ -182,6 +247,28 @@ async def _generate_learning_summary(
                 accumulator["reward_sum"] += reward_score
                 accumulator["latest_score"] = reward_score
             accumulator["last_seen_at"] = created_at
+        session_has_cues = False
+        if learning_usage_meta:
+            session_block = _coerce_dict(learning_usage_meta.get("session"))
+            cue_hits = int(session_block.get("cue_hits") or 0)
+            adoption_events = int(session_block.get("action_adoptions") or 0)
+            unique_cue_steps = len(session_block.get("unique_cue_steps") or [])
+            success_count = 0
+            roles_usage = learning_usage_meta.get("roles")
+            if isinstance(roles_usage, dict):
+                for role_usage in roles_usage.values():
+                    if not isinstance(role_usage, dict):
+                        continue
+                    for entry in role_usage.values():
+                        if isinstance(entry, dict):
+                            success_count += int(entry.get("successful_adoptions") or 0)
+            cue_stats["cue_triggers"] += cue_hits
+            cue_stats["unique_cue_steps"] += unique_cue_steps
+            cue_stats["adoptions"] += adoption_events
+            cue_stats["success"] += success_count
+            if cue_hits > 0:
+                cue_stats["cue_sessions"] += 1
+                session_has_cues = True
         snapshot = SessionSnapshot(
             session_id=row["id"],
             created_at=created_at,
@@ -196,11 +283,34 @@ async def _generate_learning_summary(
             trajectory_events=trajectory_events,
             student_model_id=model_ids.get("student"),
             teacher_model_id=model_ids.get("teacher"),
+            token_usage=token_usage if token_usage else None,
+            learning_usage=learning_usage_meta if learning_usage_meta else None,
         )
         sessions.append(snapshot)
         task_value = row.get("task")
         if isinstance(task_value, str) and task_value.strip():
             tasks_seen.add(task_value)
+        token_total = _coerce_float(token_usage.get("total_tokens")) if token_usage else None
+        if reward_score is not None:
+            if session_has_cues:
+                reward_with_cues.append(reward_score)
+            else:
+                reward_without_cues.append(reward_score)
+        if token_total is not None:
+            if session_has_cues:
+                tokens_with_cues.append(token_total)
+            else:
+                tokens_without_cues.append(token_total)
+
+    policy_metrics = _build_policy_metrics(latest_policy_meta)
+    lifecycle_summary = _build_lifecycle_summary(latest_policy_meta, rejected_candidates_total)
+    usage_metrics = _build_usage_metrics(cue_stats, len(sessions))
+    efficiency_snapshot = _build_efficiency_snapshot(
+        reward_with_cues,
+        reward_without_cues,
+        tokens_with_cues,
+        tokens_without_cues,
+    )
 
     recent_scores = reward_scores[-recent_spec.size :] if recent_spec.size > 0 else reward_scores[:]
     recent_mean = fmean(recent_scores) if recent_scores else None
@@ -256,6 +366,10 @@ async def _generate_learning_summary(
         review_statuses=dict(sorted(review_counts.items())),
         discovery_runs=discovery_refs,
         sessions=sessions,
+        policy_metrics=policy_metrics,
+        lifecycle_summary=lifecycle_summary,
+        usage_metrics=usage_metrics,
+        efficiency=efficiency_snapshot,
     )
 
 
@@ -341,6 +455,69 @@ def summary_to_markdown(summary: LearningSummary) -> str:
         for ref in summary.discovery_runs:
             timestamp = ref.created_at or "unknown"
             lines.append(f"  - #{ref.run_id} [{ref.source}] task={ref.task!r} at {timestamp}")
+    if summary.policy_metrics:
+        metrics = summary.policy_metrics
+        lines.append("")
+        lines.append("## Policy Nugget Quality")
+        lines.append(
+            f"- Candidates evaluated: {metrics.total_candidates} (pass rate: {_format_float(metrics.pass_rate)}; passed={metrics.passed}, failed={metrics.failed})"
+        )
+        if metrics.average_weighted_score is not None:
+            lines.append(f"- Average weighted score: {_format_float(metrics.average_weighted_score)}")
+        if metrics.gate_failures:
+            failures = ", ".join(f"{name}: {count}" for name, count in metrics.gate_failures.items())
+            lines.append(f"- Gate failures: {failures}")
+    if summary.lifecycle_summary:
+        lifecycle = summary.lifecycle_summary
+        lines.append("")
+        lines.append("## Nugget Lifecycle")
+        lines.append(
+            "- Reinforcement — active: {0}, deprecated: {1}".format(
+                lifecycle.reinforcement_active,
+                lifecycle.reinforcement_deprecated,
+            )
+        )
+        lines.append(
+            "- Differentiation — active: {0}, deprecated: {1}".format(
+                lifecycle.differentiation_active,
+                lifecycle.differentiation_deprecated,
+            )
+        )
+        lines.append(f"- Rejected candidates (latest run): {lifecycle.rejected}")
+    if summary.usage_metrics:
+        usage = summary.usage_metrics
+        lines.append("")
+        lines.append("## Runtime Usage")
+        lines.append(
+            f"- Cue triggers: {usage.cue_triggers} across {usage.cue_trigger_sessions} sessions (rate: {_format_float(usage.cue_trigger_rate)})"
+        )
+        lines.append(
+            f"- Action adoptions: {usage.adoption_events} (successful: {usage.successful_adoptions}, adoption rate: {_format_float(usage.adoption_rate)})"
+        )
+        lines.append(f"- Unique cue steps fired: {usage.unique_cue_steps}")
+    if summary.efficiency:
+        eff = summary.efficiency
+        lines.append("")
+        lines.append("## Efficiency Snapshot")
+        lines.append(
+            f"- Sessions with cues: {eff.sessions_with_cues}, without cues: {eff.sessions_without_cues}"
+        )
+        lines.append(
+            "- Avg reward with cues / without cues: {0} / {1}".format(
+                _format_float(eff.average_reward_with_cues),
+                _format_float(eff.average_reward_without_cues),
+            )
+        )
+        lines.append(
+            "- Avg tokens with cues / without cues: {0} / {1}".format(
+                _format_float(eff.average_tokens_with_cues),
+                _format_float(eff.average_tokens_without_cues),
+            )
+        )
+        if eff.reward_delta is not None:
+            lines.append(f"- Reward delta (with - without cues): {_format_float(eff.reward_delta)}")
+        if eff.token_delta is not None:
+            lines.append(f"- Token delta (with - without cues): {_format_float(eff.token_delta)}")
     if summary.model_breakdown:
         lines.append("")
         lines.append("## Model Performance")
@@ -386,6 +563,120 @@ def summary_to_markdown(summary: LearningSummary) -> str:
 
 def summary_to_dict(summary: LearningSummary) -> dict[str, Any]:
     return asdict(summary)
+
+
+def _build_policy_metrics(policy_meta: dict[str, Any] | None) -> PolicyMetricsSummary | None:
+    if not isinstance(policy_meta, dict) or not policy_meta:
+        return None
+    summary = _coerce_dict(policy_meta.get("policy_summary"))
+    if not summary:
+        return None
+    total = int(summary.get("total_candidates") or 0)
+    passed = int(summary.get("passed") or 0)
+    failed = int(summary.get("failed") or 0)
+    pass_rate = _coerce_float(summary.get("pass_rate"))
+    avg_weighted = _coerce_float(summary.get("average_weighted_score"))
+    gate_failures = summary.get("gate_failures") if isinstance(summary.get("gate_failures"), dict) else {}
+    weights = summary.get("weights") if isinstance(summary.get("weights"), dict) else None
+    return PolicyMetricsSummary(
+        total_candidates=total,
+        passed=passed,
+        failed=failed,
+        pass_rate=pass_rate,
+        gate_failures=gate_failures,
+        average_weighted_score=avg_weighted,
+        weights=weights,
+    )
+
+
+def _build_lifecycle_summary(policy_meta: dict[str, Any] | None, rejected_count: int) -> LifecycleSummary | None:
+    if not isinstance(policy_meta, dict):
+        return None
+    reinforcement_active = reinforcement_deprecated = 0
+    differentiation_active = differentiation_deprecated = 0
+    nuggets = policy_meta.get("policy_nuggets")
+    if isinstance(nuggets, list):
+        for entry in nuggets:
+            if not isinstance(entry, dict):
+                continue
+            provenance = entry.get("provenance") if isinstance(entry.get("provenance"), dict) else {}
+            status = provenance.get("status") if isinstance(provenance.get("status"), dict) else {}
+            category = (status.get("category") or "").lower()
+            lifecycle = (status.get("lifecycle") or "").lower()
+            if category == "reinforcement":
+                if lifecycle == "active":
+                    reinforcement_active += 1
+                elif lifecycle == "deprecated":
+                    reinforcement_deprecated += 1
+            elif category == "differentiation":
+                if lifecycle == "active":
+                    differentiation_active += 1
+                elif lifecycle == "deprecated":
+                    differentiation_deprecated += 1
+    if not (reinforcement_active or reinforcement_deprecated or differentiation_active or differentiation_deprecated or rejected_count):
+        return None
+    return LifecycleSummary(
+        reinforcement_active=reinforcement_active,
+        reinforcement_deprecated=reinforcement_deprecated,
+        differentiation_active=differentiation_active,
+        differentiation_deprecated=differentiation_deprecated,
+        rejected=rejected_count,
+    )
+
+
+def _build_usage_metrics(cue_stats: dict[str, int], total_sessions: int) -> UsageMetrics | None:
+    if total_sessions <= 0:
+        return None
+    cue_triggers = int(cue_stats.get("cue_triggers", 0))
+    cue_sessions = int(cue_stats.get("cue_sessions", 0))
+    unique_cue_steps = int(cue_stats.get("unique_cue_steps", 0))
+    adoptions = int(cue_stats.get("adoptions", 0))
+    success = int(cue_stats.get("success", 0))
+    if not (cue_triggers or adoptions or success or cue_sessions):
+        return None
+    adoption_rate = (success / adoptions) if adoptions else None
+    cue_trigger_rate = (cue_sessions / total_sessions) if total_sessions and cue_sessions else None
+    return UsageMetrics(
+        cue_triggers=cue_triggers,
+        cue_trigger_sessions=cue_sessions,
+        unique_cue_steps=unique_cue_steps,
+        adoption_events=adoptions,
+        successful_adoptions=success,
+        adoption_rate=adoption_rate,
+        cue_trigger_rate=cue_trigger_rate,
+    )
+
+
+def _build_efficiency_snapshot(
+    reward_with_cues: Sequence[float],
+    reward_without_cues: Sequence[float],
+    tokens_with_cues: Sequence[float],
+    tokens_without_cues: Sequence[float],
+) -> EfficiencySnapshot | None:
+    has_rewards = bool(reward_with_cues or reward_without_cues)
+    has_tokens = bool(tokens_with_cues or tokens_without_cues)
+    if not has_rewards and not has_tokens:
+        return None
+    avg_reward_with = fmean(reward_with_cues) if reward_with_cues else None
+    avg_reward_without = fmean(reward_without_cues) if reward_without_cues else None
+    avg_tokens_with = fmean(tokens_with_cues) if tokens_with_cues else None
+    avg_tokens_without = fmean(tokens_without_cues) if tokens_without_cues else None
+    reward_delta = None
+    if avg_reward_with is not None and avg_reward_without is not None:
+        reward_delta = avg_reward_with - avg_reward_without
+    token_delta = None
+    if avg_tokens_with is not None and avg_tokens_without is not None:
+        token_delta = avg_tokens_with - avg_tokens_without
+    return EfficiencySnapshot(
+        sessions_with_cues=len(reward_with_cues) if reward_with_cues else 0,
+        sessions_without_cues=len(reward_without_cues) if reward_without_cues else 0,
+        average_reward_with_cues=avg_reward_with,
+        average_reward_without_cues=avg_reward_without,
+        average_tokens_with_cues=avg_tokens_with,
+        average_tokens_without_cues=avg_tokens_without,
+        reward_delta=reward_delta,
+        token_delta=token_delta,
+    )
 
 
 async def _collect_discovery_refs(

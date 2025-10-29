@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
@@ -108,6 +109,26 @@ def parse_args() -> argparse.Namespace:
         "--quiet",
         action="store_true",
         help="Suppress stdout progress messages.",
+    )
+    parser.add_argument(
+        "--prompt-variant",
+        help="Label describing the prompt variant under evaluation (recorded in the manifest).",
+    )
+    parser.add_argument(
+        "--synthesis-model",
+        action="append",
+        dest="synthesis_models",
+        help="LLM model identifier used for pamphlet synthesis (repeatable; stored in manifest).",
+    )
+    parser.add_argument(
+        "--pamphlet-injection",
+        choices=["on", "off", "toggle"],
+        help="Document whether pamphlet injection was enabled, disabled, or toggled during this evaluation.",
+    )
+    parser.add_argument(
+        "--nugget-labels",
+        type=Path,
+        help="Optional JSON file mapping nugget ids to manual reinforcement/differentiation labels (referenced in manifest).",
     )
     return parser.parse_args()
 
@@ -315,6 +336,7 @@ def _write_outputs(
     write_markdown: bool,
     comparisons: dict[str, dict[str, Any]] | None = None,
     aggregate: dict[str, Any] | None = None,
+    run_metadata: dict[str, Any] | None = None,
 ) -> dict[str, dict[str, Any]]:
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest: dict[str, dict[str, Any]] = {}
@@ -347,6 +369,8 @@ def _write_outputs(
         index_payload["comparisons"] = comparisons
     if aggregate:
         index_payload["aggregate"] = aggregate
+    if run_metadata:
+        index_payload["run_metadata"] = run_metadata
     index_path.write_text(json.dumps(index_payload, indent=2), encoding="utf-8")
     return manifest
 
@@ -401,12 +425,26 @@ async def main() -> int:
         except FileNotFoundError as exc:
             raise SystemExit(f"Failed to read comparison index: {exc}") from exc
         comparisons_data, aggregate_data = _compute_comparisons(summaries, previous)
+    run_metadata: dict[str, Any] | None = None
+    metadata_annotations: dict[str, Any] = {}
+    if args.prompt_variant:
+        metadata_annotations["prompt_variant"] = args.prompt_variant
+    if args.synthesis_models:
+        metadata_annotations["synthesis_models"] = args.synthesis_models
+    if args.pamphlet_injection:
+        metadata_annotations["pamphlet_injection"] = args.pamphlet_injection
+    if args.nugget_labels:
+        metadata_annotations["nugget_label_overrides"] = str(args.nugget_labels)
+    if metadata_annotations:
+        metadata_annotations["evaluated_at"] = datetime.now(timezone.utc).isoformat()
+        run_metadata = metadata_annotations
     manifest = _write_outputs(
         summaries,
         args.output_dir,
         write_markdown=not args.no_markdown,
         comparisons=comparisons_data,
         aggregate=aggregate_data,
+        run_metadata=run_metadata,
     )
     if not args.quiet:
         print(f"Generated learning summaries for {len(manifest)} learning keys in {args.output_dir}")
