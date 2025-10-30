@@ -559,13 +559,19 @@ def _build_function_environment_factory_snippet(candidate: Candidate) -> Factory
             "    return target",
         ]
     else:
-        imports = ["import os", f"from {candidate.module} import {candidate.qualname}"]
+        if candidate.qualname == ENV_FUNCTION_NAME:
+            callable_name = f"_repo_{ENV_FUNCTION_NAME}"
+            import_target = f"{candidate.qualname} as {callable_name}"
+        else:
+            callable_name = candidate.qualname
+            import_target = candidate.qualname
+        imports = ["import os", f"from {candidate.module} import {import_target}"]
         body_lines = [
             f"def {ENV_FUNCTION_NAME}(**kwargs):",
             '    """Atlas-generated environment factory wrapping repository callable."""',
             "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':",
             "        raise RuntimeError('Environment prerequisites not validated. Set ATLAS_DISCOVERY_VALIDATE=1 to instantiate the environment.')",
-            f"    return {candidate.qualname}(**kwargs)",
+            f"    return {callable_name}(**kwargs)",
         ]
     factory_body = "\n".join(body_lines)
     notes = [f"Delegates to {candidate.module}:{candidate.qualname}."]
@@ -675,7 +681,13 @@ def _build_function_agent_factory_snippet(candidate: Candidate) -> FactorySnippe
             "    return StepwiseAgentAdapter(instance)",
         ]
     else:
-        imports.append(f"from {candidate.module} import {candidate.qualname}")
+        if candidate.qualname == AGENT_FUNCTION_NAME:
+            callable_name = f"_repo_{AGENT_FUNCTION_NAME}"
+            import_target = f"{candidate.qualname} as {callable_name}"
+        else:
+            callable_name = candidate.qualname
+            import_target = candidate.qualname
+        imports.append(f"from {candidate.module} import {import_target}")
         body_lines = [
             f"def {AGENT_FUNCTION_NAME}(**kwargs):",
             '    """Atlas-generated agent factory wrapping repository callable."""',
@@ -689,13 +701,13 @@ def _build_function_agent_factory_snippet(candidate: Candidate) -> FactorySnippe
             "    if runtime_invocation:",
             "        agent_instance = _AGENT_RUNTIME_CACHE.get(cache_key)",
             "        if agent_instance is None:",
-            f"            agent_instance = {candidate.qualname}(**parameters)",
+            f"            agent_instance = {callable_name}(**parameters)",
             "            _AGENT_RUNTIME_CACHE[cache_key] = agent_instance",
             "        prompt_text = prompt if isinstance(prompt, str) else ''",
             "        return _atlas_execute_agent(agent_instance, prompt_text, metadata)",
             "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':",
             "        raise RuntimeError('Agent prerequisites not validated. Set ATLAS_DISCOVERY_VALIDATE=1 to instantiate the agent.')",
-            f"    instance = {candidate.qualname}(**parameters)",
+            f"    instance = {callable_name}(**parameters)",
             "    return StepwiseAgentAdapter(instance)",
         ]
     factory_body = "\n".join(body_lines)
