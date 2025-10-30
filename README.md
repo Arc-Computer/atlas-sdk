@@ -14,7 +14,7 @@ The Atlas SDK is a drop-in learning harness that enables your agent to learn fro
 
 With the split between SDK (runtime) and ATLAS (training) in mind, here's what our runtime gives you out of the box.
 
-## Key Highlights (v0.1.8)
+## Key Highlights (v0.1.10)
 
 - **Autodiscovery-first CLI** – `atlas env init` now writes runnable configs, auto-loads `.env`/`PYTHONPATH`, and feeds straight into `atlas run --config` or the fake LLM smoke-test flow (`ATLAS_FAKE_LLM=1`) so you can validate stacks offline before hitting production creds ([docs](docs/learning_eval.md)).
 - **Learning Playbooks Everywhere** – Student and Teacher personas resolve hashed learning playbooks on every run, splice the guidance into planner/synthesizer/executor prompts, and update cache keys when playbooks change so prompt drift is eliminated.
@@ -60,7 +60,7 @@ Keys can also live in a local `.env` file; the Atlas CLI and quickstart scripts 
 
 Then run the script:
 ```bash
-atlas run .atlas/generated_config.yaml --task "..."
+atlas run --config .atlas/generated_config.yaml --task "..."
 ```
 ### Autodiscovery Onboarding
 
