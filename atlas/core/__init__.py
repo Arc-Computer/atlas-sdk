@@ -12,6 +12,7 @@ import json
 from datetime import datetime, timezone
 from statistics import fmean
 from typing import Any
+from typing import Callable
 from typing import Dict
 from typing import List
 from typing import Protocol
@@ -37,6 +38,7 @@ from atlas.learning.usage import get_tracker
 from atlas.runtime.storage.database import Database
 from atlas.runtime.learning.drift import RewardDriftDetector
 from atlas.runtime.telemetry import ConsoleTelemetryStreamer
+from atlas.runtime.models import IntermediateStep
 from atlas.runtime.telemetry.langchain_callback import configure_langchain_callbacks
 from atlas.runtime.learning_history import DEFAULT_HISTORY_LIMIT, aggregate_learning_history
 from atlas.types import Result
@@ -62,6 +64,7 @@ async def arun(
     publisher: TelemetryPublisherProtocol | None = None,
     session_metadata: dict[str, Any] | None = None,
     stream_progress: bool | None = None,
+    intermediate_step_handler: Callable[[IntermediateStep], None] | None = None,
 ) -> Result:
     config = load_config(config_path)
     execution_context = ExecutionContext.get()
@@ -78,7 +81,15 @@ async def arun(
         stream_enabled = bool(isatty and isatty())
     streamer: ConsoleTelemetryStreamer | None = None
     events: List = []
+    subscriptions: list[Any] = []
+
     subscription = execution_context.event_stream.subscribe(events.append)
+    subscriptions.append(subscription)
+
+    monitor_subscription = None
+    if intermediate_step_handler is not None:
+        monitor_subscription = execution_context.event_stream.subscribe(intermediate_step_handler)
+        subscriptions.append(monitor_subscription)
     if publisher is not None:
         publisher.attach(execution_context.intermediate_step_manager)
     elif stream_enabled:
@@ -244,7 +255,8 @@ async def arun(
             streamer.session_failed(exc)
         raise
     finally:
-        subscription.unsubscribe()
+        for sub in reversed(subscriptions):
+            sub.unsubscribe()
         if publisher is not None:
             publisher.detach()
         elif streamer is not None:

@@ -206,7 +206,7 @@ def wrapper_only_project(tmp_path: Path) -> Path:
         """
         # Wrapper Only Project
 
-        This repo only exposes helper functions like `build_environment` and `build_agent`.
+        This repo has no Atlas-compatible environment or agent classes.
         Deep integrations live inside the `session` module, which expects `create_runtime`
         to be called with API keys.
         """
@@ -219,21 +219,17 @@ def wrapper_only_project(tmp_path: Path) -> Path:
         import json
 
 
-        def build_environment(config_path: str, *, attack: str):
-            \"\"\"Construct an external environment graph.\"\"\"
-            return {"config": config_path, "attack": attack}
+        def some_helper_function(config_path: str):
+            \"\"\"Some helper that is not an environment/agent factory.\"\"\"
+            return {"config": config_path}
 
 
-        class SessionAgent:
+        class InternalSession:
             def __init__(self, model: str):
                 self._model = model
 
             def invoke(self, payload):
                 return {"model": self._model, "payload": payload}
-
-
-        def build_agent(model: str = "gpt-4.1-mini"):
-            return SessionAgent(model=model)
         """
     )
     (tmp_path / "runtime.py").write_text(module_source, encoding="utf-8")

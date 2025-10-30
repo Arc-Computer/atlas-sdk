@@ -155,6 +155,7 @@ class ConsoleTelemetryStreamer:
             score_text = f"{float(score_value):.2f}" if isinstance(score_value, (int, float)) else "n/a"
             judges = reward_payload.get("judges")
             rim_scores: list[str] = []
+            rationale_snippet: str | None = None
             if isinstance(judges, list):
                 for index, judge in enumerate(judges, start=1):
                     judge_payload = self._coerce_dict(judge)
@@ -162,10 +163,22 @@ class ConsoleTelemetryStreamer:
                     judge_score = judge_payload.get("score")
                     if isinstance(judge_score, (int, float)):
                         rim_scores.append(f"{identifier}:{float(judge_score):.2f}")
+                    if rationale_snippet is None:
+                        judge_rationale = judge_payload.get("rationale")
+                        if isinstance(judge_rationale, str) and judge_rationale.strip():
+                            rationale_snippet = self._shorten(judge_rationale.strip(), 160)
+            if rationale_snippet is None:
+                reward_rationale = reward_payload.get("rationale")
+                if isinstance(reward_rationale, str) and reward_rationale.strip():
+                    rationale_snippet = self._shorten(reward_rationale.strip(), 160)
             rim_display = ", ".join(rim_scores) if rim_scores else "none"
             self._write(
                 f"STEP {step_id}: retry {attempt} | Reward score={score_text} | RIM scores: {rim_display}"
             )
+            if rationale_snippet:
+                self._write(
+                    f"STEP {step_id}: retry {attempt} | Reward rationale: {rationale_snippet}"
+                )
         else:
             self._write(
                 f"STEP {step_id}: retry {attempt} | Reward evaluation deferred to session-level judge"
@@ -293,6 +306,15 @@ class ConsoleTelemetryStreamer:
             score = reward_payload.get("score")
             if isinstance(score, (int, float)):
                 rationale = reward_payload.get("rationale")
+                judges = reward_payload.get("judges")
+                if (not isinstance(rationale, str) or not rationale.strip()) and isinstance(judges, list):
+                    for judge in judges:
+                        if not isinstance(judge, dict):
+                            continue
+                        alt = judge.get("rationale")
+                        if isinstance(alt, str) and alt.strip():
+                            rationale = alt
+                            break
                 message = f"Reward score={score:.2f}"
                 if isinstance(rationale, str) and rationale.strip():
                     message += f" ({self._shorten(rationale.strip(), 80)})"
@@ -312,12 +334,20 @@ class ConsoleTelemetryStreamer:
 
     def _collect_learning_highlights(self, metadata: Dict[str, Any]) -> list[tuple[str, str]]:
         highlights: list[tuple[str, str]] = []
-        student_learning = metadata.get("student_learning")
+        applied = metadata.get("learning_state")
+        if isinstance(applied, dict):
+            applied_student = applied.get("student_learning")
+            if isinstance(applied_student, str) and applied_student.strip():
+                highlights.append(("applied_student_learning", applied_student.strip()))
+            applied_teacher = applied.get("teacher_learning")
+            if isinstance(applied_teacher, str) and applied_teacher.strip():
+                highlights.append(("applied_teacher_learning", applied_teacher.strip()))
+        student_learning = metadata.get("session_student_learning")
         if isinstance(student_learning, str) and student_learning.strip():
-            highlights.append(("student_learning", student_learning.strip()))
-        teacher_learning = metadata.get("teacher_learning")
+            highlights.append(("new_student_learning", student_learning.strip()))
+        teacher_learning = metadata.get("session_teacher_learning")
         if isinstance(teacher_learning, str) and teacher_learning.strip():
-            highlights.append(("teacher_learning", teacher_learning.strip()))
+            highlights.append(("new_teacher_learning", teacher_learning.strip()))
         return highlights
 
     def _compute_metrics(self, result: Result) -> Tuple[str, int]:
