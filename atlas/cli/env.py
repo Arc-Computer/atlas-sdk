@@ -199,6 +199,47 @@ def _build_basic_environment_factory_snippet(candidate: Candidate, defaults: dic
         auto_skip=False,
     )
 
+
+def _build_function_environment_factory_snippet(candidate: Candidate) -> FactorySnippet:
+    if candidate.factory_kind == "attribute":
+        imports = ["import importlib", "import os"]
+        body_lines = [
+            f"def {ENV_FUNCTION_NAME}(**kwargs):",
+            '    """Atlas-generated environment factory wrapping repository attribute."""',
+            "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':",
+            "        raise RuntimeError('Environment prerequisites not validated. Set ATLAS_DISCOVERY_VALIDATE=1 to instantiate the environment.')",
+            f"    module = importlib.import_module('{candidate.module}')",
+            f"    target = getattr(module, '{candidate.qualname}')",
+            "    if callable(target):",
+            "        return target(**kwargs)",
+            "    if kwargs:",
+            "        raise TypeError('Environment factory does not accept keyword arguments.')",
+            "    return target",
+        ]
+    else:
+        imports = ["import os", f"from {candidate.module} import {candidate.qualname}"]
+        body_lines = [
+            f"def {ENV_FUNCTION_NAME}(**kwargs):",
+            '    """Atlas-generated environment factory wrapping repository callable."""',
+            "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':",
+            "        raise RuntimeError('Environment prerequisites not validated. Set ATLAS_DISCOVERY_VALIDATE=1 to instantiate the environment.')",
+            f"    return {candidate.qualname}(**kwargs)",
+        ]
+    body_lines = [
+        *body_lines,
+    ]
+    factory_body = "\n".join(body_lines)
+    notes = [f"Delegates to {candidate.module}:{candidate.qualname}."]
+    return FactorySnippet(
+        function_name=ENV_FUNCTION_NAME,
+        imports=imports,
+        helpers=[],
+        factory_body=factory_body,
+        notes=notes,
+        preflight=[],
+        auto_skip=False,
+    )
+
 def _build_basic_agent_factory_snippet(candidate: Candidate, defaults: dict[str, object]) -> FactorySnippet:
     imports = [f"from {candidate.module} import {candidate.qualname}", "from atlas.sdk.wrappers import StepwiseAgentAdapter"]
     defaults_literal = _format_kwargs_literal(defaults)
@@ -229,6 +270,63 @@ def _build_basic_agent_factory_snippet(candidate: Candidate, defaults: dict[str,
         preflight=[],
         auto_skip=False,
     )
+
+
+def _build_function_agent_factory_snippet(candidate: Candidate) -> FactorySnippet:
+    imports = ["import os", "from atlas.sdk.wrappers import StepwiseAgentAdapter"]
+    if candidate.factory_kind == "attribute":
+        imports.append("import importlib")
+        body_lines = [
+            f"def {AGENT_FUNCTION_NAME}(**kwargs):",
+            '    """Atlas-generated agent factory wrapping repository attribute."""',
+            "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':",
+            "        raise RuntimeError('Agent prerequisites not validated. Set ATLAS_DISCOVERY_VALIDATE=1 to instantiate the agent.')",
+            f"    module = importlib.import_module('{candidate.module}')",
+            f"    target = getattr(module, '{candidate.qualname}')",
+            "    if callable(target):",
+            "        instance = target(**kwargs)",
+            "    else:",
+            "        if kwargs:",
+            "            raise TypeError('Agent factory does not accept keyword arguments.')",
+            "        instance = target",
+            "    return StepwiseAgentAdapter(instance)",
+        ]
+    else:
+        imports.append(f"from {candidate.module} import {candidate.qualname}")
+        body_lines = [
+            f"def {AGENT_FUNCTION_NAME}(**kwargs):",
+            '    """Atlas-generated agent factory wrapping repository callable."""',
+            "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':",
+            "        raise RuntimeError('Agent prerequisites not validated. Set ATLAS_DISCOVERY_VALIDATE=1 to instantiate the agent.')",
+            f"    instance = {candidate.qualname}(**kwargs)",
+            "    return StepwiseAgentAdapter(instance)",
+        ]
+    factory_body = "\n".join(body_lines)
+    notes = [
+        f"Delegates to {candidate.module}:{candidate.qualname}.",
+        "StepwiseAgentAdapter applied so act-only agents integrate safely with Atlas.",
+    ]
+    return FactorySnippet(
+        function_name=AGENT_FUNCTION_NAME,
+        imports=imports,
+        helpers=[],
+        factory_body=factory_body,
+        notes=notes,
+        preflight=[],
+        auto_skip=False,
+    )
+
+
+def _build_environment_factory_snippet(candidate: Candidate, defaults: dict[str, object]) -> FactorySnippet:
+    if candidate.is_factory:
+        return _build_function_environment_factory_snippet(candidate)
+    return _build_basic_environment_factory_snippet(candidate, defaults)
+
+
+def _build_agent_factory_snippet(candidate: Candidate, defaults: dict[str, object]) -> FactorySnippet:
+    if candidate.is_factory:
+        return _build_function_agent_factory_snippet(candidate)
+    return _build_basic_agent_factory_snippet(candidate, defaults)
 
 
 @dataclass(slots=True)
@@ -687,6 +785,37 @@ def _compose_full_config_payload(
                 llm_block["max_output_tokens"] = candidate_config.get("max_output_tokens")
     if llm_block:
         agent_block["llm"] = llm_block
+    elif isinstance(agent_runtime_meta, dict):
+        overrides = agent_runtime_meta.get("llm_overrides")
+        if isinstance(overrides, dict) and overrides:
+            llm_override_block: dict[str, Any] = {}
+            provider_override = overrides.get("provider") or overrides.get("llm")
+            model_override = overrides.get("model") or overrides.get("model_name")
+            if provider_override:
+                llm_override_block["provider"] = provider_override
+            if model_override:
+                llm_override_block["model"] = model_override
+            if llm_override_block:
+                agent_block["llm"] = llm_override_block
+        if "llm" not in agent_block:
+            config_data = agent_runtime_meta.get("config_data")
+            if isinstance(config_data, list):
+                for entry in config_data:
+                    content = entry.get("content") if isinstance(entry, dict) else None
+                    if not isinstance(content, dict):
+                        continue
+                    provider_override = content.get("provider") or content.get("api_type")
+                    model_override = content.get("model") or content.get("model_name")
+                    api_key_env = content.get("api_key_env") or content.get("api_key")
+                    if provider_override or model_override:
+                        llm_block = {
+                            "provider": provider_override or llm_provider or "unknown",
+                            "model": model_override or llm_model or "unknown-model",
+                        }
+                        if api_key_env:
+                            llm_block["api_key_env"] = api_key_env
+                        agent_block["llm"] = llm_block
+                        break
     config_payload["agent"] = agent_block
 
     runtime_block = {
@@ -1015,6 +1144,30 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     if targets.agent.candidate is not None:
         targets.agent.metadata = collect_runtime_metadata(project_root, targets.agent.candidate)
 
+    def _note_required_params(metadata: dict[str, object] | None, role: str, *, only_if_factory: bool) -> None:
+        if not metadata:
+            return
+        if only_if_factory and not metadata.get("is_factory"):
+            return
+        params = metadata.get("parameters")
+        if not isinstance(params, list):
+            return
+        required = [param["name"] for param in params if isinstance(param, dict) and param.get("required")]
+        if required:
+            constructor_gap_notes.append(f"{role.title()} requires: {', '.join(required)}")
+
+    def _metadata_for_role(target: TargetSpec) -> dict[str, object] | None:
+        if target.metadata is None:
+            return None
+        enriched = dict(target.metadata)
+        enriched["is_factory"] = bool(target.candidate and target.candidate.is_factory)
+        if target.candidate and target.candidate.factory_kind:
+            enriched["factory_kind"] = target.candidate.factory_kind
+        return enriched
+
+    _note_required_params(_metadata_for_role(targets.environment), "environment", only_if_factory=True)
+    _note_required_params(_metadata_for_role(targets.agent), "agent", only_if_factory=True)
+
     atlas_dir = project_root / ".atlas"
     synthesis_notes: list[str] = []
     synthesis_preflight: list[str] = []
@@ -1034,7 +1187,11 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     manual_env_snippet = False
     manual_agent_snippet = False
     generated_factories_path = atlas_dir / "generated_factories.py"
-    if targets.environment.candidate is not None and targets.environment.factory is None:
+    if (
+        targets.environment.candidate is not None
+        and targets.environment.factory is None
+        and not targets.environment.candidate.is_factory
+    ):
         synth = _ensure_synthesizer()
         needs_factory, env_missing_required = synth.needs_factory_for_candidate(
             targets.environment.candidate,
@@ -1049,7 +1206,11 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
                 synthesis_notes.append(
                     f"Environment constructor expects: {', '.join(env_missing_required)}"
                 )
-    if targets.agent.candidate is not None and targets.agent.factory is None:
+    if (
+        targets.agent.candidate is not None
+        and targets.agent.factory is None
+        and not targets.agent.candidate.is_factory
+    ):
         synth = _ensure_synthesizer()
         needs_factory, agent_missing_required = synth.needs_factory_for_candidate(
             targets.agent.candidate,
@@ -1071,7 +1232,7 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         and targets.environment.candidate is not None
         and not env_candidate_requires_adapter
     ):
-        env_snippet = _build_basic_environment_factory_snippet(
+        env_snippet = _build_environment_factory_snippet(
             targets.environment.candidate,
             targets.environment.kwargs,
         )
@@ -1084,7 +1245,7 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         and targets.agent.candidate is not None
         and not agent_candidate_requires_adapter
     ):
-        agent_snippet = _build_basic_agent_factory_snippet(
+        agent_snippet = _build_agent_factory_snippet(
             targets.agent.candidate,
             targets.agent.kwargs,
         )
@@ -1135,12 +1296,16 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
             outcome = synthesizer.synthesise(
                 environment=(
                     targets.environment.candidate
-                    if targets.environment.candidate is not None and not env_wrapper_required
+                    if targets.environment.candidate is not None
+                    and not env_wrapper_required
+                    and not manual_env_snippet
                     else None
                 ),
                 agent=(
                     targets.agent.candidate
-                    if targets.agent.candidate is not None and not agent_wrapper_required
+                    if targets.agent.candidate is not None
+                    and not agent_wrapper_required
+                    and not manual_agent_snippet
                     else None
                 ),
                 environment_kwargs=targets.environment.kwargs,

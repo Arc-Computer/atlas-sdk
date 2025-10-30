@@ -5,6 +5,14 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+try:
+    import yaml  # type: ignore[import-untyped]
+except Exception:
+    yaml = None
+try:  # pragma: no cover - tomllib missing on older interpreters
+    import tomllib  # type: ignore[import-not-found]
+except ModuleNotFoundError:  # pragma: no cover
+    tomllib = None  # type: ignore[assignment]
 from dataclasses import dataclass, field
 import re
 import subprocess
@@ -41,6 +49,8 @@ class Candidate:
     via_decorator: bool
     capabilities: dict[str, bool] = field(default_factory=dict)
     signals: dict[str, object] = field(default_factory=dict)
+    is_factory: bool = False
+    factory_kind: str | None = None
 
     def dotted_path(self) -> str:
         return f"{self.module}:{self.qualname}"
@@ -264,6 +274,165 @@ def _score_class(node: ast.ClassDef) -> tuple[Role | None, int, bool, dict[str, 
     return None, 0, False, capabilities
 
 
+def _extract_return_call_targets(function: ast.FunctionDef) -> set[str]:
+    targets: set[str] = set()
+    for node in ast.walk(function):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute):
+                parts = []
+                while isinstance(func, ast.Attribute):
+                    parts.append(func.attr)
+                    func = func.value
+                if isinstance(func, ast.Name):
+                    parts.append(func.id)
+                targets.add(".".join(reversed(parts)))
+            elif isinstance(func, ast.Name):
+                targets.add(func.id)
+    return targets
+
+
+def _score_function_candidate(
+    function: ast.FunctionDef,
+    module_name: str,
+    path: Path,
+    root: Path,
+    source: str,
+) -> Candidate | None:
+    name_lower = function.name.lower()
+    role: Role | None = None
+    if "env" in name_lower or "environment" in name_lower:
+        role = "environment"
+    if "agent" in name_lower:
+        role = "agent" if role is None else role
+    if role is None:
+        return None
+    call_targets = _extract_return_call_targets(function)
+    base_score = 50 if call_targets else 30
+    framework_keywords = {
+        "langgraph",
+        "deepagents",
+        "langchain",
+        "autogen",
+        "crewai",
+        "semantic_kernel",
+        "semantic-kernel",
+        "openai",
+        "anthropic",
+        "llama_index",
+        "haystack",
+        "milvus",
+        "qdrant",
+        "chromadb",
+        "weaviate",
+    }
+    framework_hints = {
+        keyword: any(keyword in target.lower() for target in call_targets)
+        for keyword in framework_keywords
+    }
+    boost = sum(20 for hit in framework_hints.values() if hit)
+    score = base_score + boost
+    reason = "factory"
+    signals: dict[str, object] = {
+        "abstract_methods": [],
+        "prompt_literals": [],
+        "config_literals": [],
+        "instantiations": _run_ripgrep(root, rf"{re.escape(function.name)}\s*\(") or None,
+        "call_targets": sorted(call_targets),
+        "framework_hints": [name for name, hit in framework_hints.items() if hit],
+    }
+    return Candidate(
+        role=role,
+        module=module_name,
+        qualname=function.name,
+        file_path=path,
+        score=score,
+        reason=reason,
+        via_decorator=False,
+        capabilities={},
+        signals=signals,
+        is_factory=True,
+        factory_kind="callable",
+    )
+
+
+def _score_assignment_candidate(
+    assignment: ast.AST,
+    module_name: str,
+    path: Path,
+    root: Path,
+    source: str,
+) -> Candidate | None:
+    if isinstance(assignment, ast.Assign):
+        targets = assignment.targets
+        value = assignment.value
+    elif isinstance(assignment, ast.AnnAssign):
+        targets = [assignment.target]
+        value = assignment.value
+    else:
+        return None
+    if not targets or not isinstance(targets[0], ast.Name):
+        return None
+    target_name = targets[0].id
+    if not isinstance(value, ast.Call):
+        return None
+    call_targets = _extract_return_call_targets(ast.FunctionDef(name="__temp__", args=ast.arguments(), body=[ast.Return(value=value)]))
+    role: Role | None = None
+    lower_target = target_name.lower()
+    if "env" in lower_target or "environment" in lower_target:
+        role = "environment"
+    if "agent" in lower_target:
+        role = "agent" if role is None else role
+    if role is None:
+        if any("agent" in call for call in call_targets):
+            role = "agent"
+        elif any("env" in call or "environment" in call for call in call_targets):
+            role = "environment"
+    if role is None:
+        return None
+    base_score = 45
+    framework_keywords = {
+        "langgraph",
+        "deepagents",
+        "langchain",
+        "autogen",
+        "crewai",
+        "semantic_kernel",
+        "semantic-kernel",
+        "openai",
+        "anthropic",
+        "llama_index",
+        "haystack",
+        "milvus",
+        "qdrant",
+        "chromadb",
+        "weaviate",
+    }
+    framework_hints = {
+        keyword: any(keyword in target.lower() for target in call_targets)
+        for keyword in framework_keywords
+    }
+    score = base_score + sum(20 for hit in framework_hints.values() if hit)
+    signals: dict[str, object] = {
+        "call_targets": sorted(call_targets),
+        "framework_hints": [name for name, hit in framework_hints.items() if hit],
+        "instantiations": _run_ripgrep(root, rf"{re.escape(target_name)}\s*=") or None,
+    }
+    return Candidate(
+        role=role,
+        module=module_name,
+        qualname=target_name,
+        file_path=path,
+        score=score,
+        reason="factory",
+        via_decorator=False,
+        capabilities={},
+        signals=signals,
+        is_factory=True,
+        factory_kind="attribute",
+    )
+
+
 def discover_candidates(root: Path) -> list[Candidate]:
     root = root.resolve()
     candidates: list[Candidate] = []
@@ -280,28 +449,116 @@ def discover_candidates(root: Path) -> list[Candidate]:
         if not module_name:
             continue
         for node in tree.body:
-            if not isinstance(node, ast.ClassDef):
-                continue
-            role, score, via_decorator, capabilities = _score_class(node)
-            if role is None:
-                continue
-            signals = _collect_candidate_signals(root, source, node, module_name, role)
-            score += _compute_signal_adjustment(role, signals)
-            reason = "decorator" if via_decorator else "heuristic"
-            candidates.append(
-                Candidate(
-                    role=role,
-                    module=module_name,
-                    qualname=node.name,
-                    file_path=path,
-                    score=score,
-                    reason=reason,
-                    via_decorator=via_decorator,
-                    capabilities=capabilities or {},
-                    signals=signals,
+            if isinstance(node, ast.ClassDef):
+                role, score, via_decorator, capabilities = _score_class(node)
+                if role is None:
+                    continue
+                signals = _collect_candidate_signals(root, source, node, module_name, role)
+                score += _compute_signal_adjustment(role, signals)
+                reason = "decorator" if via_decorator else "heuristic"
+                candidates.append(
+                    Candidate(
+                        role=role,
+                        module=module_name,
+                        qualname=node.name,
+                        file_path=path,
+                        score=score,
+                        reason=reason,
+                        via_decorator=via_decorator,
+                        capabilities=capabilities or {},
+                        signals=signals,
+                        is_factory=False,
+                    )
                 )
-            )
+            elif isinstance(node, ast.FunctionDef):
+                function_candidate = _score_function_candidate(node, module_name, path, root, source)
+                if function_candidate is not None:
+                    candidates.append(function_candidate)
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                assignment_candidate = _score_assignment_candidate(node, module_name, path, root, source)
+                if assignment_candidate is not None:
+                    candidates.append(assignment_candidate)
+    entrypoint_candidates = _discover_entrypoint_factories(root)
+    existing_paths = {(cand.module, cand.qualname) for cand in candidates}
+    for candidate in entrypoint_candidates:
+        key = (candidate.module, candidate.qualname)
+        if key not in existing_paths:
+            candidates.append(candidate)
     candidates.sort(key=lambda cand: (cand.role, -cand.score, cand.module, cand.qualname))
+    return candidates
+
+
+def _load_module_ast(root: Path, module: str) -> tuple[Path | None, ast.Module | None, str | None]:
+    module_path = root.joinpath(*module.split("."))
+    file_path = None
+    if module_path.with_suffix(".py").exists():
+        file_path = module_path.with_suffix(".py")
+    elif module_path.exists() and module_path.is_dir():
+        candidate = module_path / "__init__.py"
+        if candidate.exists():
+            file_path = candidate
+    if file_path is None:
+        return None, None, None
+    try:
+        source = file_path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(file_path))
+        return file_path, tree, source
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return None, None, None
+
+
+def _iter_entrypoint_specs(pyproject: dict[str, Any]) -> dict[str, str]:
+    scripts: dict[str, str] = {}
+    project_section = pyproject.get("project") if isinstance(pyproject.get("project"), dict) else {}
+    if isinstance(project_section.get("scripts"), dict):
+        scripts.update(project_section["scripts"])
+    entry_points = project_section.get("entry-points")
+    if isinstance(entry_points, dict):
+        for entries in entry_points.values():
+            if isinstance(entries, dict):
+                scripts.update(entries)
+    tool_section = pyproject.get("tool") if isinstance(pyproject.get("tool"), dict) else {}
+    poetry_section = tool_section.get("poetry") if isinstance(tool_section.get("poetry"), dict) else {}
+    if isinstance(poetry_section.get("scripts"), dict):
+        scripts.update(poetry_section["scripts"])
+    return scripts
+
+
+def _discover_entrypoint_factories(root: Path) -> list[Candidate]:
+    if tomllib is None:
+        return []
+    pyproject_path = root / "pyproject.toml"
+    if not pyproject_path.exists():
+        return []
+    try:
+        with pyproject_path.open("rb") as handle:
+            data = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError):
+        return []
+    entrypoints = _iter_entrypoint_specs(data)
+    candidates: list[Candidate] = []
+    for target in entrypoints.values():
+        if not isinstance(target, str) or ":" not in target:
+            continue
+        module, _, attr = target.partition(":")
+        module = module.strip()
+        attr = attr.strip()
+        if not module or not attr:
+            continue
+        file_path, tree, source = _load_module_ast(root, module)
+        if tree is None or source is None:
+            continue
+        attr_head = attr.split(".")[0]
+        function_node = next((node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == attr_head), None)
+        if function_node is None:
+            continue
+        candidate = _score_function_candidate(function_node, module, file_path, root, source)
+        if candidate is None:
+            continue
+        candidate.reason = "entrypoint"
+        candidate.signals.setdefault("entrypoint", attr)
+        candidate.is_factory = True
+        candidates.append(candidate)
     return candidates
 
 
@@ -329,6 +586,7 @@ def serialize_candidate(candidate: Candidate, project_root: Path) -> dict[str, o
         "hash": calculate_file_hash(candidate.file_path),
         "score": candidate.score,
         "reason": candidate.reason,
+        "is_factory": candidate.is_factory,
         "signals": {
             "instantiations": candidate.signals.get("instantiations"),
             "abstract_methods": candidate.signals.get("abstract_methods"),
@@ -354,6 +612,26 @@ def _find_class_definition(tree: ast.Module, qualname: str) -> ast.ClassDef | No
     return None
 
 
+def _find_function_definition(tree: ast.Module, qualname: str) -> ast.FunctionDef | None:
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == qualname:
+            return node
+    return None
+
+
+def _find_assignment_definition(tree: ast.Module, qualname: str) -> ast.AST | None:
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == qualname:
+                    return node
+        elif isinstance(node, ast.AnnAssign):
+            target = node.target
+            if isinstance(target, ast.Name) and target.id == qualname:
+                return node
+    return None
+
+
 def _format_default(value: ast.AST | None) -> str | None:
     if value is None:
         return None
@@ -363,50 +641,146 @@ def _format_default(value: ast.AST | None) -> str | None:
         return None
 
 
+def _evaluate_literal(node: ast.AST | None, pool: dict[str, object]) -> object | None:
+    if node is None:
+        return None
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name):
+        return pool.get(node.id)
+    if isinstance(node, ast.JoinedStr):
+        parts: list[str] = []
+        for value in node.values:
+            if isinstance(value, ast.FormattedValue):
+                return None
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                parts.append(value.value)
+            else:
+                return None
+        return "".join(parts)
+    if isinstance(node, (ast.List, ast.Tuple, ast.Set)):
+        items: list[object] = []
+        for elt in node.elts:
+            evaluated = _evaluate_literal(elt, pool)
+            if evaluated is None:
+                return None
+            items.append(evaluated)
+        return items
+    return None
+
+
+def _build_constant_pool(tree: ast.Module) -> dict[str, object]:
+    pool: dict[str, object] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            value = _evaluate_literal(node.value, pool)
+            if value is not None:
+                pool[node.targets[0].id] = value
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            value = _evaluate_literal(node.value, pool)
+            if value is not None:
+                pool[node.target.id] = value
+    return pool
+
+
+def _extract_tool_names(expr: ast.AST, pool: dict[str, object]) -> list[str]:
+    if isinstance(expr, (ast.List, ast.Tuple, ast.Set)):
+        names: list[str] = []
+        for elt in expr.elts:
+            if isinstance(elt, ast.Name):
+                names.append(elt.id)
+            elif isinstance(elt, ast.Attribute):
+                names.append(ast.unparse(elt))
+        return names
+    if isinstance(expr, ast.Name):
+        value = pool.get(expr.id)
+        if isinstance(value, list):
+            return [str(item) for item in value]
+        return [expr.id]
+    return []
+
+
+def _enrich_metadata_from_assignment_assignment(
+    metadata: dict[str, object],
+    assignment: ast.AST,
+    constant_pool: dict[str, object],
+) -> None:
+    if isinstance(assignment, ast.Assign):
+        value = assignment.value
+    elif isinstance(assignment, ast.AnnAssign):
+        value = assignment.value
+    else:
+        return
+    if not isinstance(value, ast.Call):
+        return
+    metadata["factory_call"] = _format_default(value.func)
+    kwargs_map = metadata.setdefault("factory_kwargs", {}) if isinstance(metadata.get("factory_kwargs"), dict) else {}
+    metadata["factory_kwargs"] = kwargs_map
+    for kw in value.keywords:
+        if kw.arg is None:
+            continue
+        kwargs_map[kw.arg] = _format_default(kw.value)
+        if kw.arg == "tools":
+            tool_names = _extract_tool_names(kw.value, constant_pool)
+            if tool_names:
+                metadata["tools"] = [{"name": name} for name in tool_names]
+        elif kw.arg in {"system_prompt", "prompt", "instruction", "instructions"}:
+            prompt_value = _evaluate_literal(kw.value, constant_pool)
+            if isinstance(prompt_value, str):
+                metadata.setdefault("prompts", []).append(prompt_value.strip())
+        elif kw.arg in {"model", "llm", "model_name"}:
+            model_value = _evaluate_literal(kw.value, constant_pool)
+            if isinstance(model_value, str):
+                overrides = metadata.setdefault("llm_overrides", {})
+                overrides[kw.arg] = model_value
+def _build_parameter_list(args: ast.arguments, *, skip_first: bool) -> list[dict[str, object]]:
+    parameters: list[dict[str, object]] = []
+    positional = args.args[1:] if skip_first and args.args else args.args or []
+    defaults = list(args.defaults) if args.defaults else []
+    default_offset = len(positional) - len(defaults)
+    for index, arg in enumerate(positional):
+        default_index = index - default_offset
+        default_value = defaults[default_index] if default_index >= 0 else None
+        parameters.append(
+            {
+                "name": arg.arg,
+                "default": _format_default(default_value),
+                "required": default_value is None,
+            }
+        )
+    if args.vararg:
+        parameters.append(
+            {
+                "name": f"*{args.vararg.arg}",
+                "default": None,
+                "required": False,
+            }
+        )
+    if args.kwonlyargs:
+        for kw_index, kw_arg in enumerate(args.kwonlyargs):
+            default_value = args.kw_defaults[kw_index] if args.kw_defaults else None
+            parameters.append(
+                {
+                    "name": kw_arg.arg,
+                    "default": _format_default(default_value),
+                    "required": default_value is None,
+                }
+            )
+    if args.kwarg:
+        parameters.append(
+            {
+                "name": f"**{args.kwarg.arg}",
+                "default": None,
+                "required": False,
+            }
+        )
+    return parameters
+
+
 def _extract_parameters(class_node: ast.ClassDef) -> list[dict[str, object]]:
     for node in class_node.body:
         if isinstance(node, ast.FunctionDef) and node.name == "__init__":
-            parameters: list[dict[str, object]] = []
-            args = node.args
-            positional = args.args[1:] if args.args else []
-            defaults = list(args.defaults) if args.defaults else []
-            default_offset = len(positional) - len(defaults)
-            for index, arg in enumerate(positional):
-                default_index = index - default_offset
-                default_value = defaults[default_index] if default_index >= 0 else None
-                parameters.append(
-                    {
-                        "name": arg.arg,
-                        "default": _format_default(default_value),
-                        "required": default_value is None,
-                    }
-                )
-            if args.vararg:
-                parameters.append(
-                    {
-                        "name": f"*{args.vararg.arg}",
-                        "default": None,
-                        "required": False,
-                    }
-                )
-            for kw_index, kw_arg in enumerate(args.kwonlyargs or []):
-                default_value = args.kw_defaults[kw_index] if args.kw_defaults else None
-                parameters.append(
-                    {
-                        "name": kw_arg.arg,
-                        "default": _format_default(default_value),
-                        "required": default_value is None,
-                    }
-                )
-            if args.kwarg:
-                parameters.append(
-                    {
-                        "name": f"**{args.kwarg.arg}",
-                        "default": None,
-                        "required": False,
-                    }
-                )
-            return parameters
+            return _build_parameter_list(node.args, skip_first=True)
     return []
 
 
@@ -444,9 +818,9 @@ def collect_runtime_metadata(project_root: Path, candidate: Candidate | None) ->
         tree = ast.parse(source, filename=str(candidate.file_path))
     except Exception:
         return {}
-    class_node = _find_class_definition(tree, candidate.qualname)
-    if class_node is None:
-        return {}
+    constant_pool = _build_constant_pool(tree)
+    config_data: list[dict[str, object]] = []
+
     metadata: dict[str, object] = {
         "module": candidate.module,
         "qualname": candidate.qualname,
@@ -456,6 +830,64 @@ def collect_runtime_metadata(project_root: Path, candidate: Candidate | None) ->
         "factory_functions": candidate.signals.get("factory_functions") or [],
         "instantiations": candidate.signals.get("instantiations"),
         "import_hits": candidate.signals.get("import_hits"),
+        "call_targets": candidate.signals.get("call_targets"),
+        "framework_hints": candidate.signals.get("framework_hints"),
     }
-    metadata["parameters"] = _extract_parameters(class_node)
+    class_node = _find_class_definition(tree, candidate.qualname)
+    function_node = _find_function_definition(tree, candidate.qualname) if class_node is None else None
+    assignment_node = None
+    if candidate.factory_kind == "attribute":
+        metadata["factory_kind"] = "attribute"
+        assignment_node = _find_assignment_definition(tree, candidate.qualname)
+    if class_node is not None:
+        metadata["parameters"] = _extract_parameters(class_node)
+        docstring = ast.get_docstring(class_node)
+    elif function_node is not None:
+        metadata["parameters"] = _build_parameter_list(function_node.args, skip_first=False)
+        docstring = ast.get_docstring(function_node)
+    else:
+        metadata["parameters"] = []
+        docstring = None
+    if docstring:
+        metadata.setdefault("prompts", []).append(docstring.strip())
+    string_literals: list[str] = []
+    config_files: list[str] = []
+    for node in ast.walk(class_node or function_node or tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            text = node.value.strip()
+            if not text:
+                continue
+            if text.endswith((".json", ".yaml", ".yml")) and "/" in text or text.endswith((".json", ".yaml", ".yml")):
+                config_files.append(text)
+            elif len(text) > 40 and "You are" in text:
+                string_literals.append(text)
+    if string_literals:
+        metadata.setdefault("prompts", []).extend(string_literals)
+    if config_files:
+        metadata["config_files"] = config_files
+        for rel_path in config_files:
+            candidate_path = (candidate.file_path.parent / rel_path).resolve()
+            if not candidate_path.exists():
+                candidate_path = (project_root / rel_path).resolve()
+            if not candidate_path.exists():
+                continue
+            try:
+                if candidate_path.suffix in {".yaml", ".yml"} and yaml is not None:
+                    loaded = yaml.safe_load(candidate_path.read_text(encoding="utf-8"))
+                elif candidate_path.suffix == ".json":
+                    loaded = json.loads(candidate_path.read_text(encoding="utf-8"))
+                else:
+                    continue
+            except Exception:
+                continue
+            if isinstance(loaded, dict):
+                config_data.append({"path": str(candidate_path), "content": loaded})
+    if config_data:
+        metadata["config_data"] = config_data
+    if assignment_node is not None:
+        _enrich_metadata_from_assignment_assignment(
+            metadata,
+            assignment_node,
+            constant_pool,
+        )
     return metadata
