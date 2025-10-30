@@ -40,6 +40,7 @@ class ExecutionContextState(metaclass=_Singleton):
         self._active_function: ContextVar[InvocationNode | None] = ContextVar("active_function", default=None)
         self._active_span_id_stack: ContextVar[list[str] | None] = ContextVar("active_span_id_stack", default=None)
         self._metadata: ContextVar[dict[str, typing.Any] | None] = ContextVar("execution_metadata", default=None)
+        self._step_manager: ContextVar["IntermediateStepManager | None"] = ContextVar("intermediate_step_manager", default=None)
 
     @property
     def event_stream(self) -> ContextVar[Subject[IntermediateStep]]:
@@ -64,6 +65,12 @@ class ExecutionContextState(metaclass=_Singleton):
         if self._metadata.get() is None:
             self._metadata.set({})
         return typing.cast(ContextVar[dict[str, typing.Any]], self._metadata)
+
+    def get_step_manager(self) -> "IntermediateStepManager | None":
+        return typing.cast("IntermediateStepManager | None", self._step_manager.get())
+
+    def set_step_manager(self, manager: "IntermediateStepManager | None") -> None:
+        self._step_manager.set(manager)
 
     @staticmethod
     def get() -> ExecutionContextState:
@@ -107,6 +114,7 @@ class ExecutionContext:
         self._state.event_stream.set(Subject())
         self._state.active_function.set(InvocationNode(function_id="root", function_name="root"))
         self._state.active_span_id_stack.set(["root"])
+        self._state.set_step_manager(None)
 
     def _step_metadata(self, step_id: int) -> dict:
         metadata = self._state.metadata.get()
@@ -232,9 +240,13 @@ class ExecutionContext:
 
     @property
     def intermediate_step_manager(self) -> "IntermediateStepManager":
-        from atlas.runtime.orchestration.step_manager import IntermediateStepManager
+        manager = self._state.get_step_manager()
+        if manager is None:
+            from atlas.runtime.orchestration.step_manager import IntermediateStepManager
 
-        return IntermediateStepManager(self._state)
+            manager = IntermediateStepManager(self._state)
+            self._state.set_step_manager(manager)
+        return manager
 
     @contextmanager
     def push_active_function(
