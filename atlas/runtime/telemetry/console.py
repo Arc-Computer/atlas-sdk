@@ -306,12 +306,15 @@ class ConsoleTelemetryStreamer:
             score = reward_payload.get("score")
             if isinstance(score, (int, float)):
                 rationale = reward_payload.get("rationale")
-                if (not isinstance(rationale, str) or not rationale.strip()) and isinstance(reward_payload.get("judges"), list):
-                    first_judge = reward_payload["judges"][0]
-                    if isinstance(first_judge, dict):
-                        alt = first_judge.get("rationale")
+                judges = reward_payload.get("judges")
+                if (not isinstance(rationale, str) or not rationale.strip()) and isinstance(judges, list):
+                    for judge in judges:
+                        if not isinstance(judge, dict):
+                            continue
+                        alt = judge.get("rationale")
                         if isinstance(alt, str) and alt.strip():
                             rationale = alt
+                            break
                 message = f"Reward score={score:.2f}"
                 if isinstance(rationale, str) and rationale.strip():
                     message += f" ({self._shorten(rationale.strip(), 80)})"
