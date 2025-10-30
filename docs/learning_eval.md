@@ -242,9 +242,9 @@ The new manifest includes `comparisons` and aggregate leaderboards (best/worst d
 To stress-test the learning synthesizer and meta-prompt variants, run targeted sweeps with the configs under
 `configs/eval/`:
 
-- `learning_overhaul_base.yaml` — baseline Gemini 2.5 Flash synthesiser and reinforcement-focused prompt.
-- `learning_overhaul_scope_shift.yaml` — emphasises differentiation and transfer hypotheses; default scope category set to `differentiation`.
-- `learning_overhaul_claude.yaml` — Claude Haiku/Sonnet stack for student/teacher/synthesiser evaluation.
+- `learning_baseline.yaml` — baseline Gemini 2.5 Flash synthesiser and reinforcement-focused prompt.
+- `learning_scope_shift.yaml` — emphasises differentiation and transfer hypotheses; default scope category set to `differentiation`.
+- `learning_claude.yaml` — Claude Haiku/Sonnet stack for student/teacher/synthesiser evaluation.
 
 Generate fresh telemetry for each config (same dataset, different `learning_key`s), then compare `playbook_impact`
 sections across runs. Prioritise variants that increase adoption rate without regressing token deltas, and flag any
