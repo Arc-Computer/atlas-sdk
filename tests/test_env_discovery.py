@@ -65,6 +65,8 @@ def test_env_init_writes_metadata_and_config(stateful_project) -> None:
     config_path = atlas_dir / "generated_config.yaml"
     assert metadata_path.exists()
     assert config_path.exists()
+    marker_path = atlas_dir / ".validated"
+    assert marker_path.exists()
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     assert metadata["environment"]["module"] == module_name
     assert metadata["agent"]["qualname"] == agent_name
@@ -103,7 +105,7 @@ def test_runtime_rejects_stale_metadata(stateful_project) -> None:
 
     run_args = argparse.Namespace(
         path=str(project_root),
-        env_vars=["ATLAS_DISCOVERY_VALIDATE=1"],
+        env_vars=[],
         task="Validate run",
         timeout=120,
     )
@@ -192,6 +194,8 @@ def test_env_init_auto_skips_heavy_environment(secrl_project) -> None:
     config_text = (project_root / ".atlas" / "generated_config.yaml").read_text(encoding="utf-8")
     assert "preferred_mode: paired" in config_text
     assert "forced_mode: paired" in config_text
+    marker_path = project_root / ".atlas" / ".validated"
+    assert not marker_path.exists()
 
 
 def test_function_factory_uses_alias_when_names_collide() -> None:

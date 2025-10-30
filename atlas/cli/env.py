@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import importlib.util
 import json
 import os
 import shlex
@@ -51,6 +52,7 @@ from atlas.sdk.factory_synthesis import (
 
 DISCOVERY_FILENAME = "discover.json"
 GENERATED_CONFIG_FILENAME = "generated_config.yaml"
+VALIDATION_MARKER_FILENAME = ".validated"
 SCAFFOLD_TEMPLATES = {
     "langgraph": {
         "filename": "langgraph_adapter.py",
@@ -154,6 +156,7 @@ SCAFFOLD_TEMPLATES = {
 AGENT_RUNTIME_HELPER = textwrap.dedent(
     """\
     _AGENT_RUNTIME_CACHE = {}
+    _VALIDATION_MARKER = ".validated"
     try:
         from langchain_core.messages import BaseMessage  # type: ignore
     except Exception:  # pragma: no cover - optional dependency
@@ -166,6 +169,15 @@ AGENT_RUNTIME_HELPER = textwrap.dedent(
         from collections.abc import Mapping
     except Exception:  # pragma: no cover - fallback
         Mapping = dict  # type: ignore
+
+    def _atlas_require_validation():
+        marker = os.path.join(os.path.dirname(__file__), _VALIDATION_MARKER)
+        if os.path.exists(marker) or os.environ.get("ATLAS_SKIP_VALIDATION") == "1":
+            return
+        raise RuntimeError(
+            "Atlas generated factories have not been validated. Run `atlas env init --validate` "
+            "to refresh the validation marker or set ATLAS_SKIP_VALIDATION=1 to bypass."
+        )
 
     def _atlas_jsonable(value, depth=0):
         if depth > 6:
@@ -537,6 +549,7 @@ def _build_basic_environment_factory_snippet(candidate: Candidate, defaults: dic
         lines.append("    parameters.update(kwargs)")
     else:
         lines.append("    parameters = dict(kwargs)")
+    lines.append("    _atlas_require_validation()")
     lines.append(f"    return {call_symbol}(**parameters)")
     body_lines = [
         f"def {ENV_FUNCTION_NAME}(**kwargs):",
@@ -562,8 +575,7 @@ def _build_function_environment_factory_snippet(candidate: Candidate) -> Factory
         body_lines = [
             f"def {ENV_FUNCTION_NAME}(**kwargs):",
             '    """Atlas-generated environment factory wrapping repository attribute."""',
-            "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':",
-            "        raise RuntimeError('Environment prerequisites not validated. Set ATLAS_DISCOVERY_VALIDATE=1 to instantiate the environment.')",
+            "    _atlas_require_validation()",
             f"    module = importlib.import_module('{candidate.module}')",
             f"    target = getattr(module, '{candidate.qualname}')",
             "    if callable(target):",
@@ -584,8 +596,7 @@ def _build_function_environment_factory_snippet(candidate: Candidate) -> Factory
         body_lines = [
             f"def {ENV_FUNCTION_NAME}(**kwargs):",
             '    """Atlas-generated environment factory wrapping repository callable."""',
-            "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':",
-            "        raise RuntimeError('Environment prerequisites not validated. Set ATLAS_DISCOVERY_VALIDATE=1 to instantiate the environment.')",
+            "    _atlas_require_validation()",
             f"    return {call_symbol}(**kwargs)",
         ]
     factory_body = "\n".join(body_lines)
@@ -639,8 +650,7 @@ def _build_basic_agent_factory_snippet(candidate: Candidate, defaults: dict[str,
             "            _AGENT_RUNTIME_CACHE[cache_key] = agent_instance",
             "        prompt_text = prompt if isinstance(prompt, str) else ''",
             "        return _atlas_execute_agent(agent_instance, prompt_text, metadata)",
-            "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':",
-            "        raise RuntimeError('Agent prerequisites not validated. Set ATLAS_DISCOVERY_VALIDATE=1 to instantiate the agent.')",
+            "    _atlas_require_validation()",
             f"    instance = {call_symbol}(**parameters)",
             "    return StepwiseAgentAdapter(instance)",
         ]
@@ -692,8 +702,7 @@ def _build_function_agent_factory_snippet(candidate: Candidate) -> FactorySnippe
             "            _AGENT_RUNTIME_CACHE[cache_key] = agent_instance",
             "        prompt_text = prompt if isinstance(prompt, str) else ''",
             "        return _atlas_execute_agent(agent_instance, prompt_text, metadata)",
-            "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':",
-            "        raise RuntimeError('Agent prerequisites not validated. Set ATLAS_DISCOVERY_VALIDATE=1 to instantiate the agent.')",
+            "    _atlas_require_validation()",
             "    if callable(target):",
             "        instance = target(**parameters)",
             "    else:",
@@ -728,8 +737,7 @@ def _build_function_agent_factory_snippet(candidate: Candidate) -> FactorySnippe
             "            _AGENT_RUNTIME_CACHE[cache_key] = agent_instance",
             "        prompt_text = prompt if isinstance(prompt, str) else ''",
             "        return _atlas_execute_agent(agent_instance, prompt_text, metadata)",
-            "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':",
-            "        raise RuntimeError('Agent prerequisites not validated. Set ATLAS_DISCOVERY_VALIDATE=1 to instantiate the agent.')",
+            "    _atlas_require_validation()",
             f"    instance = {call_symbol}(**parameters)",
             "    return StepwiseAgentAdapter(instance)",
         ]
@@ -776,6 +784,77 @@ class TargetSpec:
         if self.factory is not None:
             return f"{self.factory[0]}:{self.factory[1]}"
         return "<unspecified>"
+
+
+def _validate_discovered_artifacts(
+    project_root: Path,
+    atlas_dir: Path,
+    environment: TargetSpec,
+    agent: TargetSpec,
+) -> tuple[bool, list[str]]:
+    generated_path = atlas_dir / "generated_factories.py"
+    if not generated_path.exists():
+        return False, [f"Generated factories not found at {generated_path}"]
+
+    module_name = f"{GENERATED_MODULE}_validation"
+    spec = importlib.util.spec_from_file_location(module_name, generated_path)
+    if spec is None or spec.loader is None:
+        return False, ["Unable to load generated factories module"]
+
+    added_path = None
+    project_str = str(project_root)
+    if project_str not in sys.path:
+        sys.path.insert(0, project_str)
+        added_path = project_str
+
+    original_skip = os.environ.get("ATLAS_SKIP_VALIDATION")
+    os.environ["ATLAS_SKIP_VALIDATION"] = "1"
+
+    errors: list[str] = []
+    try:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+
+        def _validate(target: TargetSpec, kind: str) -> None:
+            if target.factory is None:
+                return
+            module_ref, qualname = target.factory
+            if module_ref != GENERATED_MODULE:
+                return
+            func = getattr(module, qualname, None)
+            if not callable(func):
+                errors.append(f"{kind.title()} factory {qualname} not found in generated module")
+                return
+            kwargs = target.kwargs if isinstance(target.kwargs, dict) else {}
+            try:
+                instance = func(**kwargs)
+                close = getattr(instance, "close", None)
+                if callable(close):
+                    try:
+                        close()
+                    except Exception:
+                        pass
+            except Exception as exc:  # pragma: no cover - validation safety net
+                errors.append(f"{kind.title()} validation failed: {exc}")
+
+        _validate(environment, "environment")
+        _validate(agent, "agent")
+    except Exception as exc:  # pragma: no cover - defensive
+        errors.append(f"Validation failed: {exc}")
+    finally:
+        if original_skip is None:
+            os.environ.pop("ATLAS_SKIP_VALIDATION", None)
+        else:
+            os.environ["ATLAS_SKIP_VALIDATION"] = original_skip
+        sys.modules.pop(module_name, None)
+        if added_path is not None:
+            try:
+                sys.path.remove(added_path)
+            except ValueError:
+                pass
+
+    return (not errors), errors
 
 
 def _load_project_env(project_root: Path) -> dict[str, str]:
@@ -1464,6 +1543,13 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     env_candidates, agent_candidates = split_candidates(candidates)
 
     targets = SelectedTargets(environment=TargetSpec(), agent=TargetSpec())
+    atlas_dir = project_root / ".atlas"
+    atlas_dir.mkdir(parents=True, exist_ok=True)
+    marker_path = atlas_dir / VALIDATION_MARKER_FILENAME
+    try:
+        marker_path.unlink()
+    except FileNotFoundError:
+        pass
 
     try:
         env_kw_pairs = parse_key_value_flags(args.env_kwargs or [])
@@ -1593,7 +1679,6 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     _note_required_params(_metadata_for_role(targets.environment), "environment", only_if_factory=True)
     _note_required_params(_metadata_for_role(targets.agent), "agent", only_if_factory=True)
 
-    atlas_dir = project_root / ".atlas"
     synthesis_notes: list[str] = []
     synthesis_preflight: list[str] = []
     synthesis_auto_skip = False
@@ -1838,6 +1923,8 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     if pythonpath_entries:
         spec["pythonpath"] = pythonpath_entries
 
+    env_overrides["ATLAS_SKIP_VALIDATION"] = "1"
+
     if targets.environment.candidate is not None:
         env_payload: dict[str, object] = {
             "module": targets.environment.candidate.module,
@@ -1990,6 +2077,28 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
             telemetry=telemetry_status,
         )
     )
+
+    validation_success = False
+    validation_errors: list[str] = []
+    if not auto_skip:
+        validation_success, validation_errors = _validate_discovered_artifacts(
+            project_root,
+            atlas_dir,
+            targets.environment,
+            targets.agent,
+        )
+        if validation_success:
+            marker_path.write_text(
+                json.dumps({"validated_at": datetime.now(timezone.utc).isoformat()}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            print("Validation succeeded for generated factories.")
+        else:
+            print("Validation failed; generated factories may not execute correctly:", file=sys.stderr)
+            for message in validation_errors:
+                print(f"  - {message}", file=sys.stderr)
+    else:
+        print("Validation skipped due to pending prerequisites.")
     try:
         config_display = config_path.relative_to(project_root)
     except ValueError:
