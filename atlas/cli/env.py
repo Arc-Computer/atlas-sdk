@@ -523,7 +523,7 @@ def _build_basic_environment_factory_snippet(candidate: Candidate, defaults: dic
     target_symbol = candidate.qualname
     call_symbol = target_symbol
     if target_symbol == ENV_FUNCTION_NAME:
-        call_symbol = "_atlas_repo_environment"
+        call_symbol = f"_repo_{ENV_FUNCTION_NAME}"
         import_binding = f"from {candidate.module} import {target_symbol} as {call_symbol}"
     else:
         import_binding = f"from {candidate.module} import {target_symbol}"
@@ -576,7 +576,7 @@ def _build_function_environment_factory_snippet(candidate: Candidate) -> Factory
         target_symbol = candidate.qualname
         call_symbol = target_symbol
         if target_symbol == ENV_FUNCTION_NAME:
-            call_symbol = "_atlas_repo_environment"
+            call_symbol = f"_repo_{ENV_FUNCTION_NAME}"
             import_binding = f"from {candidate.module} import {target_symbol} as {call_symbol}"
         else:
             import_binding = f"from {candidate.module} import {target_symbol}"
@@ -604,7 +604,7 @@ def _build_basic_agent_factory_snippet(candidate: Candidate, defaults: dict[str,
     target_symbol = candidate.qualname
     call_symbol = target_symbol
     if target_symbol == AGENT_FUNCTION_NAME:
-        call_symbol = "_atlas_repo_agent"
+        call_symbol = f"_repo_{AGENT_FUNCTION_NAME}"
         import_binding = f"from {candidate.module} import {target_symbol} as {call_symbol}"
     else:
         import_binding = f"from {candidate.module} import {target_symbol}"
@@ -706,7 +706,7 @@ def _build_function_agent_factory_snippet(candidate: Candidate) -> FactorySnippe
         target_symbol = candidate.qualname
         call_symbol = target_symbol
         if target_symbol == AGENT_FUNCTION_NAME:
-            call_symbol = "_atlas_repo_agent"
+            call_symbol = f"_repo_{AGENT_FUNCTION_NAME}"
             import_binding = f"from {candidate.module} import {target_symbol} as {call_symbol}"
         else:
             import_binding = f"from {candidate.module} import {target_symbol}"

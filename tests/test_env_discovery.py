@@ -7,7 +7,7 @@ from pathlib import Path
 from atlas.cli import env as env_cli
 from atlas.cli import run as run_cli
 from atlas.cli.utils import invoke_discovery_worker
-from atlas.sdk.discovery import discover_candidates, split_candidates
+from atlas.sdk.discovery import Candidate, discover_candidates, split_candidates
 from atlas.sdk.factory_synthesis import FactorySnippet, RepositorySummary
 
 
@@ -192,6 +192,51 @@ def test_env_init_auto_skips_heavy_environment(secrl_project) -> None:
     config_text = (project_root / ".atlas" / "generated_config.yaml").read_text(encoding="utf-8")
     assert "preferred_mode: paired" in config_text
     assert "forced_mode: paired" in config_text
+
+
+def test_function_factory_uses_alias_when_names_collide() -> None:
+    agent_candidate = Candidate(
+        role="agent",
+        module="some.module",
+        qualname=env_cli.AGENT_FUNCTION_NAME,
+        file_path=Path("factory.py"),
+        score=0,
+        reason="factory",
+        via_decorator=False,
+        capabilities={},
+        signals={},
+        is_factory=True,
+        factory_kind="callable",
+    )
+    agent_snippet = env_cli._build_function_agent_factory_snippet(agent_candidate)
+    assert (
+        f"from some.module import {env_cli.AGENT_FUNCTION_NAME} as _repo_{env_cli.AGENT_FUNCTION_NAME}"
+        in agent_snippet.imports
+    )
+    assert "agent_instance = _repo_create_agent(**parameters)" in agent_snippet.factory_body
+    assert "instance = _repo_create_agent(**parameters)" in agent_snippet.factory_body
+    assert "agent_instance = create_agent(**parameters)" not in agent_snippet.factory_body
+
+    env_candidate = Candidate(
+        role="environment",
+        module="other.module",
+        qualname=env_cli.ENV_FUNCTION_NAME,
+        file_path=Path("env_factory.py"),
+        score=0,
+        reason="factory",
+        via_decorator=False,
+        capabilities={},
+        signals={},
+        is_factory=True,
+        factory_kind="callable",
+    )
+    env_snippet = env_cli._build_function_environment_factory_snippet(env_candidate)
+    assert (
+        f"from other.module import {env_cli.ENV_FUNCTION_NAME} as _repo_{env_cli.ENV_FUNCTION_NAME}"
+        in env_snippet.imports
+    )
+    assert "return _repo_create_environment(**kwargs)" in env_snippet.factory_body
+    assert "return create_environment(**kwargs)" not in env_snippet.factory_body
 
 
 def test_env_init_auto_wraps_when_no_candidates(monkeypatch, wrapper_only_project) -> None:
