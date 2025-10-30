@@ -106,7 +106,7 @@ def _run_with_config(args: argparse.Namespace) -> int:
         result = await atlas_arun(
             args.task,
             str(config_path),
-            stream_progress=False,
+            stream_progress=True,
             session_metadata={"source": "atlas run"},
         )
         metadata_snapshot: dict[str, Any] = dict(execution_context.metadata)
@@ -119,7 +119,6 @@ def _run_with_config(args: argparse.Namespace) -> int:
         return 1
 
     metadata = _ensure_jsonable(metadata_snapshot)
-    print(f"[atlas run] metadata keys captured: {list(metadata.keys())}", file=sys.stderr)
     ExecutionContext.get().reset()
 
     run_payload = {
@@ -131,23 +130,7 @@ def _run_with_config(args: argparse.Namespace) -> int:
     }
     run_path = write_run_record(atlas_dir, run_payload)
 
-    final_answer = result.final_answer if isinstance(result.final_answer, str) else None
-    if final_answer and final_answer.strip():
-        print("\n=== Final Answer ===")
-        print(final_answer.strip())
-    else:
-        print("\nNo final answer produced. Inspect telemetry for details.")
-
-    steps = metadata.get("steps") if isinstance(metadata, dict) else {}
-    attempt_count = 0
-    if isinstance(steps, dict):
-        for entry in steps.values():
-            if isinstance(entry, dict):
-                attempts = entry.get("attempts", [])
-                if isinstance(attempts, list):
-                    attempt_count += len(attempts)
-    print(f"\nTelemetry steps captured: {len(steps) if isinstance(steps, dict) else 0} (attempts={attempt_count})")
-    print(f"Run artefact saved to {run_path}")
+    print(f"\nRun artefact saved to {run_path}")
     return 0
 
 
