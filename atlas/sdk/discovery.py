@@ -700,10 +700,205 @@ def _extract_tool_names(expr: ast.AST, pool: dict[str, object]) -> list[str]:
     return []
 
 
+_LLM_CLASS_PROVIDERS: dict[str, str] = {
+    "ChatAnthropic": "anthropic",
+    "AsyncAnthropic": "anthropic",
+    "ChatOpenAI": "openai",
+    "OpenAI": "openai",
+    "AzureChatOpenAI": "azure-openai",
+    "ChatVertexAI": "google",
+    "ChatGoogleGenerativeAI": "google",
+    "ChatGroq": "groq",
+    "Groq": "groq",
+    "ChatMistralAI": "mistral",
+    "ChatBedrock": "bedrock",
+    "Bedrock": "bedrock",
+    "ChatFireworks": "fireworks",
+    "Fireworks": "fireworks",
+    "ChatCohere": "cohere",
+    "ChatAI21": "ai21",
+    "ChatXAI": "xai",
+    "XAI": "xai",
+}
+
+
+def _resolve_call_name(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _resolve_call_name(node.value)
+        if parent:
+            return f"{parent}.{node.attr}"
+        return node.attr
+    return None
+
+
+def _dedupe_llm_candidates(candidates: Sequence[dict[str, object]]) -> list[dict[str, object]]:
+    seen: set[tuple[str | None, str | None]] = set()
+    unique: list[dict[str, object]] = []
+    for entry in candidates:
+        provider = entry.get("provider")
+        model = entry.get("model")
+        key = (
+            provider.lower() if isinstance(provider, str) else None,
+            model if isinstance(model, str) else None,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(entry)
+    return unique
+
+
+def _extract_llm_candidates_from_tree(tree: ast.AST, pool: dict[str, object]) -> list[dict[str, object]]:
+    discovered: list[dict[str, object]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        call_name = _resolve_call_name(node.func)
+        if not call_name:
+            continue
+        short_name = call_name.split(".")[-1]
+        provider = _LLM_CLASS_PROVIDERS.get(short_name)
+        if not provider:
+            continue
+        entry: dict[str, object] = {"provider": provider, "source": call_name}
+        for kw in node.keywords or []:
+            if kw.arg is None:
+                continue
+            key = kw.arg.lower()
+            value = _evaluate_literal(kw.value, pool)
+            if key in {"model", "model_name", "model_id"} and isinstance(value, str):
+                entry["model"] = value
+            elif key == "api_key_env" and isinstance(value, str):
+                entry["api_key_env"] = value
+            elif key == "temperature" and isinstance(value, (int, float)):
+                entry["temperature"] = float(value)
+            elif key in {"max_tokens", "max_output_tokens"} and isinstance(value, (int, float)):
+                entry["max_output_tokens"] = int(value)
+        discovered.append(entry)
+    return _dedupe_llm_candidates(discovered)
+
+
+def _resolve_module_path(project_root: Path, module_name: str | None) -> Path | None:
+    if not module_name:
+        return None
+    parts = module_name.split(".")
+    search_roots = [project_root / "src", project_root]
+    for root in search_roots:
+        candidate = root.joinpath(*parts).with_suffix(".py")
+        if candidate.exists():
+            return candidate
+        package_init = root.joinpath(*parts, "__init__.py")
+        if package_init.exists():
+            return package_init
+    return None
+
+
+def _build_import_alias_map(tree: ast.Module) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            for alias in node.names:
+                target = alias.name
+                alias_name = alias.asname or alias.name
+                if module:
+                    mapping[alias_name] = f"{module}.{target}"
+                else:
+                    mapping[alias_name] = target
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                target = alias.name
+                alias_name = alias.asname or alias.name
+                mapping[alias_name] = target
+    return mapping
+
+
+def _resolve_call_reference(call_name: str | None, import_map: dict[str, str]) -> str | None:
+    if not call_name:
+        return None
+    if "." in call_name:
+        head, *rest = call_name.split(".")
+        if head in import_map:
+            return ".".join([import_map[head], *rest])
+        return call_name
+    return import_map.get(call_name, call_name)
+
+
+def _collect_llm_candidates_recursive(
+    project_root: Path,
+    module_name: str,
+    attr_name: str | None,
+    visited: set[str],
+) -> list[dict[str, object]]:
+    if module_name in visited:
+        return []
+    visited.add(module_name)
+    module_path = _resolve_module_path(project_root, module_name)
+    if module_path is None or not module_path.exists():
+        return []
+    try:
+        module_source = module_path.read_text(encoding="utf-8")
+        module_tree = ast.parse(module_source, filename=str(module_path))
+    except Exception:
+        return []
+    pool = _build_constant_pool(module_tree)
+    candidates = _extract_llm_candidates_from_tree(module_tree, pool)
+    if attr_name:
+        alias_map = _build_import_alias_map(module_tree)
+        for node in module_tree.body:
+            if isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    alias_name = alias.asname or alias.name
+                    if alias_name == attr_name and node.module:
+                        candidates.extend(
+                            _collect_llm_candidates_recursive(
+                                project_root,
+                                node.module,
+                                alias.name,
+                                visited,
+                            )
+                        )
+            elif isinstance(node, ast.Assign):
+                targets = getattr(node, "targets", [])
+                for target in targets:
+                    if isinstance(target, ast.Name) and target.id == attr_name:
+                        value = node.value
+                        if isinstance(value, ast.Name):
+                            resolved = alias_map.get(value.id)
+                            if resolved:
+                                resolved_module, _, resolved_attr = resolved.rpartition(".")
+                                if resolved_module:
+                                    candidates.extend(
+                                        _collect_llm_candidates_recursive(
+                                            project_root,
+                                            resolved_module,
+                                            resolved_attr or None,
+                                            visited,
+                                        )
+                                    )
+                        elif isinstance(value, ast.Attribute):
+                            resolved = ast.unparse(value)
+                            resolved_module, _, resolved_attr = resolved.rpartition(".")
+                            if resolved_module:
+                                candidates.extend(
+                                    _collect_llm_candidates_recursive(
+                                        project_root,
+                                        resolved_module,
+                                        resolved_attr or None,
+                                        visited,
+                                    )
+                                )
+    return _dedupe_llm_candidates(candidates)
+
+
 def _enrich_metadata_from_assignment_assignment(
     metadata: dict[str, object],
     assignment: ast.AST,
     constant_pool: dict[str, object],
+    project_root: Path,
+    import_map: dict[str, str],
 ) -> None:
     if isinstance(assignment, ast.Assign):
         value = assignment.value
@@ -713,7 +908,15 @@ def _enrich_metadata_from_assignment_assignment(
         return
     if not isinstance(value, ast.Call):
         return
-    metadata["factory_call"] = _format_default(value.func)
+    raw_factory_call = _format_default(value.func)
+    metadata["factory_call"] = raw_factory_call
+    resolved_factory = _resolve_call_reference(raw_factory_call, import_map)
+    if resolved_factory:
+        metadata["factory_resolved"] = resolved_factory
+        parts = resolved_factory.split(".")
+        if len(parts) >= 2:
+            metadata["factory_module"] = ".".join(parts[:-1])
+            metadata["factory_attr"] = parts[-1]
     kwargs_map = metadata.setdefault("factory_kwargs", {}) if isinstance(metadata.get("factory_kwargs"), dict) else {}
     metadata["factory_kwargs"] = kwargs_map
     for kw in value.keywords:
@@ -733,6 +936,21 @@ def _enrich_metadata_from_assignment_assignment(
             if isinstance(model_value, str):
                 overrides = metadata.setdefault("llm_overrides", {})
                 overrides[kw.arg] = model_value
+    # Probe referenced factory module for implicit LLM defaults
+    factory_module = metadata.get("factory_module")
+    if isinstance(factory_module, str):
+        candidates = _collect_llm_candidates_recursive(
+            project_root,
+            factory_module,
+            metadata.get("factory_attr") if isinstance(metadata.get("factory_attr"), str) else None,
+            visited=set(),
+        )
+        if candidates:
+            existing = metadata.setdefault("llm_candidates", [])
+            if isinstance(existing, list):
+                existing.extend(candidates)
+            else:
+                metadata["llm_candidates"] = list(candidates)
 def _build_parameter_list(args: ast.arguments, *, skip_first: bool) -> list[dict[str, object]]:
     parameters: list[dict[str, object]] = []
     positional = args.args[1:] if skip_first and args.args else args.args or []
@@ -819,6 +1037,7 @@ def collect_runtime_metadata(project_root: Path, candidate: Candidate | None) ->
     except Exception:
         return {}
     constant_pool = _build_constant_pool(tree)
+    import_map = _build_import_alias_map(tree)
     config_data: list[dict[str, object]] = []
 
     metadata: dict[str, object] = {
@@ -889,5 +1108,14 @@ def collect_runtime_metadata(project_root: Path, candidate: Candidate | None) ->
             metadata,
             assignment_node,
             constant_pool,
+            project_root,
+            import_map,
         )
+    llm_candidates = _extract_llm_candidates_from_tree(tree, constant_pool)
+    if llm_candidates:
+        existing = metadata.setdefault("llm_candidates", [])
+        if isinstance(existing, list):
+            existing.extend(llm_candidates)
+        else:
+            metadata["llm_candidates"] = list(llm_candidates)
     return metadata

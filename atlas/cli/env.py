@@ -151,6 +151,343 @@ SCAFFOLD_TEMPLATES = {
     }
 }
 
+AGENT_RUNTIME_HELPER = textwrap.dedent(
+    """\
+    _AGENT_RUNTIME_CACHE = {}
+    try:
+        from langchain_core.messages import BaseMessage  # type: ignore
+    except Exception:  # pragma: no cover - optional dependency
+        BaseMessage = None  # type: ignore
+    try:
+        from collections.abc import Mapping
+    except Exception:  # pragma: no cover - fallback
+        Mapping = dict  # type: ignore
+
+    def _atlas_jsonable(value, depth=0):
+        if depth > 6:
+            return str(value)
+        if value is None:
+            return None
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, bytes):
+            try:
+                return value.decode("utf-8")
+            except Exception:
+                return value.decode("utf-8", "ignore")
+        if BaseMessage is not None and isinstance(value, BaseMessage):
+            payload = {"type": getattr(value, "type", None) or value.__class__.__name__.lower()}
+            payload["content"] = _atlas_jsonable(getattr(value, "content", None), depth + 1)
+            tool_calls = getattr(value, "tool_calls", None)
+            if tool_calls:
+                payload["tool_calls"] = [_atlas_jsonable(call, depth + 1) for call in tool_calls]
+            additional_kwargs = getattr(value, "additional_kwargs", None)
+            if isinstance(additional_kwargs, dict) and additional_kwargs:
+                payload["additional_kwargs"] = _atlas_jsonable(additional_kwargs, depth + 1)
+            return payload
+        if hasattr(value, "model_dump"):
+            try:
+                dumped = value.model_dump()
+                if isinstance(dumped, dict):
+                    return _atlas_jsonable(dumped, depth + 1)
+            except Exception:
+                pass
+        if hasattr(value, "dict"):
+            try:
+                dumped = value.dict()
+                if isinstance(dumped, dict):
+                    return _atlas_jsonable(dumped, depth + 1)
+            except Exception:
+                pass
+        if isinstance(value, Mapping):
+            normalised = {}
+            for key, item in value.items():
+                normalised[str(key)] = _atlas_jsonable(item, depth + 1)
+            return normalised
+        if isinstance(value, (list, tuple, set)):
+            return [_atlas_jsonable(item, depth + 1) for item in value]
+        if hasattr(value, "__dict__"):
+            return _atlas_jsonable(vars(value), depth + 1)
+        return str(value)
+
+    def _atlas_normalise_agent_output(result):
+        processed = _atlas_jsonable(result)
+        if isinstance(processed, str):
+            return processed
+        if isinstance(processed, (int, float, bool)) or processed is None:
+            return str(processed)
+        try:
+            return json.dumps(processed, ensure_ascii=False)
+        except Exception:
+            return str(processed)
+
+    def _atlas_execute_agent(agent, prompt, metadata=None):
+        call_kwargs = {}
+        payload_hints = []
+        if isinstance(metadata, dict):
+            candidate = metadata.get("payload")
+            if candidate is not None:
+                payload_hints.append(candidate)
+            extra = metadata.get("call_kwargs")
+            if isinstance(extra, dict):
+                call_kwargs = dict(extra)
+        attempts = list(payload_hints)
+        attempts.append(prompt)
+        attempts.append({"input": prompt})
+        attempts.append({"messages": [{"role": "user", "content": prompt}]})
+        last_error = None
+        if hasattr(agent, "invoke"):
+            for payload in attempts:
+                try:
+                    if call_kwargs:
+                        response = agent.invoke(payload, **call_kwargs)
+                    else:
+                        response = agent.invoke(payload)
+                    return _atlas_normalise_agent_output(response)
+                except TypeError as exc:
+                    last_error = exc
+                    continue
+                except Exception as exc:
+                    last_error = exc
+                    continue
+        if callable(agent):
+            try:
+                return _atlas_normalise_agent_output(agent(prompt))
+            except TypeError:
+                try:
+                    return _atlas_normalise_agent_output(agent(prompt, metadata=metadata))
+                except TypeError as exc:
+                    last_error = exc
+            except Exception as exc:
+                last_error = exc
+        if hasattr(agent, "run"):
+            try:
+                return _atlas_normalise_agent_output(agent.run(prompt))
+            except Exception as exc:
+                last_error = exc
+        raise RuntimeError("Atlas runtime adapter could not execute agent") from last_error
+    """
+)
+
+
+_LLM_PROVIDER_DEFAULT_ENV: dict[str, str] = {
+    "openai": "OPENAI_API_KEY",
+    "azure-openai": "AZURE_OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "google": "GOOGLE_API_KEY",
+    "groq": "GROQ_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
+    "bedrock": "AWS_ACCESS_KEY_ID",
+    "fireworks": "FIREWORKS_API_KEY",
+    "cohere": "COHERE_API_KEY",
+    "ai21": "AI21_API_KEY",
+    "xai": "XAI_API_KEY",
+}
+
+
+def _normalise_provider_name(provider: object) -> str | None:
+    if not isinstance(provider, str):
+        return None
+    normalised = provider.strip().lower().replace("_", "-")
+    if not normalised:
+        return None
+    if normalised == "azureopenai":
+        normalised = "azure-openai"
+    if normalised in {"google-generativeai", "vertex-ai", "vertex"}:
+        normalised = "google"
+    return normalised
+
+
+def _infer_provider_from_model(model: object) -> str | None:
+    if not isinstance(model, str):
+        return None
+    value = model.strip().lower()
+    if not value:
+        return None
+    if "claude" in value or "anthropic" in value or value.startswith("sonnet"):
+        return "anthropic"
+    if value.startswith("gpt") or "openai" in value or value.startswith("o4") or value.startswith("chatgpt"):
+        return "openai"
+    if value.startswith("gemini") or "google" in value:
+        return "gemini"
+    if "groq" in value:
+        return "groq"
+    if "mistral" in value:
+        return "mistral"
+    if "cohere" in value:
+        return "cohere"
+    if "grok" in value or "xai" in value:
+        return "xai"
+    if "bedrock" in value or value.startswith("anthropic:"):
+        return "bedrock"
+    return None
+
+
+def _normalise_llm_candidate_entry(raw: dict[str, Any]) -> dict[str, Any] | None:
+    provider = _normalise_provider_name(raw.get("provider") or raw.get("api_type"))
+    model = raw.get("model") or raw.get("model_name")
+    if isinstance(model, (list, tuple)):
+        model = next((item for item in model if isinstance(item, str) and item.strip()), None)
+    if not provider and isinstance(model, str):
+        provider = _infer_provider_from_model(model)
+    candidate: dict[str, Any] = {}
+    if provider:
+        candidate["provider"] = provider
+    if isinstance(model, str) and model.strip():
+        candidate["model"] = model.strip()
+    api_key_env = raw.get("api_key_env") or raw.get("api_key")
+    if isinstance(api_key_env, str) and api_key_env.strip():
+        candidate["api_key_env"] = api_key_env.strip()
+    temperature = raw.get("temperature")
+    if isinstance(temperature, (int, float)):
+        candidate["temperature"] = float(temperature)
+    max_tokens = raw.get("max_output_tokens")
+    if not isinstance(max_tokens, (int, float)):
+        max_tokens = raw.get("max_tokens")
+    if isinstance(max_tokens, (int, float)):
+        candidate["max_output_tokens"] = int(max_tokens)
+    timeout = raw.get("timeout_seconds")
+    if isinstance(timeout, (int, float)):
+        candidate["timeout_seconds"] = float(timeout)
+    source = raw.get("source")
+    if isinstance(source, str) and source.strip():
+        candidate["source"] = source
+    return candidate or None
+
+
+def _dedupe_candidate_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[str | None, str | None]] = set()
+    unique: list[dict[str, Any]] = []
+    for entry in entries:
+        provider = entry.get("provider")
+        model = entry.get("model")
+        key = (
+            provider if isinstance(provider, str) else None,
+            model if isinstance(model, str) else None,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(entry)
+    return unique
+
+
+def _collect_llm_candidate_entries(agent_runtime_meta: dict[str, object] | None) -> list[dict[str, Any]]:
+    if not isinstance(agent_runtime_meta, dict):
+        return []
+    collected: list[dict[str, Any]] = []
+
+    def _add_candidate(entry: dict[str, Any], source: str) -> None:
+        payload = dict(entry)
+        if source and "source" not in payload:
+            payload["source"] = source
+        normalised = _normalise_llm_candidate_entry(payload)
+        if normalised:
+            if source and "source" not in normalised:
+                normalised["source"] = source
+            collected.append(normalised)
+
+    overrides = agent_runtime_meta.get("llm_overrides")
+    if isinstance(overrides, dict) and overrides:
+        _add_candidate(overrides, "factory_kwargs")
+
+    config_literals = agent_runtime_meta.get("config_literals")
+    if isinstance(config_literals, list):
+        for literal in config_literals:
+            if isinstance(literal, dict):
+                _add_candidate(literal, "config_literals")
+            elif isinstance(literal, list):
+                for item in literal:
+                    if isinstance(item, dict):
+                        _add_candidate(item, "config_literals")
+
+    config_data = agent_runtime_meta.get("config_data")
+    if isinstance(config_data, list):
+        for entry in config_data:
+            if not isinstance(entry, dict):
+                continue
+            content = entry.get("content")
+            if isinstance(content, dict):
+                raw_path = entry.get("path")
+                if isinstance(raw_path, Path):
+                    source = str(raw_path)
+                elif isinstance(raw_path, str):
+                    source = raw_path
+                else:
+                    source = "config_file"
+                payload = dict(content)
+                payload.setdefault("source", source)
+                _add_candidate(payload, source)
+
+    llm_candidates_meta = agent_runtime_meta.get("llm_candidates")
+    if isinstance(llm_candidates_meta, list):
+        for entry in llm_candidates_meta:
+            if isinstance(entry, dict):
+                _add_candidate(entry, entry.get("source") or "metadata")
+
+    factory_kwargs = agent_runtime_meta.get("factory_kwargs")
+    if isinstance(factory_kwargs, dict):
+        maybe_model = factory_kwargs.get("model")
+        if isinstance(maybe_model, str):
+            _add_candidate({"model": maybe_model}, "factory_kwargs")
+        config_list = factory_kwargs.get("config_list")
+        if isinstance(config_list, list):
+            for item in config_list:
+                if isinstance(item, dict):
+                    _add_candidate(item, "config_list")
+
+    return _dedupe_candidate_entries(collected)
+
+
+def _select_llm_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not candidates:
+        return None
+
+    def _score(entry: dict[str, Any]) -> tuple[int, int, float]:
+        provider_present = int(bool(entry.get("provider")))
+        model_present = int(bool(entry.get("model")))
+        richness = provider_present * 2 + model_present * 3 + int(bool(entry.get("api_key_env")))
+        nuance = 0.0
+        if entry.get("temperature") is not None:
+            nuance += 0.1
+        if entry.get("max_output_tokens") is not None:
+            nuance += 0.1
+        return (richness, provider_present * model_present, nuance)
+
+    candidates_sorted = sorted(
+        candidates,
+        key=_score,
+        reverse=True,
+    )
+    return candidates_sorted[0]
+
+
+def _merge_llm_block(existing: dict[str, Any] | None, candidate: dict[str, Any]) -> dict[str, Any]:
+    block = copy.deepcopy(existing) if existing else {}
+    previous_provider = block.get("provider") if isinstance(block.get("provider"), str) else None
+    candidate_api_env = candidate.get("api_key_env") if isinstance(candidate.get("api_key_env"), str) else None
+    for key in ("provider", "model", "api_key_env", "temperature", "max_output_tokens", "timeout_seconds"):
+        if key in candidate and candidate[key] is not None:
+            block[key] = candidate[key]
+    provider_value = block.get("provider")
+    if isinstance(provider_value, str):
+        normalised = _normalise_provider_name(provider_value)
+        if normalised:
+            block["provider"] = normalised
+            if candidate_api_env:
+                block["api_key_env"] = candidate_api_env
+            api_env = block.get("api_key_env")
+            provider_changed = (previous_provider or "").lower() != normalised
+            if (provider_changed or not api_env) and not candidate_api_env:
+                default_env = _LLM_PROVIDER_DEFAULT_ENV.get(normalised)
+                if default_env:
+                    block["api_key_env"] = default_env
+        else:
+            block.pop("provider", None)
+    return block
+
+
 FULL_CONFIG_TEMPLATE = "openai_agent.yaml"
 
 _LLM_API_ENV_DEFAULTS: dict[str, str] = {
@@ -160,6 +497,11 @@ _LLM_API_ENV_DEFAULTS: dict[str, str] = {
     "gemini": "GEMINI_API_KEY",
     "google": "GOOGLE_API_KEY",
     "bedrock": "AWS_ACCESS_KEY_ID",
+    "groq": "GROQ_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
+    "cohere": "COHERE_API_KEY",
+    "ai21": "AI21_API_KEY",
+    "fireworks": "FIREWORKS_API_KEY",
     "xai": "XAI_API_KEY",
 }
 
@@ -225,9 +567,6 @@ def _build_function_environment_factory_snippet(candidate: Candidate) -> Factory
             "        raise RuntimeError('Environment prerequisites not validated. Set ATLAS_DISCOVERY_VALIDATE=1 to instantiate the environment.')",
             f"    return {candidate.qualname}(**kwargs)",
         ]
-    body_lines = [
-        *body_lines,
-    ]
     factory_body = "\n".join(body_lines)
     notes = [f"Delegates to {candidate.module}:{candidate.qualname}."]
     return FactorySnippet(
@@ -241,18 +580,43 @@ def _build_function_environment_factory_snippet(candidate: Candidate) -> Factory
     )
 
 def _build_basic_agent_factory_snippet(candidate: Candidate, defaults: dict[str, object]) -> FactorySnippet:
-    imports = [f"from {candidate.module} import {candidate.qualname}", "from atlas.sdk.wrappers import StepwiseAgentAdapter"]
+    imports = [
+        "import json",
+        "import os",
+        f"from {candidate.module} import {candidate.qualname}",
+        "from atlas.sdk.wrappers import StepwiseAgentAdapter",
+    ]
     defaults_literal = _format_kwargs_literal(defaults)
     preamble = ""
-    lines: list[str] = []
+    lines: list[str] = [
+        "    has_prompt = 'prompt' in kwargs",
+        "    has_metadata = 'metadata' in kwargs",
+        "    prompt = kwargs.pop('prompt', None)",
+        "    metadata = kwargs.pop('metadata', None)",
+        "    runtime_invocation = has_prompt or has_metadata",
+    ]
     if defaults:
         preamble = f"DEFAULT_AGENT_KWARGS = {defaults_literal}\n\n"
         lines.append("    parameters = dict(DEFAULT_AGENT_KWARGS)")
         lines.append("    parameters.update(kwargs)")
     else:
         lines.append("    parameters = dict(kwargs)")
-    lines.append(f"    instance = {candidate.qualname}(**parameters)")
-    lines.append("    return StepwiseAgentAdapter(instance)")
+    lines.extend(
+        [
+            f"    cache_key = ('agent', '{candidate.module}', '{candidate.qualname}')",
+            "    if runtime_invocation:",
+            "        agent_instance = _AGENT_RUNTIME_CACHE.get(cache_key)",
+            "        if agent_instance is None:",
+            f"            agent_instance = {candidate.qualname}(**parameters)",
+            "            _AGENT_RUNTIME_CACHE[cache_key] = agent_instance",
+            "        prompt_text = prompt if isinstance(prompt, str) else ''",
+            "        return _atlas_execute_agent(agent_instance, prompt_text, metadata)",
+            "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':",
+            "        raise RuntimeError('Agent prerequisites not validated. Set ATLAS_DISCOVERY_VALIDATE=1 to instantiate the agent.')",
+            f"    instance = {candidate.qualname}(**parameters)",
+            "    return StepwiseAgentAdapter(instance)",
+        ]
+    )
     body_lines = [
         f"def {AGENT_FUNCTION_NAME}(**kwargs):",
         '    """Atlas-generated agent factory."""',
@@ -260,11 +624,11 @@ def _build_basic_agent_factory_snippet(candidate: Candidate, defaults: dict[str,
     ]
     factory_body = preamble + "\n".join(body_lines)
     notes = [f"Generated agent factory wrapping {candidate.dotted_path()}."]
-    notes.append("StepwiseAgentAdapter applied so act-only agents integrate safely with Atlas.")
+    notes.append("Bridges runtime calls to the repository agent while keeping discovery stepwise-safe.")
     return FactorySnippet(
         function_name=AGENT_FUNCTION_NAME,
         imports=imports,
-        helpers=[],
+        helpers=[AGENT_RUNTIME_HELPER],
         factory_body=factory_body,
         notes=notes,
         preflight=[],
@@ -273,20 +637,39 @@ def _build_basic_agent_factory_snippet(candidate: Candidate, defaults: dict[str,
 
 
 def _build_function_agent_factory_snippet(candidate: Candidate) -> FactorySnippet:
-    imports = ["import os", "from atlas.sdk.wrappers import StepwiseAgentAdapter"]
+    imports = ["import json", "import os", "from atlas.sdk.wrappers import StepwiseAgentAdapter"]
     if candidate.factory_kind == "attribute":
         imports.append("import importlib")
         body_lines = [
             f"def {AGENT_FUNCTION_NAME}(**kwargs):",
             '    """Atlas-generated agent factory wrapping repository attribute."""',
-            "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':",
-            "        raise RuntimeError('Agent prerequisites not validated. Set ATLAS_DISCOVERY_VALIDATE=1 to instantiate the agent.')",
+            "    has_prompt = 'prompt' in kwargs",
+            "    has_metadata = 'metadata' in kwargs",
+            "    prompt = kwargs.pop('prompt', None)",
+            "    metadata = kwargs.pop('metadata', None)",
+            "    runtime_invocation = has_prompt or has_metadata",
+            "    parameters = dict(kwargs)",
             f"    module = importlib.import_module('{candidate.module}')",
             f"    target = getattr(module, '{candidate.qualname}')",
+            "    if runtime_invocation:",
+            f"        cache_key = ('agent', '{candidate.module}', '{candidate.qualname}')",
+            "        agent_instance = _AGENT_RUNTIME_CACHE.get(cache_key)",
+            "        if agent_instance is None:",
+            "            if callable(target):",
+            "                agent_instance = target(**parameters)",
+            "            else:",
+            "                if parameters:",
+            "                    raise TypeError('Agent factory does not accept keyword arguments.')",
+            "                agent_instance = target",
+            "            _AGENT_RUNTIME_CACHE[cache_key] = agent_instance",
+            "        prompt_text = prompt if isinstance(prompt, str) else ''",
+            "        return _atlas_execute_agent(agent_instance, prompt_text, metadata)",
+            "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':",
+            "        raise RuntimeError('Agent prerequisites not validated. Set ATLAS_DISCOVERY_VALIDATE=1 to instantiate the agent.')",
             "    if callable(target):",
-            "        instance = target(**kwargs)",
+            "        instance = target(**parameters)",
             "    else:",
-            "        if kwargs:",
+            "        if parameters:",
             "            raise TypeError('Agent factory does not accept keyword arguments.')",
             "        instance = target",
             "    return StepwiseAgentAdapter(instance)",
@@ -296,20 +679,34 @@ def _build_function_agent_factory_snippet(candidate: Candidate) -> FactorySnippe
         body_lines = [
             f"def {AGENT_FUNCTION_NAME}(**kwargs):",
             '    """Atlas-generated agent factory wrapping repository callable."""',
+            "    has_prompt = 'prompt' in kwargs",
+            "    has_metadata = 'metadata' in kwargs",
+            "    prompt = kwargs.pop('prompt', None)",
+            "    metadata = kwargs.pop('metadata', None)",
+            "    runtime_invocation = has_prompt or has_metadata",
+            "    parameters = dict(kwargs)",
+            f"    cache_key = ('agent', '{candidate.module}', '{candidate.qualname}')",
+            "    if runtime_invocation:",
+            "        agent_instance = _AGENT_RUNTIME_CACHE.get(cache_key)",
+            "        if agent_instance is None:",
+            f"            agent_instance = {candidate.qualname}(**parameters)",
+            "            _AGENT_RUNTIME_CACHE[cache_key] = agent_instance",
+            "        prompt_text = prompt if isinstance(prompt, str) else ''",
+            "        return _atlas_execute_agent(agent_instance, prompt_text, metadata)",
             "    if os.environ.get('ATLAS_DISCOVERY_VALIDATE') != '1':",
             "        raise RuntimeError('Agent prerequisites not validated. Set ATLAS_DISCOVERY_VALIDATE=1 to instantiate the agent.')",
-            f"    instance = {candidate.qualname}(**kwargs)",
+            f"    instance = {candidate.qualname}(**parameters)",
             "    return StepwiseAgentAdapter(instance)",
         ]
     factory_body = "\n".join(body_lines)
     notes = [
         f"Delegates to {candidate.module}:{candidate.qualname}.",
-        "StepwiseAgentAdapter applied so act-only agents integrate safely with Atlas.",
+        "Bridges runtime calls to the repository agent while keeping discovery stepwise-safe.",
     ]
     return FactorySnippet(
         function_name=AGENT_FUNCTION_NAME,
         imports=imports,
-        helpers=[],
+        helpers=[AGENT_RUNTIME_HELPER],
         factory_body=factory_body,
         notes=notes,
         preflight=[],
@@ -660,16 +1057,18 @@ def _build_factory_metadata(target: TargetSpec) -> dict[str, Any] | None:
 
 def _build_llm_block(template_block: dict[str, Any] | None, provider: str | None, model: str | None) -> dict[str, Any]:
     block: dict[str, Any] = copy.deepcopy(template_block) if isinstance(template_block, dict) else {}
+    original_provider = block.get("provider") if isinstance(block.get("provider"), str) else None
     if provider:
         block["provider"] = provider
     else:
-        provider = block.get("provider") if isinstance(block.get("provider"), str) else None
+        provider = original_provider
     if model:
         block["model"] = model
-    if provider and not block.get("api_key_env"):
-        api_env = _LLM_API_ENV_DEFAULTS.get(provider)
-        if api_env:
-            block["api_key_env"] = api_env
+    if provider:
+        default_env = _LLM_API_ENV_DEFAULTS.get(provider)
+        api_env = block.get("api_key_env")
+        if default_env and (not api_env or original_provider != provider or api_env == _LLM_API_ENV_DEFAULTS.get(original_provider or "")):
+            block["api_key_env"] = default_env
     return block
 
 
@@ -751,75 +1150,79 @@ def _compose_full_config_payload(
         agent_block["system_prompt"] = prompt_literals[0]
     tool_entries = agent_runtime_meta.get("tools") if isinstance(agent_runtime_meta, dict) else []
     if isinstance(tool_entries, list) and tool_entries:
-        agent_block["tools"] = copy.deepcopy(tool_entries)
+        normalized_tools: list[dict[str, Any]] = []
+        for entry in tool_entries:
+            if isinstance(entry, dict):
+                tool_payload = dict(entry)
+                name = tool_payload.get("name") or tool_payload.get("id")
+                if not name:
+                    continue
+                tool_payload["name"] = str(name)
+                tool_payload.setdefault("description", "Provided by repository metadata.")
+                normalized_tools.append({"name": tool_payload["name"], "description": tool_payload["description"]})
+            elif isinstance(entry, str):
+                normalized_tools.append({"name": entry, "description": "Provided by repository metadata."})
+            else:
+                normalized_tools.append({"name": str(entry), "description": "Provided by repository metadata."})
+        if normalized_tools:
+            agent_block["tools"] = normalized_tools
 
     llm_provider = llm_capabilities.get("provider") if isinstance(llm_capabilities, dict) else None
     llm_model = llm_capabilities.get("model") if isinstance(llm_capabilities, dict) else None
     llm_source = llm_capabilities.get("source") if isinstance(llm_capabilities, dict) else None
     llm_template = agent_template.get("llm") if isinstance(agent_template, dict) else None
     llm_block = _build_llm_block(llm_template, llm_provider, llm_model)
-    if not llm_block:
-        config_literals = agent_runtime_meta.get("config_literals") if isinstance(agent_runtime_meta, dict) else []
-        candidate_config = None
-        for entry in config_literals or []:
-            if isinstance(entry, list) and entry:
-                candidate = entry[0]
-            else:
-                candidate = entry
-            if isinstance(candidate, dict):
-                candidate_config = candidate
-                break
-        if isinstance(candidate_config, dict):
-            provider_override = candidate_config.get("api_type") or candidate_config.get("provider")
-            model_override = candidate_config.get("model")
-            api_key_env = candidate_config.get("api_key_env")
-            llm_block = {
-                "provider": provider_override or llm_provider or "openai",
-                "model": model_override or llm_model or "unknown-model",
-            }
-            if api_key_env:
-                llm_block["api_key_env"] = api_key_env
-            if candidate_config.get("temperature") is not None:
-                llm_block["temperature"] = candidate_config.get("temperature")
-            if candidate_config.get("max_output_tokens") is not None:
-                llm_block["max_output_tokens"] = candidate_config.get("max_output_tokens")
+    llm_candidates = _collect_llm_candidate_entries(agent_runtime_meta if isinstance(agent_runtime_meta, dict) else None)
+    selected_llm_candidate = _select_llm_candidate(llm_candidates)
+    if selected_llm_candidate:
+        llm_block = _merge_llm_block(llm_block, selected_llm_candidate)
+        provider_override = selected_llm_candidate.get("provider")
+        model_override = selected_llm_candidate.get("model")
+        if isinstance(provider_override, str) and provider_override:
+            llm_provider = provider_override
+        if isinstance(model_override, str) and model_override:
+            llm_model = model_override
+        if not llm_source:
+            llm_source = selected_llm_candidate.get("source") or "repository"
     if llm_block:
         agent_block["llm"] = llm_block
-    elif isinstance(agent_runtime_meta, dict):
-        overrides = agent_runtime_meta.get("llm_overrides")
-        if isinstance(overrides, dict) and overrides:
-            llm_override_block: dict[str, Any] = {}
-            provider_override = overrides.get("provider") or overrides.get("llm")
-            model_override = overrides.get("model") or overrides.get("model_name")
-            if provider_override:
-                llm_override_block["provider"] = provider_override
-            if model_override:
-                llm_override_block["model"] = model_override
-            if llm_override_block:
-                agent_block["llm"] = llm_override_block
-        if "llm" not in agent_block:
-            config_data = agent_runtime_meta.get("config_data")
-            if isinstance(config_data, list):
-                for entry in config_data:
-                    content = entry.get("content") if isinstance(entry, dict) else None
-                    if not isinstance(content, dict):
-                        continue
-                    provider_override = content.get("provider") or content.get("api_type")
-                    model_override = content.get("model") or content.get("model_name")
-                    api_key_env = content.get("api_key_env") or content.get("api_key")
-                    if provider_override or model_override:
-                        llm_block = {
-                            "provider": provider_override or llm_provider or "unknown",
-                            "model": model_override or llm_model or "unknown-model",
-                        }
-                        if api_key_env:
-                            llm_block["api_key_env"] = api_key_env
-                        agent_block["llm"] = llm_block
-                        break
+        llm_provider = llm_block.get("provider", llm_provider)
+        llm_model = llm_block.get("model", llm_model)
     config_payload["agent"] = agent_block
 
-    runtime_block = {
-        "behavior": capabilities.get("control_loop", "self"),
+    teacher_template = config_payload.get("teacher") if isinstance(config_payload.get("teacher"), dict) else {}
+    teacher_block = copy.deepcopy(teacher_template)
+    teacher_block["llm"] = _build_llm_block(teacher_template.get("llm") if isinstance(teacher_template, dict) else None, llm_provider, llm_model)
+    config_payload["teacher"] = teacher_block
+
+    config_payload.pop("learning", None)
+    config_payload.pop("runtime_safety", None)
+
+    metadata_block_current = config_payload.get("metadata") if isinstance(config_payload.get("metadata"), dict) else {}
+    discovery_meta: dict[str, Any] = {}
+    env_runtime_meta = runtime_metadata.get("environment") if runtime_metadata else {}
+    if isinstance(env_runtime_meta, dict) and env_runtime_meta.get("parameters"):
+        discovery_meta["environment_parameters"] = env_runtime_meta["parameters"]
+    if isinstance(agent_runtime_meta, dict):
+        if agent_runtime_meta.get("parameters"):
+            discovery_meta["agent_parameters"] = agent_runtime_meta["parameters"]
+        if agent_runtime_meta.get("factory_kwargs"):
+            discovery_meta["agent_factory_kwargs"] = agent_runtime_meta["factory_kwargs"]
+        if agent_block.get("system_prompt"):
+            discovery_meta["agent_prompt_preview"] = agent_block["system_prompt"][:2000]
+    env_metadata = _build_factory_metadata(targets.environment)
+    if env_metadata:
+        discovery_meta["environment_factory"] = env_metadata
+    agent_metadata = _build_factory_metadata(targets.agent)
+    if agent_metadata:
+        discovery_meta["agent_factory"] = agent_metadata
+    if llm_provider or llm_model or llm_source:
+        discovery_meta["llm"] = {
+            "provider": llm_provider,
+            "model": llm_model,
+            "source": llm_source,
+        }
+    runtime_meta_info = {
         "environment": f"{targets.environment.factory[0]}:{targets.environment.factory[1]}"
         if targets.environment.factory
         else targets.environment.dotted_path(),
@@ -830,23 +1233,11 @@ def _compose_full_config_payload(
         "supports_stepwise": bool(capabilities.get("supports_stepwise", False)),
         "preferred_mode": capabilities.get("preferred_mode", "auto"),
     }
-    preferred_mode = runtime_block["preferred_mode"]
-    plan_description = capabilities.get("plan_description")
-    if isinstance(plan_description, str) and plan_description.strip():
-        runtime_block["plan_description"] = plan_description
-    config_payload["runtime"] = runtime_block
-
-    config_payload["orchestration"] = {"forced_mode": preferred_mode}
-
-    teacher_template = config_payload.get("teacher") if isinstance(config_payload.get("teacher"), dict) else {}
-    teacher_block = copy.deepcopy(teacher_template)
-    teacher_block["llm"] = _build_llm_block(teacher_template.get("llm") if isinstance(teacher_template, dict) else None, llm_provider, llm_model)
-    config_payload["teacher"] = teacher_block
-
-    config_payload.pop("learning", None)
-    config_payload.pop("runtime_safety", None)
-
-    config_payload.pop("metadata", None)
+    metadata_block = copy.deepcopy(metadata_block_current)
+    if discovery_meta:
+        metadata_block["discovery"] = discovery_meta
+    metadata_block.setdefault("runtime", {}).update(runtime_meta_info)
+    config_payload["metadata"] = metadata_block
 
     info = {
         "llm_provider": llm_provider,
