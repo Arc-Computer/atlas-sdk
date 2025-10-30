@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import json
 import time
 from typing import Any
@@ -13,12 +14,15 @@ from typing import Tuple
 
 from atlas.config.models import TeacherConfig, ToolDefinition
 from atlas.prompts import RewrittenTeacherPrompts
+from atlas.learning.usage import get_tracker
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.types import Plan
 from atlas.types import Step
 from atlas.utils.digest import json_digest, normalise_json
 from atlas.utils.llm_client import LLMClient
 from atlas.learning.playbook import resolve_playbook
+
+logger = logging.getLogger(__name__)
 
 
 class Teacher:
@@ -317,6 +321,7 @@ class Teacher:
             payload["teacher_playbook"] = teacher_playbook
         if teacher_playbook_hash:
             payload["teacher_playbook_hash"] = teacher_playbook_hash
+        self._record_teacher_cue_hits(step, payload, teacher_playbook)
         return payload
 
     def _compose_prompt(self, base_prompt: str) -> tuple[str, str | None, str | None]:
@@ -334,6 +339,30 @@ class Teacher:
         block = self._format_playbook_block(playbook, metadata)
         segments = [segment for segment in (block, base) if segment]
         return "\n\n".join(segments) if segments else ""
+
+    def _record_teacher_cue_hits(self, step: Step, payload: Dict[str, Any], playbook: str | None) -> None:
+        try:
+            tracker = get_tracker()
+        except Exception:  # pragma: no cover - instrumentation best effort
+            return
+        if not getattr(tracker, "enabled", False):
+            return
+        try:
+            context_text = json.dumps(
+                {
+                    "step": payload.get("step"),
+                    "teacher_playbook": playbook,
+                },
+                ensure_ascii=False,
+            )
+        except Exception:
+            context_text = playbook or ""
+        if not context_text:
+            return
+        try:
+            tracker.detect_and_record("teacher", context_text, step_id=step.id, context_hint=playbook or context_text)
+        except Exception:  # pragma: no cover
+            logger.debug("Failed to record teacher cue hits for step %s", step.id, exc_info=True)
 
     def _format_playbook_block(self, playbook: str | None, metadata: Dict[str, Any] | None) -> str:
         if not playbook:

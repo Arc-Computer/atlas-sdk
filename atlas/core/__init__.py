@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import logging
 import os
@@ -32,6 +33,7 @@ from atlas.evaluation.evaluator import Evaluator
 from atlas.personas.student import Student
 from atlas.personas.teacher import Teacher
 from atlas.learning import LearningSynthesizer
+from atlas.learning.usage import get_tracker
 from atlas.runtime.storage.database import Database
 from atlas.runtime.learning.drift import RewardDriftDetector
 from atlas.runtime.telemetry import ConsoleTelemetryStreamer
@@ -124,6 +126,7 @@ async def arun(
     evaluator = _build_evaluator_instance(config, getattr(adaptive_teaching_cfg, "reward", None))
     learning_synthesizer = _build_learning_synthesizer(config)
     execution_context.metadata["adaptive_default_tags"] = list(getattr(adaptive_teaching_cfg, "default_tags", []) or [])
+    execution_context.metadata["learning_usage_config"] = learning_cfg.usage_tracking.model_dump()
     triage_adapter = _load_triage_adapter(getattr(adaptive_teaching_cfg, "triage_adapter", None))
     session_meta = execution_context.metadata.setdefault("session_metadata", {})
     learning_key = _build_learning_key(task, config, session_meta)
@@ -142,6 +145,8 @@ async def arun(
             )
             metadata = execution_context.metadata.get("session_metadata")
             session_id = await database.create_session(task, metadata=metadata)
+            if session_id is not None:
+                execution_context.metadata["session_id"] = session_id
             if publisher is not None and session_id is not None:
                 publisher.publish_control_event(
                     "session-started",
@@ -617,6 +622,48 @@ def _collect_session_insights(context: ExecutionContext, result: Result | None) 
         payload["reward_stats"] = dict(reward_stats)
     if isinstance(reward_audit, list):
         payload["reward_audit"] = [dict(entry) for entry in reward_audit if isinstance(entry, dict)]
+    token_usage = context.metadata.get("token_usage") if isinstance(context.metadata, dict) else None
+    if isinstance(token_usage, dict) and token_usage:
+        payload["token_usage"] = {
+            "prompt_tokens": token_usage.get("prompt_tokens"),
+            "completion_tokens": token_usage.get("completion_tokens"),
+            "total_tokens": token_usage.get("total_tokens"),
+            "calls": token_usage.get("calls"),
+        }
+    reward_score_value = _extract_reward_score(session_reward, reward_stats)
+    incident_id, incident_tags, task_identifier = _resolve_incident_context(triage, context)
+    failure_signals = _extract_failure_signals(context)
+    tracker_snapshot: dict[str, Any] | None = None
+    try:
+        tracker = get_tracker(context)
+    except Exception:  # pragma: no cover - instrumentation should never break session logging
+        tracker = None
+    if tracker is not None and getattr(tracker, "enabled", False):
+        tracker.record_session_outcome(
+            reward_score=reward_score_value,
+            token_usage=token_usage if isinstance(token_usage, dict) else None,
+            incident_id=incident_id,
+            task_identifier=task_identifier,
+            incident_tags=incident_tags,
+            retry_count=failure_signals.get("retry_count"),
+            failure_flag=failure_signals.get("failure_flag"),
+            failure_events=failure_signals.get("failure_events"),
+        )
+        tracker_snapshot = tracker.snapshot()
+        _merge_usage_into_learning_state(
+            context,
+            tracker_snapshot,
+            reward_score=reward_score_value,
+            token_usage=token_usage if isinstance(token_usage, dict) else None,
+            incident_id=incident_id,
+            incident_tags=incident_tags,
+            retry_count=failure_signals.get("retry_count"),
+            failure_events=failure_signals.get("failure_events"),
+            failure_flag=failure_signals.get("failure_flag"),
+        )
+    learning_usage = tracker_snapshot or (context.metadata.get("learning_usage") if isinstance(context.metadata, dict) else None)
+    if isinstance(learning_usage, dict) and learning_usage:
+        payload["learning_usage"] = copy.deepcopy(learning_usage)
     student_learning = context.metadata.get("session_student_learning") if isinstance(context.metadata, dict) else None
     if isinstance(student_learning, str) and student_learning.strip():
         payload["student_learning"] = student_learning
@@ -708,3 +755,252 @@ def _collect_reward_summary(result: Result) -> dict[str, Any]:
         "average": float(fmean(rewards)) if rewards else None,
         "count": len(rewards),
     }
+
+
+def _extract_reward_score(session_reward: Any, reward_stats: dict[str, Any] | None) -> float | None:
+    candidate: Any | None = None
+    if isinstance(session_reward, dict):
+        candidate = session_reward.get("score")
+    elif session_reward is not None:
+        candidate = getattr(session_reward, "score", None)
+        if candidate is None and hasattr(session_reward, "to_dict"):
+            try:
+                candidate = session_reward.to_dict().get("score")
+            except Exception:  # pragma: no cover - defensive
+                candidate = None
+    if candidate is None and isinstance(reward_stats, dict):
+        candidate = reward_stats.get("score")
+    if candidate is None:
+        return None
+    try:
+        return float(candidate)
+    except (TypeError, ValueError):
+        return None
+
+
+def _resolve_incident_context(triage: dict[str, Any] | None, context: ExecutionContext) -> tuple[str | None, list[str], str | None]:
+    incident_id: str | None = None
+    incident_tags: list[str] = []
+    task_identifier: str | None = None
+    if isinstance(triage, dict):
+        metadata = triage.get("metadata")
+        if isinstance(metadata, dict):
+            for key in ("incident_id", "case_id", "ticket_id"):
+                value = metadata.get(key)
+                if isinstance(value, str) and value.strip():
+                    incident_id = value.strip()
+                    break
+        if incident_id is None:
+            fingerprint = triage.get("fingerprint_hint")
+            if isinstance(fingerprint, str) and fingerprint.strip():
+                incident_id = fingerprint.strip()
+        summary = triage.get("summary")
+        if isinstance(summary, str) and summary.strip():
+            task_identifier = summary.strip()
+        tags = triage.get("tags")
+        if isinstance(tags, list):
+            incident_tags = [str(tag).strip() for tag in tags if isinstance(tag, str) and tag.strip()]
+    if task_identifier is None and isinstance(context.metadata, dict):
+        task_value = context.metadata.get("task")
+        if isinstance(task_value, str) and task_value.strip():
+            task_identifier = task_value.strip()
+    return incident_id, incident_tags, task_identifier
+
+
+def _extract_failure_signals(context: ExecutionContext) -> dict[str, Any]:
+    metadata = context.metadata if isinstance(context.metadata, dict) else {}
+    steps = metadata.get("steps") if isinstance(metadata, dict) else {}
+    retry_count = 0
+    failure_events: list[dict[str, Any]] = []
+    if isinstance(steps, dict):
+        for step_id, step_meta in steps.items():
+            if not isinstance(step_meta, dict):
+                continue
+            attempts = step_meta.get("attempts") or []
+            if isinstance(attempts, list):
+                attempt_count = len(attempts)
+                if attempt_count > 1:
+                    retry_count += max(attempt_count - 1, 0)
+                terminal_attempt = attempts[-1] if attempts else None
+            else:
+                attempt_count = 0
+                terminal_attempt = None
+            status_value = None
+            validation_valid = True
+            if isinstance(terminal_attempt, dict):
+                status_raw = terminal_attempt.get("status")
+                if isinstance(status_raw, str) and status_raw.strip():
+                    status_value = status_raw.strip().lower()
+                evaluation = terminal_attempt.get("evaluation")
+                if isinstance(evaluation, dict):
+                    validation = evaluation.get("validation")
+                    if isinstance(validation, dict) and validation.get("valid") is False:
+                        validation_valid = False
+            failed = status_value in {"failed", "error", "aborted", "timeout"} or not validation_valid
+            if failed:
+                event_payload: dict[str, Any] = {
+                    "step_id": step_id,
+                    "status": status_value or ("validation_failed" if not validation_valid else "failed"),
+                }
+                failure_events.append(event_payload)
+    return {
+        "retry_count": retry_count,
+        "failure_events": failure_events,
+        "failure_flag": bool(failure_events),
+    }
+
+
+def _merge_usage_into_learning_state(
+    context: ExecutionContext,
+    usage_snapshot: dict[str, Any] | None,
+    *,
+    reward_score: float | None,
+    token_usage: dict[str, Any] | None,
+    incident_id: str | None,
+    incident_tags: list[str],
+    retry_count: int | None,
+    failure_events: list[dict[str, Any]] | None,
+    failure_flag: bool | None,
+) -> None:
+    if not isinstance(context.metadata, dict):
+        return
+    if not isinstance(usage_snapshot, dict):
+        return
+    state = context.metadata.get("learning_state")
+    if not isinstance(state, dict):
+        return
+    metadata = state.setdefault("metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+        state["metadata"] = metadata
+    entries = metadata.get("playbook_entries")
+    if not isinstance(entries, list) or not entries:
+        return
+    roles_usage = usage_snapshot.get("roles") if isinstance(usage_snapshot.get("roles"), dict) else {}
+    session_block = usage_snapshot.get("session") if isinstance(usage_snapshot.get("session"), dict) else {}
+    token_payload = token_usage if isinstance(token_usage, dict) else (session_block.get("token_usage") if isinstance(session_block, dict) else None)
+    token_total = _extract_token_total(token_payload)
+    retry_total = retry_count if retry_count is not None else session_block.get("retry_count")
+    failure_list = failure_events if failure_events is not None else (session_block.get("failure_events") if isinstance(session_block, dict) else [])
+    failure_list = failure_list or []
+    failure_flag = bool(failure_flag) or bool(session_block.get("failure_flag")) or bool(failure_list)
+    timestamp = datetime.now(timezone.utc).isoformat()
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        entry_id = entry.get("id")
+        if not entry_id:
+            continue
+        audience = (entry.get("audience") or "student").strip().lower()
+        role_usage = roles_usage.get(audience)
+        if not isinstance(role_usage, dict):
+            role_usage = {}
+        entry_usage = role_usage.get(entry_id)
+        cue_hits = int(entry_usage.get("cue_hits") or 0) if isinstance(entry_usage, dict) else 0
+        adoption_events = int(entry_usage.get("action_adoptions") or 0) if isinstance(entry_usage, dict) else 0
+        successful_adoptions = int(entry_usage.get("successful_adoptions") or 0) if isinstance(entry_usage, dict) else 0
+        failed_adoptions = int(entry_usage.get("failed_adoptions") or 0) if isinstance(entry_usage, dict) else 0
+        has_hits = cue_hits > 0 or adoption_events > 0
+
+        impact = entry.get("impact")
+        if not isinstance(impact, dict):
+            impact = _default_impact_payload()
+        impact["sessions_observed"] = int(impact.get("sessions_observed", 0)) + 1
+        if impact.get("first_observed_at") is None:
+            impact["first_observed_at"] = timestamp
+        impact["last_observed_at"] = timestamp
+        if has_hits:
+            impact["sessions_with_hits"] = int(impact.get("sessions_with_hits", 0)) + 1
+            impact["total_cue_hits"] = int(impact.get("total_cue_hits", 0)) + cue_hits
+            impact["total_adoptions"] = int(impact.get("total_adoptions", 0)) + adoption_events
+            impact["successful_adoptions"] = int(impact.get("successful_adoptions", 0)) + successful_adoptions
+            impact["failed_adoptions"] = int(impact.get("failed_adoptions", 0)) + failed_adoptions
+            if reward_score is not None:
+                impact["reward_with_sum"] = float(impact.get("reward_with_sum", 0.0)) + float(reward_score)
+                impact["reward_with_count"] = int(impact.get("reward_with_count", 0)) + 1
+            if token_total is not None:
+                impact["tokens_with_sum"] = float(impact.get("tokens_with_sum", 0.0)) + float(token_total)
+                impact["tokens_with_count"] = int(impact.get("tokens_with_count", 0)) + 1
+        else:
+            impact["sessions_without_hits"] = int(impact.get("sessions_without_hits", 0)) + 1
+            if reward_score is not None:
+                impact["reward_without_sum"] = float(impact.get("reward_without_sum", 0.0)) + float(reward_score)
+                impact["reward_without_count"] = int(impact.get("reward_without_count", 0)) + 1
+            if token_total is not None:
+                impact["tokens_without_sum"] = float(impact.get("tokens_without_sum", 0.0)) + float(token_total)
+                impact["tokens_without_count"] = int(impact.get("tokens_without_count", 0)) + 1
+        if incident_id:
+            incidents = impact.setdefault("incident_ids", [])
+            if isinstance(incidents, list) and incident_id not in incidents:
+                incidents.append(incident_id)
+                if len(incidents) > 50:
+                    del incidents[0 : len(incidents) - 50]
+        if incident_tags:
+            tags = impact.setdefault("incident_tags", [])
+            if isinstance(tags, list):
+                for tag in incident_tags:
+                    if tag not in tags:
+                        tags.append(tag)
+                if len(tags) > 50:
+                    del tags[0 : len(tags) - 50]
+        if retry_total is not None:
+            impact["retry_sum"] = int(impact.get("retry_sum", 0)) + int(retry_total)
+            impact["retry_samples"] = int(impact.get("retry_samples", 0)) + 1
+        if failure_flag:
+            impact["failure_events"] = int(impact.get("failure_events", 0)) + (len(failure_list) or 1)
+        entry["impact"] = impact
+    metadata["playbook_entries"] = entries
+    state["metadata"] = metadata
+    context.metadata["learning_state"] = state
+
+
+def _default_impact_payload() -> dict[str, Any]:
+    return {
+        "sessions_observed": 0,
+        "sessions_with_hits": 0,
+        "sessions_without_hits": 0,
+        "total_cue_hits": 0,
+        "total_adoptions": 0,
+        "successful_adoptions": 0,
+        "failed_adoptions": 0,
+        "reward_with_sum": 0.0,
+        "reward_with_count": 0,
+        "reward_without_sum": 0.0,
+        "reward_without_count": 0,
+        "tokens_with_sum": 0.0,
+        "tokens_with_count": 0,
+        "tokens_without_sum": 0.0,
+        "tokens_without_count": 0,
+        "incident_ids": [],
+        "incident_tags": [],
+        "retry_sum": 0,
+        "retry_samples": 0,
+        "failure_events": 0,
+        "first_observed_at": None,
+        "last_observed_at": None,
+    }
+
+
+def _extract_token_total(token_usage: dict[str, Any] | None) -> float | None:
+    if not isinstance(token_usage, dict):
+        return None
+    total = token_usage.get("total_tokens")
+    if total is not None:
+        try:
+            return float(total)
+        except (TypeError, ValueError):
+            total = None
+    prompt = token_usage.get("prompt_tokens")
+    completion = token_usage.get("completion_tokens")
+    values: list[float] = []
+    for value in (prompt, completion):
+        if value is None:
+            continue
+        try:
+            values.append(float(value))
+        except (TypeError, ValueError):
+            return None
+    if values:
+        return float(sum(values))
+    return None

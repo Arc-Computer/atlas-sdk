@@ -1,0 +1,209 @@
+agent:
+  type: openai
+  name: runtime-learning-baseline
+  system_prompt: |
+    You are the Atlas Student. Follow runtime instructions carefully, cite evidence, and prefer structured outputs.
+    Produce concise deliverables (≤600 words) using the JSON schema below. Limit each string to ≤200 characters and each list to at most five items.
+    JSON schema:
+    {
+      "summary": string,
+      "diagnostics": string[],      # ordered checklist of immediate investigations (≤5 entries)
+      "mitigations": string[],      # prioritized short-term actions (≤5 entries)
+      "communications": string[],   # stakeholder updates (≤5 entries)
+      "evidence": string[]          # references to telemetry/log sources (≤5 entries)
+    }
+    Do not add extra keys. Focus on actionable, incident-ready guidance.
+  tools: []
+  llm:
+    provider: openai
+    model: gpt-5-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.2
+    max_output_tokens: 4096
+    timeout_seconds: 240
+  response_format:
+    type: json_object
+
+student:
+  max_plan_tokens: 4096
+  max_step_tokens: 4096
+  max_synthesis_tokens: 2048
+  tool_choice: auto
+
+teacher:
+  llm:
+    provider: openai
+    model: gpt-5-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.1
+    max_output_tokens: 4096
+    timeout_seconds: 240
+
+orchestration:
+  max_retries: 1
+  step_timeout_seconds: 900
+
+rim:
+  small_model:
+    provider: gemini
+    model: gemini/gemini-2.5-flash
+    api_key_env: GEMINI_API_KEY
+    max_output_tokens: 8096
+  large_model:
+    provider: gemini
+    model: gemini/gemini-2.5-flash
+    api_key_env: GEMINI_API_KEY
+    max_output_tokens: 8096
+  judge_prompt: 'reward the agent for attending the issues mentioned in the task'
+  variance_threshold: 0.15
+  uncertainty_threshold: 0.3
+
+storage:
+  database_url: postgresql://atlas:atlas@localhost:5433/atlas
+  min_connections: 1
+  max_connections: 5
+  statement_timeout_seconds: 30
+
+learning:
+  enabled: true
+  update_enabled: true
+  llm:
+    provider: gemini
+    model: gemini/gemini-2.5-flash
+    api_key_env: GEMINI_API_KEY
+    temperature: 0.2
+    max_output_tokens: 8192
+    timeout_seconds: 120
+  prompts:
+    synthesizer: |
+      Role: Atlas learning synthesizer. Respond with strict JSON only (no prose, markdown, or explanations).
+
+      Inputs:
+      - Existing student/teacher pamphlets and their playbook entry metadata (`metadata.playbook_entries`), when available.
+      - Latest session context: task, reward payload (score + rationale), execution telemetry.
+      - Chronological history of prior sessions (may be empty).
+
+      You MUST emit a top-level JSON object matching the `playbook_entry.v1` schema below. Literal null means “no change”.
+
+      {
+        "version": "playbook_entry.v1",
+        "student_pamphlet": string | null,
+        "teacher_pamphlet": string | null,
+        "playbook_entries": [
+          {
+            "id": string | null,                       # reuse existing ids when the entry still applies
+            "audience": "student" | "teacher",
+            "cue": {
+              "type": "regex" | "keyword" | "predicate",
+              "pattern": string,                       # machine-detectable trigger, no incident numbers or dates
+              "description": string | null
+            },
+            "action": {
+              "imperative": string,                    # imperative verb phrasing
+              "runtime_handle": string,                # maps to an Atlas tool/runtime handle
+              "tool_name": string | null,
+              "arguments": object | null
+            },
+            "expected_effect": string,                 # concise “why this works”
+            "scope": {
+              "category": "reinforcement" | "differentiation",
+              "constraints": string,                   # boundaries & applicability
+              "applies_when": string | null
+            },
+            "metadata": object | null                  # optional free-form notes
+          }
+        ],
+        "session_student_learning": string | null,
+        "session_teacher_learning": string | null,
+        "metadata": object | null                     # can include updated provenance/version info
+      }
+
+      Objectives:
+      1. Preserve proven entries: keep ids, cues, and actions when the behaviour is still valuable; mark stale entries by omitting them.
+      2. Produce actionable, tool-aligned guidance. Every action must map cleanly to a runtime handle; avoid vague language.
+      3. Enforce generality: no incident IDs, timestamps, customer names, or other one-off references. Prefer reusable patterns.
+      4. Distinguish reinforcement vs differentiation in `scope.category`; reserve teacher entries for interventions proven to help.
+      5. Keep pamphlets crisp (<600 words, numbered/bulleted imperative statements). Trim or rewrite outdated lines before adding new ones.
+      6. Populate per-session learning notes (`session_*`) only when there is a new takeaway; otherwise output null.
+      7. Always include `playbook_entries` (empty array if none apply). Never add extra top-level keys.
+
+      Additional instructions:
+      - Allowed runtime handles (use exactly one per playbook entry action, unless a prefix match is more precise):
+        logs.search, logs.tail, logs.filter, metrics.query, metrics.compare, metrics.alert_ack, data.query.run, data.query.sql, data.query.vector,
+        alerts.notify, alerts.page, tickets.escalate, tickets.create, tickets.update, workflows.retry, workflows.rollback, workflows.trigger,
+        incidents.open, incidents.update, incidents.close, runbooks.fetch, runbooks.update, security.rotate_credentials, security.patch.apply,
+        diagnostics.trace.inspect
+      - Allowed runtime handle prefixes when you need specificity: logs., metrics., data., alerts., tickets., workflows., incidents., runbooks., security., diagnostics., automation., playbooks.
+      - If none of the handles precisely match, choose the closest prefix form (e.g., metrics.query.latency) so long as it starts with an allowed prefix.
+      - Never leave `action.runtime_handle` empty. If you cannot identify a handle, rewrite the entry so it uses one of the allowed handles or prefixes.
+      - Emit at most 2 `playbook_entries` per synthesis. Keep each `cue.pattern`, `action.imperative`, `expected_effect`, and `scope.constraints` under 120 characters.
+      - Avoid banned tokens entirely (incident, ticket, case, postmortem). Rewrite or shorten content instead of using those words.
+  history_limit: 10
+  apply_to_prompts: true
+  schema:
+    allowed_runtime_handles:
+      - logs.search
+      - logs.tail
+      - logs.filter
+      - metrics.query
+      - metrics.compare
+      - metrics.alert_ack
+      - data.query.run
+      - data.query.sql
+      - data.query.vector
+      - alerts.notify
+      - alerts.page
+      - tickets.escalate
+      - tickets.create
+      - tickets.update
+      - workflows.retry
+      - workflows.rollback
+      - workflows.trigger
+      - incidents.open
+      - incidents.update
+      - incidents.close
+      - runbooks.fetch
+      - runbooks.update
+      - security.rotate_credentials
+      - security.patch.apply
+      - diagnostics.trace.inspect
+    runtime_handle_prefixes:
+      - logs.
+      - metrics.
+      - data.
+      - alerts.
+      - tickets.
+      - workflows.
+      - incidents.
+      - runbooks.
+      - security.
+      - diagnostics.
+      - automation.
+      - playbooks.
+    default_scope_category: reinforcement
+  usage_tracking:
+    enabled: true
+    capture_examples: true
+    max_examples_per_entry: 3
+  gates:
+    enforce_actionability: true
+    enforce_cue: true
+    enforce_generality: true
+    max_text_length: 420
+    allowed_proper_nouns:
+      - SQL
+      - HTTP
+      - JSON
+      - Atlas
+      - API
+      - Reward
+      - Include
+    banned_incident_tokens:
+      - postmortem
+    allow_length_overflow_margin: 40
+
+metadata:
+  experiment:
+    name: 20251028T1600Z_gemini_flash_v0
+    learning_key: runtime.synthetic.incident5
+    seed: 20251028

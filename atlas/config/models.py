@@ -181,8 +181,19 @@ class OpenAIAdapterConfig(AdapterConfig):
     @field_validator("llm")
     @classmethod
     def ensure_openai_provider(cls, value: LLMParameters):
-        if value.provider not in {LLMProvider.OPENAI, LLMProvider.AZURE_OPENAI}:
-            raise ValueError("openai adapter requires an OpenAI compatible provider")
+        allowed = {
+            LLMProvider.OPENAI,
+            LLMProvider.AZURE_OPENAI,
+            LLMProvider.ANTHROPIC,
+            LLMProvider.GEMINI,
+            LLMProvider.BEDROCK,
+            LLMProvider.XAI,
+        }
+        if value.provider not in allowed:
+            raise ValueError(
+                "openai adapter requires an OpenAI-compatible provider (OpenAI/Azure) or LiteLLM-supported provider "
+                f"({', '.join(provider.value for provider in allowed if provider not in {LLMProvider.OPENAI, LLMProvider.AZURE_OPENAI})})"
+            )
         return value
 
 AdapterUnion = HTTPAdapterConfig | PythonAdapterConfig | OpenAIAdapterConfig
@@ -330,6 +341,58 @@ class LearningPrompts(BaseModel):
     synthesizer: str | None = None
 
 
+class PlaybookEntryGateRules(BaseModel):
+    """Gate configuration enforced on generated learning playbook entries."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enforce_actionability: bool = True
+    enforce_cue: bool = True
+    enforce_generality: bool = True
+    max_text_length: int = Field(default=420, ge=100, le=2000)
+    allowed_proper_nouns: List[str] = Field(
+        default_factory=lambda: ["SQL", "HTTP", "JSON", "Atlas", "API"]
+    )
+    banned_incident_tokens: List[str] = Field(
+        default_factory=lambda: ["incident", "ticket", "case", "postmortem"]
+    )
+    allow_length_overflow_margin: int = Field(default=20, ge=0, le=500)
+
+
+class PlaybookEntryRubricWeights(BaseModel):
+    """Weighted scoring rubric applied to learning playbook entries."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actionability: float = Field(default=0.4, ge=0.0, le=1.0)
+    generality: float = Field(default=0.3, ge=0.0, le=1.0)
+    hookability: float = Field(default=0.2, ge=0.0, le=1.0)
+    concision: float = Field(default=0.1, ge=0.0, le=1.0)
+
+
+class PlaybookEntrySchemaConfig(BaseModel):
+    """Schema metadata for playbook entry synthesis."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: str = "playbook_entry.v1"
+    allowed_runtime_handles: List[str] = Field(default_factory=list)
+    runtime_handle_prefixes: List[str] = Field(default_factory=list)
+    cue_types: List[str] = Field(default_factory=lambda: ["regex", "keyword", "predicate"])
+    default_scope_category: str = "differentiation"
+    allow_missing_tool_mapping: bool = False
+
+
+class LearningUsageConfig(BaseModel):
+    """Runtime usage instrumentation toggles."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = True
+    capture_examples: bool = False
+    max_examples_per_entry: int = Field(default=2, ge=0, le=20)
+
+
 class LearningConfig(BaseModel):
     """Controls the learning pamphlet synthesizer."""
 
@@ -342,6 +405,10 @@ class LearningConfig(BaseModel):
     history_limit: int = Field(default=10, ge=1, le=200)
     session_note_enabled: bool = True
     apply_to_prompts: bool = True
+    schema: PlaybookEntrySchemaConfig = Field(default_factory=PlaybookEntrySchemaConfig)
+    rubric_weights: PlaybookEntryRubricWeights = Field(default_factory=PlaybookEntryRubricWeights)
+    gates: PlaybookEntryGateRules = Field(default_factory=PlaybookEntryGateRules)
+    usage_tracking: LearningUsageConfig = Field(default_factory=LearningUsageConfig)
 
 class RIMConfig(BaseModel):
     """Aggregate reward model configuration."""

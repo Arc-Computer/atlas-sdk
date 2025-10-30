@@ -110,7 +110,7 @@ async def test_evaluate_combo_and_aggregate_with_stub(monkeypatch):
             records,
             repeats=2,
             concurrency=1,
-            evaluator_factory=lambda *_: _StubEvaluator(),
+            evaluator_factory=lambda _cfg, _audit: _StubEvaluator(),
             collect_audit=False,
         )
 
