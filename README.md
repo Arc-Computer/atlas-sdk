@@ -27,9 +27,7 @@ With the split between SDK (runtime) and ATLAS (training) in mind, here's what o
 
 ## Quick Start
 
-<Note>
-Use Python 3.10 or newer before installing. Pip on older interpreters (e.g., 3.9) resolves `arc-atlas` 0.1.0 and the runtime crashes at import time.
-</Note>
+> **Note**: Use Python 3.10 or newer before installing. Pip on older interpreters (e.g., 3.9) resolves `arc-atlas` 0.1.0 and the runtime crashes at import time.
 
 ### Integration at a Glance
 
@@ -111,42 +109,6 @@ The README hits the highlights. For the complete guide—including configuration
 ```
 ---
 
-## Exporting Runtime Sessions
-
-Atlas persists full execution traces whenever PostgreSQL storage is configured. Convert those sessions into training-ready
-JSONL with the bundled exporter:
-
-```bash
-# 1. Run tasks that log to Postgres (configure storage.database_url in your AtlasConfig)
-atlas.core.run(...)
-
-# 2. Export the captured sessions to JSONL (use the unique CLI name to avoid PATH collisions)
-arc-atlas --database-url postgresql://localhost:5433/atlas --output traces.jsonl --limit 25
-
-# (Fall back to python -m if shell PATH ordering is unpredictable)
-python -m atlas.cli.export --database-url postgresql://localhost:5433/atlas --output traces.jsonl --limit 25
-
-# 3. Load the dataset inside the Atlas core repo
-from trainers.runtime_dataset import load_runtime_traces
-sessions = load_runtime_traces("traces.jsonl")
-```
-
-The CLI accepts repeatable filters such as `--session-id`, `--status`, and `--trajectory-event-limit`. Pass a standard
-PostgreSQL URL (including credentials) via `--database-url`. The exporter prints friendly counts of the sessions and steps
-written and emits newline-delimited JSON—one session per line.
-
-Each session record follows the shared runtime schema consumed by the training stack:
-
-- `task`, `final_answer`, `plan` – orchestration metadata for the run.
-- `session_metadata` – persisted metadata plus status/timestamps.
-- `steps` – executor traces with descriptions, reward breakdowns, validation results, retry guidance, structured executor outputs, and telemetry metadata.
-- `trajectory_events` – optional array of intermediate telemetry events for richer replay and debugging.
-
-Once exported you can feed the file directly into `load_runtime_traces` or flatten it for RL pipelines with helpers in
-`trainers/runtime_dataset.py` from the core repository.
-
----
-
 ## Configuration Guide
 
 Configuration files live in `configs/examples/`. Each YAML document is validated against `atlas.config.models.AtlasConfig`.
@@ -200,27 +162,10 @@ Each line in the output is an `AtlasSessionTrace` record:
 ```json
 {
   "task": "Summarize the Atlas SDK",
-  "final_answer": "The SDK routes BYOA agents through an adaptive dual-agent reasoning loop guided by rewards...",
+  "final_answer": "The SDK routes BYOA agents through...",
   "plan": {"steps": [...]},
-  "steps": [
-    {
-      "step_id": 1,
-      "description": "...",
-      "tool": "summariser",
-      "reward": {"score": 0.92, "judges": [...]},
-      "validation": {"valid": true},
-      "guidance": ["..."],
-      "context": {"prior_results": {"1": "..."}},
-      "artifacts": {"final_answer": "Paris"},
-      "status": "ok",
-      "output": "{\"status\":\"ok\",\"artifacts\":{\"final_answer\":\"Paris\"}}"
-    }
-  ],
-  "session_metadata": {
-    "session_id": 42,
-    "status": "succeeded",
-    "trajectory_events": [...]
-  }
+  "steps": [{"step_id": 1, "reward": {"score": 0.92}, "status": "ok", "artifacts": {...}}],
+  "session_metadata": {"session_id": 42, "status": "succeeded"}
 }
 ```
 
