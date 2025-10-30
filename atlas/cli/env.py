@@ -6,6 +6,7 @@ import argparse
 import copy
 import json
 import os
+import shlex
 import sys
 import textwrap
 from dataclasses import dataclass, field
@@ -13,16 +14,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Sequence
 
-try:  # pragma: no cover - optional dependency
-    import yaml  # type: ignore[import-untyped]
-except Exception:  # pragma: no cover - optional dependency
-    yaml = None  # type: ignore[assignment]
+try:
+    import yaml
+except Exception:
+    yaml = None
 
 from atlas.cli.persistence import persist_discovery_run
 from atlas.cli.utils import (
     CLIError,
     DiscoveryWorkerError,
-    execute_runtime,
     invoke_discovery_worker,
     load_config_file,
     parse_callable_reference,
@@ -31,7 +31,14 @@ from atlas.cli.utils import (
 )
 from atlas.config.models import LearningConfig, RuntimeSafetyConfig
 from atlas.sdk.discovery import Candidate, Role, discover_candidates, serialize_candidate, split_candidates, write_discovery_payload
-from atlas.sdk.factory_synthesis import FactorySynthesizer, ENV_VALIDATE_FLAG
+from atlas.sdk.factory_synthesis import (
+    AGENT_FUNCTION_NAME,
+    ENV_FUNCTION_NAME,
+    ENV_VALIDATE_FLAG,
+    GENERATED_MODULE,
+    FactorySnippet,
+    FactorySynthesizer,
+)
 
 
 DISCOVERY_FILENAME = "discover.json"
@@ -147,6 +154,87 @@ _LLM_API_ENV_DEFAULTS: dict[str, str] = {
     "bedrock": "AWS_ACCESS_KEY_ID",
     "xai": "XAI_API_KEY",
 }
+
+
+def _format_kwargs_literal(payload: dict[str, object]) -> str:
+    if not payload:
+        return "{}"
+    return json.dumps(payload, indent=4, sort_keys=True)
+
+
+def _build_basic_environment_factory_snippet(candidate: Candidate, defaults: dict[str, object]) -> FactorySnippet:
+    imports = [f"from {candidate.module} import {candidate.qualname}"]
+    defaults_literal = _format_kwargs_literal(defaults)
+    preamble = ""
+    lines: list[str] = []
+    if defaults:
+        preamble = f"DEFAULT_ENVIRONMENT_KWARGS = {defaults_literal}\n\n"
+        lines.append("    parameters = dict(DEFAULT_ENVIRONMENT_KWARGS)")
+        lines.append("    parameters.update(kwargs)")
+    else:
+        lines.append("    parameters = dict(kwargs)")
+    lines.append(f"    return {candidate.qualname}(**parameters)")
+    body_lines = [
+        f"def {ENV_FUNCTION_NAME}(**kwargs):",
+        '    """Atlas-generated environment factory."""',
+        *lines,
+    ]
+    factory_body = preamble + "\n".join(body_lines)
+    notes = [f"Generated environment factory wrapping {candidate.dotted_path()}."]
+    return FactorySnippet(
+        function_name=ENV_FUNCTION_NAME,
+        imports=imports,
+        helpers=[],
+        factory_body=factory_body,
+        notes=notes,
+        preflight=[],
+        auto_skip=False,
+    )
+
+
+def _should_wrap_with_stepwise(capabilities: dict[str, bool]) -> bool:
+    if not capabilities:
+        return True
+    return not (capabilities.get("plan") and capabilities.get("summarize"))
+
+
+def _build_basic_agent_factory_snippet(candidate: Candidate, defaults: dict[str, object]) -> FactorySnippet:
+    needs_wrapper = _should_wrap_with_stepwise(candidate.capabilities)
+    imports = [f"from {candidate.module} import {candidate.qualname}"]
+    if needs_wrapper:
+        imports.append("from atlas.sdk.wrappers import StepwiseAgentAdapter")
+    defaults_literal = _format_kwargs_literal(defaults)
+    preamble = ""
+    lines: list[str] = []
+    if defaults:
+        preamble = f"DEFAULT_AGENT_KWARGS = {defaults_literal}\n\n"
+        lines.append("    parameters = dict(DEFAULT_AGENT_KWARGS)")
+        lines.append("    parameters.update(kwargs)")
+    else:
+        lines.append("    parameters = dict(kwargs)")
+    lines.append(f"    instance = {candidate.qualname}(**parameters)")
+    if needs_wrapper:
+        lines.append("    return StepwiseAgentAdapter(instance)")
+    else:
+        lines.append("    return instance")
+    body_lines = [
+        f"def {AGENT_FUNCTION_NAME}(**kwargs):",
+        '    """Atlas-generated agent factory."""',
+        *lines,
+    ]
+    factory_body = preamble + "\n".join(body_lines)
+    notes = [f"Generated agent factory wrapping {candidate.dotted_path()}."]
+    if needs_wrapper:
+        notes.append("StepwiseAgentAdapter applied so act-only agents integrate safely with Atlas.")
+    return FactorySnippet(
+        function_name=AGENT_FUNCTION_NAME,
+        imports=imports,
+        helpers=[],
+        factory_body=factory_body,
+        notes=notes,
+        preflight=[],
+        auto_skip=False,
+    )
 
 
 @dataclass(slots=True)
@@ -493,23 +581,40 @@ def _build_llm_block(template_block: dict[str, Any] | None, provider: str | None
 
 
 def _load_full_config_template() -> tuple[dict[str, Any] | None, dict[str, Any]]:
-    template_root = Path(__file__).resolve().parents[2] / "configs" / "examples"
-    template_path = template_root / FULL_CONFIG_TEMPLATE
-    info: dict[str, Any] = {"template_path": str(template_path)}
+    info: dict[str, Any] = {}
     if yaml is None:
         info["reason"] = "pyyaml-missing"
         return None, info
-    if not template_path.exists():
-        info["reason"] = "template-missing"
-        return None, info
+
+    raw: str | None = None
+
     try:
-        raw = template_path.read_text(encoding="utf-8")
-    except OSError as exc:  # pragma: no cover - filesystem edge case
-        info["reason"] = f"template-read-error: {exc}"
-        return None, info
+        from importlib import resources as importlib_resources
+
+        template_resource = importlib_resources.files("atlas.templates").joinpath(FULL_CONFIG_TEMPLATE)
+        if template_resource.is_file():
+            raw = template_resource.read_text(encoding="utf-8")
+            info["template_path"] = str(template_resource)
+            info["template_source"] = "package"
+    except (ModuleNotFoundError, FileNotFoundError, AttributeError):
+        template_resource = None
+
+    if raw is None:
+        template_root = Path(__file__).resolve().parents[2] / "configs" / "examples"
+        template_path = template_root / FULL_CONFIG_TEMPLATE
+        info.setdefault("template_path", str(template_path))
+        if not template_path.exists():
+            info["reason"] = "template-missing"
+            return None, info
+        try:
+            raw = template_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            info["reason"] = f"template-read-error: {exc}"
+            return None, info
+
     try:
         payload = yaml.safe_load(raw) or {}
-    except Exception as exc:  # pragma: no cover - defensive guard
+    except Exception as exc:
         info["reason"] = f"template-parse-error: {exc}"
         return None, info
     if not isinstance(payload, dict):
@@ -691,6 +796,7 @@ def _compose_metadata(
     final_answer = discovery_payload.get("final_answer")
     has_final_answer = isinstance(final_answer, str) and final_answer.strip() != ""
     history = discovery_payload.get("history") or []
+    agent_caps = targets.agent.candidate.capabilities if targets.agent.candidate else {}
     plan_preview = discovery_payload.get("plan")
     if isinstance(plan_preview, (dict, list)):
         pretty_plan = json.dumps(plan_preview, indent=2)
@@ -698,14 +804,14 @@ def _compose_metadata(
         pretty_plan = ""
     else:
         pretty_plan = str(plan_preview)
-    control_loop = "self" if has_final_answer else "tool"
+    fallback_control_loop = "self" if agent_caps.get("summarize") else "tool"
+    control_loop = "self" if has_final_answer else fallback_control_loop
+    fallback_stepwise = bool(agent_caps.get("act"))
     capabilities = {
         "control_loop": control_loop,
-        "supports_stepwise": False if has_final_answer else bool(history),
+        "supports_stepwise": bool(history) if history else fallback_stepwise,
         "plan_description": pretty_plan,
-        "telemetry_agent_emitted": bool(
-            (discovery_payload.get("telemetry") or {}).get("agent_emitted")
-        ),
+        "telemetry_agent_emitted": False,
         "preferred_mode": "auto" if control_loop == "self" else "paired",
     }
     discovery_capabilities = discovery_payload.get("capabilities")
@@ -718,6 +824,9 @@ def _compose_metadata(
                 "source": llm_caps.get("source"),
                 "inferred": bool(llm_caps.get("provider") or llm_caps.get("model")),
             }
+    telemetry_payload = discovery_payload.get("telemetry") or {}
+    telemetry_flag = bool(telemetry_payload.get("agent_emitted"))
+    capabilities["telemetry_agent_emitted"] = telemetry_flag
     metadata = {
         "version": 1,
         "generated_at": generated_at,
@@ -727,7 +836,7 @@ def _compose_metadata(
         "capabilities": capabilities,
         "schema": discovery_payload.get("schema") or {},
         "reward": discovery_payload.get("reward") or {},
-        "telemetry": discovery_payload.get("telemetry") or {},
+        "telemetry": telemetry_payload,
         "sample_history": discovery_payload.get("history") or [],
         "plan_preview": plan_preview,
         "final_answer_sample": final_answer,
@@ -737,7 +846,7 @@ def _compose_metadata(
         },
     }
     if synthesis_notes:
-        metadata["synthesis"] = {"notes": synthesis_notes}
+            metadata["synthesis"] = {"notes": synthesis_notes}
     return metadata
 
 
@@ -807,6 +916,9 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     agent_wrapper_required = False
 
     auto_messages: list[str] = []
+    env_candidate_requires_adapter = False
+    agent_candidate_requires_adapter = False
+    constructor_gap_notes: list[str] = []
 
     if targets.environment.factory is None:
         preferred_env_module = targets.environment.factory[0] if targets.environment.factory else None
@@ -845,13 +957,86 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         agent_candidates = []
 
     atlas_dir = project_root / ".atlas"
-    run_requested = not args.no_run
-
     synthesis_notes: list[str] = []
     synthesis_preflight: list[str] = []
     synthesis_auto_skip = False
     synthesizer: FactorySynthesizer | None = None
-    synthesis_used = False
+    llm_synthesis_used = False
+    env_missing_required: list[str] = []
+    agent_missing_required: list[str] = []
+
+    def _ensure_synthesizer() -> FactorySynthesizer:
+        nonlocal synthesizer
+        if synthesizer is None:
+            synthesizer = FactorySynthesizer(project_root, atlas_dir)
+        return synthesizer
+
+    auto_snippets: dict[str, FactorySnippet] = {}
+    generated_factories_path = atlas_dir / "generated_factories.py"
+    if targets.environment.candidate is not None and targets.environment.factory is None:
+        synth = _ensure_synthesizer()
+        needs_factory, env_missing_required = synth.needs_factory_for_candidate(
+            targets.environment.candidate,
+            targets.environment.kwargs,
+        )
+        if needs_factory:
+            env_candidate_requires_adapter = True
+            if env_missing_required:
+                constructor_gap_notes.append(
+                    f"Environment requires defaults for: {', '.join(env_missing_required)}"
+                )
+                synthesis_notes.append(
+                    f"Environment constructor expects: {', '.join(env_missing_required)}"
+                )
+    if targets.agent.candidate is not None and targets.agent.factory is None:
+        synth = _ensure_synthesizer()
+        needs_factory, agent_missing_required = synth.needs_factory_for_candidate(
+            targets.agent.candidate,
+            targets.agent.kwargs,
+        )
+        if needs_factory:
+            agent_candidate_requires_adapter = True
+            if agent_missing_required:
+                constructor_gap_notes.append(
+                    f"Agent requires defaults for: {', '.join(agent_missing_required)}"
+                )
+                synthesis_notes.append(
+                    f"Agent constructor expects: {', '.join(agent_missing_required)}"
+                )
+    if (
+        targets.environment.factory is None
+        and targets.environment.candidate is not None
+        and not env_candidate_requires_adapter
+    ):
+        env_snippet = _build_basic_environment_factory_snippet(
+            targets.environment.candidate,
+            targets.environment.kwargs,
+        )
+        auto_snippets["environment"] = env_snippet
+        targets.environment.factory = (GENERATED_MODULE, env_snippet.function_name)
+    if (
+        targets.agent.factory is None
+        and targets.agent.candidate is not None
+        and not agent_candidate_requires_adapter
+    ):
+        agent_snippet = _build_basic_agent_factory_snippet(
+            targets.agent.candidate,
+            targets.agent.kwargs,
+        )
+        auto_snippets["agent"] = agent_snippet
+        targets.agent.factory = (GENERATED_MODULE, agent_snippet.function_name)
+    if auto_snippets:
+        synthesizer = _ensure_synthesizer()
+        synthesizer.emit_manual_snippets(auto_snippets)
+        for snippet in auto_snippets.values():
+            synthesis_notes.extend(snippet.notes)
+        try:
+            display_path = generated_factories_path.relative_to(project_root)
+        except ValueError:
+            display_path = generated_factories_path
+        synthesis_notes.append(
+            f"Generated factories saved to {display_path}. Review defaults before production use."
+        )
 
     env_needs_factory = targets.environment.factory is None and (
         targets.environment.candidate is not None or env_wrapper_required
@@ -859,13 +1044,17 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     agent_needs_factory = targets.agent.factory is None and (
         targets.agent.candidate is not None or agent_wrapper_required
     )
+    if env_candidate_requires_adapter:
+        env_needs_factory = True
+    if agent_candidate_requires_adapter:
+        agent_needs_factory = True
     needs_synthesis = env_needs_factory or agent_needs_factory
 
     if needs_synthesis:
         environment_summary = None
         agent_summary = None
         try:
-            synthesizer = FactorySynthesizer(project_root, atlas_dir)
+            synthesizer = _ensure_synthesizer()
             if env_wrapper_required:
                 environment_summary = synthesizer.prepare_repository_summary(
                     "environment",
@@ -897,18 +1086,18 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
             return 1
         if outcome.environment_factory:
             targets.environment.factory = outcome.environment_factory
-            synthesis_used = True
         elif env_wrapper_required:
             print("Factory synthesis did not produce an environment wrapper.", file=sys.stderr)
             return 1
         if outcome.agent_factory:
             targets.agent.factory = outcome.agent_factory
-            synthesis_used = True
         elif agent_wrapper_required:
             print("Factory synthesis did not produce an agent wrapper.", file=sys.stderr)
             return 1
-        synthesis_preflight = outcome.preflight_notes
-        synthesis_notes = outcome.auxiliary_notes
+        if outcome.preflight_notes:
+            synthesis_preflight.extend(outcome.preflight_notes)
+        if outcome.auxiliary_notes:
+            synthesis_notes.extend(outcome.auxiliary_notes)
         synthesis_auto_skip = outcome.auto_skip
         if outcome.environment_auto_wrapped:
             targets.environment.auto_wrapped = True
@@ -916,6 +1105,7 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         if outcome.agent_auto_wrapped:
             targets.agent.auto_wrapped = True
             synthesis_notes.insert(0, "Auto-generated Atlas agent wrapper from repository context.")
+        llm_synthesis_used = True
 
     skip_reasons = _infer_skip_reasons(targets)
     if targets.environment.auto_wrapped:
@@ -926,16 +1116,14 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         skip_reasons.append(
             "Agent wrapper synthesized automatically; review generated factory before validation."
         )
+    if constructor_gap_notes:
+        synthesis_preflight.extend(
+            note for note in constructor_gap_notes if note not in synthesis_preflight
+        )
     if synthesis_preflight:
         skip_reasons.extend(synthesis_preflight)
 
-    auto_skip = False
-    if synthesis_auto_skip and run_requested and not args.validate:
-        auto_skip = True
-        run_requested = False
-    elif skip_reasons and run_requested and not args.validate:
-        auto_skip = True
-        run_requested = False
+    auto_skip = bool(synthesis_auto_skip or skip_reasons)
 
     discovery_path = atlas_dir / DISCOVERY_FILENAME
     config_path = atlas_dir / GENERATED_CONFIG_FILENAME
@@ -983,11 +1171,11 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         if len(pythonpath_added) > 5:
             preview += ", …"
         bootstrap_notes.append(f"Augmented PYTHONPATH with: {preview}")
-    env_overrides.setdefault(ENV_VALIDATE_FLAG, "1" if run_requested else "0")
+    env_overrides.setdefault(ENV_VALIDATE_FLAG, "0")
     spec: dict[str, object] = {
         "project_root": str(project_root),
         "task": args.task,
-        "run_discovery": run_requested,
+        "run_discovery": True,
         "env": env_overrides,
     }
     if pythonpath_entries:
@@ -1045,12 +1233,13 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         for reason in skip_reasons:
             print(f"    - {reason}")
         if auto_skip:
-            print("  Auto-skip enabled: discovery run deferred (use --validate to execute once prerequisites are met).")
-        elif args.validate:
-            print("  Proceeding with discovery despite preflight warnings (--validate supplied).")
+            print("  Auto-skip enabled: runtime execution deferred until prerequisites are satisfied.")
 
     if auto_skip:
+        spec["run_discovery"] = False
         spec["skip_import"] = True
+    else:
+        env_overrides[ENV_VALIDATE_FLAG] = "1"
     atlas_dir.mkdir(parents=True, exist_ok=True)
     if discovery_path.exists() and not args.force:
         print(f"{discovery_path} already exists; use --force to refresh.", file=sys.stderr)
@@ -1059,13 +1248,13 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         print(f"{config_path} already exists; use --force to refresh.", file=sys.stderr)
         return 1
     discovery_payload: dict[str, object] | None = None
-    attempts = 2 if synthesis_used and synthesizer is not None else 1
+    attempts = 2 if llm_synthesis_used and synthesizer is not None else 1
     for attempt in range(attempts):
         try:
             discovery_payload = invoke_discovery_worker(spec, timeout=args.timeout or 180)
             break
         except DiscoveryWorkerError as exc:
-            if synthesizer is not None and synthesis_used and attempt < attempts - 1:
+            if synthesizer is not None and llm_synthesis_used and attempt < attempts - 1:
                 synthesizer.retry_with_error(exc.traceback or str(exc))
                 continue
             print(f"Discovery worker failed: {exc}", file=sys.stderr)
@@ -1095,13 +1284,14 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     capabilities = metadata.get("capabilities") if isinstance(metadata.get("capabilities"), dict) else {}
     write_discovery_payload(discovery_path, metadata=metadata)
     try:
+        want_full_config = bool(getattr(args, "scaffold_config_full", False)) or yaml is not None
         scaffold_info = _write_generated_config(
             config_path,
             project_root,
             targets,
             capabilities,
             force=args.force,
-            scaffold_full=bool(getattr(args, "scaffold_config_full", False)),
+            scaffold_full=want_full_config,
         )
     except FileExistsError as exc:
         print(exc, file=sys.stderr)
@@ -1122,11 +1312,11 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
                 )
             )
         else:
-            if getattr(args, "scaffold_config_full", False):
+            if want_full_config:
                 print("  LLM provider/model not inferred; template defaults retained.")
     else:
         print(f"Generated config stub written to {config_path}")
-        if getattr(args, "scaffold_config_full", False):
+        if want_full_config:
             reason = scaffold_info.get("reason")
             if reason:
                 print(f"  Unable to scaffold full config ({reason}); wrote discovery stub instead.")
@@ -1138,35 +1328,24 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
             telemetry=telemetry_status,
         )
     )
-    if not run_requested:
-        if args.no_run:
-            print("Run skipped (--no-run supplied).")
-        elif auto_skip:
-            print("Run skipped automatically based on preflight guidance. Use `atlas env init --validate` once dependencies are ready.")
-        else:
-            print("Run skipped.")
-    else:
-        print("Discovery loop completed. Review .atlas/discover.json for captured telemetry.")
-        if not args.skip_sample_run:
-            runtime_spec = dict(spec)
-            runtime_spec["run_discovery"] = True
-            try:
-                result, run_path = execute_runtime(
-                    runtime_spec,
-                    capabilities=capabilities,
-                    atlas_dir=atlas_dir,
-                    task=args.task,
-                    timeout=args.timeout or 240,
-                )
-                final_answer = result.get("final_answer")
-                print(f"Sample run recorded at {run_path}")
-                if isinstance(final_answer, str) and final_answer.strip():
-                    print("Sample run final answer:")
-                    print(final_answer.strip())
-            except CLIError as exc:
-                print(f"Sample runtime failed: {exc}", file=sys.stderr)
-        else:
-            print("Skipping immediate sample run (--skip-sample-run supplied).")
+    try:
+        config_display = config_path.relative_to(project_root)
+    except ValueError:
+        config_display = config_path
+    next_command = ["atlas", "run"]
+    cwd = Path.cwd().resolve()
+    if project_root != cwd:
+        next_command.extend(["--path", str(project_root)])
+    next_command.extend(["--config", str(config_display)])
+    if args.task:
+        next_command.extend(["--task", args.task])
+    quoted_command = " ".join(shlex.quote(part) for part in next_command)
+    print("Next step:")
+    if project_root != cwd:
+        print(f"  cd {shlex.quote(str(project_root))}")
+    print(f"  {quoted_command}")
+    if auto_skip:
+        print("  (Wait for the prerequisites noted above before running this command.)")
     return 0
 
 
@@ -1189,17 +1368,17 @@ def register_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPars
     init_parser.add_argument(
         "--no-run",
         action="store_true",
-        help="Skip executing the discovery loop; only detect candidates.",
+        help=argparse.SUPPRESS,
     )
     init_parser.add_argument(
         "--skip-sample-run",
         action="store_true",
-        help="Skip suggesting the immediate sample run after discovery completes.",
+        help=argparse.SUPPRESS,
     )
     init_parser.add_argument(
         "--validate",
         action="store_true",
-        help="Force execution of the discovery loop even if preflight diagnostics recommend skipping.",
+        help=argparse.SUPPRESS,
     )
     init_parser.add_argument(
         "--env-fn",

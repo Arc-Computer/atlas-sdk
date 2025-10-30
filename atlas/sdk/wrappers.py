@@ -58,9 +58,9 @@ class StepwiseAgentAdapter(AtlasAgentProtocol):
         emit_event: TelemetryEmitterProtocol | None = None,
     ) -> Any:
         observation = context.observation
-        result = self._call_optional("act", context, emit_event=emit_event)
+        result = self._call_optional("act", observation, emit_event=emit_event)
         if result is None:
-            result = self._call_optional("act", observation, emit_event=emit_event)
+            result = self._call_optional("act", context, emit_event=emit_event)
         if result is None:
             raise TypeError("Wrapped agent does not expose an act(...) method with compatible signature.")
         action, submit, metadata = _interpret_action_payload(result)
