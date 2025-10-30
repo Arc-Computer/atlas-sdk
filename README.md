@@ -35,13 +35,12 @@ Use Python 3.10 or newer before installing. Pip on older interpreters (e.g., 3.9
 
 | If your project... | Quick path | What to know |
 | --- | --- | --- |
-| Already exposes Atlas-shaped classes (`reset`/`step`/`close`, `plan`/`act`/`summarize`) or uses `@atlas.environment` / `@atlas.agent` decorators | `atlas env init --task "..."` → `atlas run --task "..."` | Discovery hashes your modules, writes `.atlas/discover.json` + `.atlas/generated_config.yaml`, and you’re ready to go—no factories required. |
-| Relies on LangGraph, SecRL, or other frameworks that need custom constructors/config | `atlas env scaffold --template langgraph` (optional helper), then `atlas env init --env-fn ... --agent-fn ...` | Use lightweight factory helpers (see `examples/langgraph_adapter.py`) to instantiate your stack. Pass extra args via `--env-arg/--agent-arg` and configs via `--env-config/--agent-config`. |
+| Your repo already exposes environment and agent entrypoints Atlas can instantiate (decorators optional) | `atlas env init` → `atlas run --config .atlas/generated_config.yaml --task "..."` | `atlas env init` scans for those classes/factories, writes `.atlas/generated_config.yaml` with the actual prompts + LLM defaults, and `atlas run` streams the adaptive loop live while saving the trace under `.atlas/runs/`. |
 
 **Prerequisites**
 - `pip install arc-atlas`
 - LLM credentials exported (`OPENAI_API_KEY`, `GEMINI_API_KEY`, etc.) or present in a `.env`
-- Optional but recommended for learning persistence: `STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas` (run `atlas init` to scaffold Dockerised Postgres if needed)
+- Atlas needs Postgres. Run `atlas init` to start the bundled Docker + Postgres stack if you do not have one.
 
 **1. Create a virtual environment & install the SDK**
 ```bash
@@ -59,73 +58,18 @@ export XAI_API_KEY=...
 ```
 Keys can also live in a local `.env` file; the Atlas CLI and quickstart scripts automatically load it via [python-dotenv](https://pypi.org/project/python-dotenv/).
 
-If you want persistent learning updates, ensure a Postgres instance is reachable (the `atlas init` helper will start one via Docker) and export `STORAGE__DATABASE_URL` before running the CLI.
-
-**3. Run an Example**
-
-Create a python file `run_quickstart.py`:
-
-```python
-from atlas import core
-
-result = core.run(
-    task="Summarise the latest Atlas SDK updates",
-    config_path="configs/examples/openai_agent.yaml",
-)
-
-print(result.final_answer)
-```
-
 Then run the script:
 ```bash
-python run_quickstart.py
+atlas run .atlas/generated_config.yaml --task "..."
 ```
-
-> **Tip for local development:** the runtime now gates exports on approved sessions. If you are experimenting locally and don’t want to run the review CLI every time, set `ATLAS_REVIEW_REQUIRE_APPROVAL=0` in your shell before exporting traces. Production deployments should keep approval enabled.
-
 ### Autodiscovery Onboarding
 
-Pick the flow that matches your project:
-
-**Decorator-first (no factories)**
-
 ```bash
-pip install arc-atlas
-# Ensure your environment / agent classes are decorated with @atlas.environment / @atlas.agent
-atlas env init --task "Investigate production incident"
-atlas run --task "Investigate production incident"
-```
-
-**Factory-driven (custom stacks)**
-
-```bash
-pip install arc-atlas
-# Optionally scaffold a reference implementation into your repo
-atlas env scaffold --template langgraph
-
-atlas env init --task "Investigate production incident" \
-  --env-fn langgraph_adapter:create_environment \
-  --agent-fn langgraph_adapter:create_agent \
-  --env-arg incident_id=38 --no-run
-atlas run --task "Investigate production incident"
+atlas env init
 ```
 
 `atlas env init` scans your codebase, captures telemetry, and writes
-`.atlas/discover.json` / `.atlas/generated_config.yaml`. Pass `--scaffold-config-full`
-to have the CLI merge discovery metadata into a runnable Atlas configuration using
-the OpenAI example template—provider/model hints are propagated automatically when
-we can introspect your agent stack. When it detects heavier stacks
-(LangGraph/DeepAgents, multi-service environments, etc.) it records preflight notes and skips
-execution until you rerun with `--validate`. When autodiscovery finds no candidates it prints a reminder pointing to
-`atlas env scaffold --template langgraph` so you can start from a working factory.
-Discovery now auto-loads `.env` (including `PYTHONPATH`) before spinning up your
-factories and will derive additional import hints from the factories you pass on
-the command line—most stacks no longer need manual `PYTHONPATH` exports. For
-offline validation pipelines, set `ATLAS_FAKE_LLM=1` to run smoke tests against
-the generated config without calling a live provider.
-
-See [`examples/langgraph_adapter.py`](examples/langgraph_adapter.py) and the [Stateful Agent Quickstart](docs/sdk/quickstart.mdx)
-for end-to-end templates, configuration snippets, and troubleshooting tips.
+`.atlas/discover.json` / `.atlas/generated_config.yaml`.
 
 ---
 
@@ -162,91 +106,9 @@ The README hits the highlights. For the complete guide—including configuration
 3. validator role reviews     # ensures tooling, dependencies, and risks are handled
 4. Orchestrator.arun()        # executes steps, applies guidance, records telemetry
 5. Evaluator.ajudge()         # aggregates reward signals (process/helpfulness/custom)
-6. Database.log_*()           # optional persistence of plans, attempts, trajectory events
+6. Database.log_*()           # stores plans, attempts, trajectory events in Postgres
 7. Review + export guards     # reward stats + drift alerts gate training exports until approved
 ```
-
-Trajectory events stream through `ExecutionContext.event_stream`, enabling live console streaming and durable storage via `atlas/runtime/storage/database.py` and `atlas/runtime/storage/schema.sql`. Every persisted session now carries `reward_stats`, a `drift` payload, and a `review_status` (`pending`, `approved`, or `quarantined`). The `arc-atlas review ...` commands surface drift deltas and let operators approve or quarantine traces before `arc-atlas` exports them (approved runs remain the default filter).
-
-Add a `runtime_safety` block to tune guardrails without touching code:
-
-```yaml
-runtime_safety:
-  drift:
-    window: 75            # number of prior sessions in the baseline
-    z_threshold: 2.5      # sensitivity for score/uncertainty drift
-    min_baseline: 10      # minimum history before alerts fire
-  review:
-    require_approval: true
-    default_export_statuses: ["approved"]
-```
-
-Environment knobs (`ATLAS_DRIFT_WINDOW`, `ATLAS_DRIFT_Z_THRESHOLD`, `ATLAS_DRIFT_MIN_BASELINE`, `ATLAS_REVIEW_DEFAULT_EXPORT_STATUSES`, `ATLAS_REVIEW_REQUIRE_APPROVAL`) override the YAML for quick local experiments.
-
----
-
-## Run with Docker
-
-The repo ships with a ready-to-go Compose stack under `docker/`:
-
-```bash
-# 1. Ensure your project .env includes the required keys (Compose reads it automatically):
-#    OPENAI_API_KEY=sk-...
-#    GEMINI_API_KEY=...
-# 2. Build the SDK image and start Postgres + the demo agent
-docker compose -f docker/docker-compose.yaml up --build
-```
-
-- `postgres` starts a local PostgreSQL instance with a persisted volume (`atlas_pg_data`).
-- `atlas` builds the SDK image, installs the package, and runs the ARC demo entrypoint by default (see `docker/entrypoint.sh`). The entrypoint uses `ATLAS_QUICKSTART_CONFIG=docker/configs/atlas.docker.yaml`, which expects the Compose-provided Postgres service.
-- Compose reads `.env` automatically, so the container sees the same `OPENAI_API_KEY` / `GEMINI_API_KEY` values you use locally.
-- Pass a custom command to run other configs:  
-  `docker compose -f docker/docker-compose.yaml run --rm atlas python -m atlas.cli.main --help`
-
-The container mounts your repo at `/workspace`, so you can edit code locally and rerun without rebuilding. The default entrypoint is `docker/entrypoint.sh`; override it by supplying arguments after the service name (they replace the demo command).
-
----
-
-## Using `pip install arc-atlas`
-
-When you install the SDK from PyPI you still need a PostgreSQL URL if you want persistence. The CLI now ships with a helper that can prepare a local Postgres for you:
-
-```bash
-pip install arc-atlas
-# Option A – use Docker (recommended)
-atlas init  # installs Docker if missing, writes atlas-postgres.yaml, and starts Postgres
-
-# Option B – run docker compose yourself if you prefer
-docker compose -f docker/docker-compose.yaml up -d postgres
-
-# Either export these for the current shell or ensure they're present in .env
-export STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas
-export OPENAI_API_KEY=sk-...
-# Optional Process/Helpfulness judges
-export GEMINI_API_KEY=...
-export XAI_API_KEY=...
-
-# Minimal runner script example (save as run_atlas.py)
-# -----------------------------------------------
-# from atlas import core
-#
-# result = core.run(
-#     task="Summarise the Atlas SDK",
-#     config_path="path/to/config.yaml",
-#     stream_progress=True,
-# )
-# print(result.final_answer)
-#
-# Then execute:
-# python run_atlas.py
-```
-- `atlas init` installs Docker when possible, writes `atlas-postgres.yaml`, starts the PostgreSQL container, and applies the Atlas schema automatically.
-- The compose configuration exposes Postgres on host port `5433`; keep the URL in sync if you change the mapping.
-- You can point `storage.database_url` inside your YAML config or rely on the `STORAGE__DATABASE_URL` environment variable shown above.
-- Shut everything down with `atlas quit` (use `--purge` to remove the Docker volume) when you no longer need local storage.
-- If storage is optional for your workflow, set `storage: null` in the config—runs will skip persistence but still execute end-to-end.
-- No Docker? Install Postgres by hand (local package manager, managed instance, etc.) and point `STORAGE__DATABASE_URL` at that server instead—or run `atlas init --skip-docker-install` to reuse an existing Docker Engine.
-
 ---
 
 ## Exporting Runtime Sessions
@@ -310,64 +172,6 @@ Atlas ships opinionated prompt templates for three cooperative roles:
 3. **Validator / Guide** – inspects execution, supplies corrective guidance, and triggers certification rewards when needed.
 
 Override the defaults by providing explicit `student.prompts` and `teacher.prompts` blocks in your configuration. You can tailor each role’s prompt text directly—no `{base_prompt}` substitution required—while keeping token budgets and retry settings consistent.
-
-### Example: HTTP Adapter (excerpt)
-
-```yaml
-agent:
-  type: http_api
-  name: example-http-agent
-  system_prompt: |
-    You are an HTTP-based agent that can call external services.
-  tools:
-    - name: web_search
-      description: Search the web for relevant documents.
-      parameters:
-        type: object
-        properties:
-          query:
-            type: string
-            description: Query string to search for.
-        required: [query]
-  transport:
-    base_url: http://localhost:8080/agent
-    timeout_seconds: 60
-```
-
----
-
-## Terminal Telemetry
-
-Atlas streams orchestration events directly to the terminal when `core.run` executes in an interactive shell. The default console renderer highlights the accepted plan, step attempts, tool invocations, reward scores, and the final synthesis without extra setup.
-
-Example session:
-
-```text
-=== Atlas task started: Summarize the Atlas SDK (2025-02-12 10:15:03) ===
-Plan ready with steps:
-  1. gather dataset A
-  2. synthesise findings
-[step 1] attempt 1 started: gather dataset A
-[tool] web_search call -> {"query": "Atlas SDK release"}
-[tool] web_search result <- {"result": "..."}
-[step 1] completed: gather dataset A
-  reward score: 0.91
-[step 2] retry 2 started: synthesise findings
-  guidance: cite the repository README
-=== Atlas task completed in 12.4s ===
-Final answer:
-  Atlas SDK ships an adaptive dual-agent reasoning harness...
-- gather dataset A | attempts: 1 | score: 0.91
-- synthesise findings | attempts: 2 | score: 0.88
-RIM scores | max: 0.91 | avg: 0.89
-```
-
-Disable streaming with `core.run(..., stream_progress=False)` when piping output or running in CI. Pass `stream_progress=True` to force streaming even when stdout is not a TTY. The renderer also works with `core.arun` and runs alongside PostgreSQL persistence, so stored sessions retain full telemetry.
-
-See `docs/examples/terminal_telemetry.md` for a step-by-step walkthrough.
-
-For a deeper look at how these events map onto the Atlas training stack—and why the SDK keeps telemetry lightweight—see
-`docs/runtime_telemetry_overview.md`.
 
 ---
 

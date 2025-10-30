@@ -93,12 +93,12 @@ class StepwiseAgentAdapter(AtlasAgentProtocol):
             return None
         try:
             return target(*args, **kwargs)
-        except TypeError:
+        except (AttributeError, TypeError):
             # Retry without keyword arguments if possible.
             if kwargs:
                 try:
                     return target(*args)
-                except TypeError:
+                except (AttributeError, TypeError):
                     return None
             return None
 

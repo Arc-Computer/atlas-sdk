@@ -1120,10 +1120,14 @@ def _compose_full_config_payload(
     targets: SelectedTargets,
     project_root: Path,
     llm_capabilities: dict[str, Any],
-    capabilities: dict[str, object],
-    runtime_metadata: dict[str, dict[str, object]] | None,
+    capabilities: dict[str, object] | None = None,
+    runtime_metadata: dict[str, dict[str, object]] | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    capabilities = capabilities or {}
+    runtime_metadata = runtime_metadata or {}
     config_payload = copy.deepcopy(template_payload)
+    config_payload.setdefault("learning", {})
+    config_payload.setdefault("runtime_safety", {})
     agent_module, agent_qualname = _resolve_callable_reference(targets.agent)
     if not agent_module or not agent_qualname:
         return None, {"reason": "agent-missing"}
@@ -1144,7 +1148,7 @@ def _compose_full_config_payload(
     tools_section = agent_template.get("tools") if isinstance(agent_template, dict) else []
     if isinstance(tools_section, list):
         agent_block["tools"] = copy.deepcopy(tools_section)
-    agent_runtime_meta = runtime_metadata.get("agent") if runtime_metadata else {}
+    agent_runtime_meta = runtime_metadata.get("agent") if isinstance(runtime_metadata, dict) else {}
     prompt_literals = agent_runtime_meta.get("prompts") if isinstance(agent_runtime_meta, dict) else []
     if isinstance(prompt_literals, list) and prompt_literals:
         agent_block["system_prompt"] = prompt_literals[0]
@@ -1195,12 +1199,9 @@ def _compose_full_config_payload(
     teacher_block["llm"] = _build_llm_block(teacher_template.get("llm") if isinstance(teacher_template, dict) else None, llm_provider, llm_model)
     config_payload["teacher"] = teacher_block
 
-    config_payload.pop("learning", None)
-    config_payload.pop("runtime_safety", None)
-
     metadata_block_current = config_payload.get("metadata") if isinstance(config_payload.get("metadata"), dict) else {}
     discovery_meta: dict[str, Any] = {}
-    env_runtime_meta = runtime_metadata.get("environment") if runtime_metadata else {}
+    env_runtime_meta = runtime_metadata.get("environment") if isinstance(runtime_metadata, dict) else {}
     if isinstance(env_runtime_meta, dict) and env_runtime_meta.get("parameters"):
         discovery_meta["environment_parameters"] = env_runtime_meta["parameters"]
     if isinstance(agent_runtime_meta, dict):
@@ -1223,15 +1224,13 @@ def _compose_full_config_payload(
             "source": llm_source,
         }
     runtime_meta_info = {
-        "environment": f"{targets.environment.factory[0]}:{targets.environment.factory[1]}"
-        if targets.environment.factory
-        else targets.environment.dotted_path(),
-        "agent": f"{targets.agent.factory[0]}:{targets.agent.factory[1]}"
-        if targets.agent.factory
-        else targets.agent.dotted_path(),
+        "environment": targets.environment.dotted_path(),
+        "agent": targets.agent.dotted_path(),
         "control_loop": capabilities.get("control_loop", "self"),
         "supports_stepwise": bool(capabilities.get("supports_stepwise", False)),
         "preferred_mode": capabilities.get("preferred_mode", "auto"),
+        "behavior": capabilities.get("control_loop", "self"),
+        "forced_mode": capabilities.get("forced_mode", capabilities.get("preferred_mode", "auto")),
     }
     metadata_block = copy.deepcopy(metadata_block_current)
     if discovery_meta:
