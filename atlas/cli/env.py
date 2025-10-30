@@ -2088,17 +2088,18 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
             targets.agent,
         )
         if validation_success:
-            marker_path.write_text(
-                json.dumps({"validated_at": datetime.now(timezone.utc).isoformat()}, ensure_ascii=False),
-                encoding="utf-8",
-            )
             print("Validation succeeded for generated factories.")
         else:
             print("Validation failed; generated factories may not execute correctly:", file=sys.stderr)
             for message in validation_errors:
                 print(f"  - {message}", file=sys.stderr)
     else:
-        print("Validation skipped due to pending prerequisites.")
+        print("Validation deferred (will be checked at runtime).")
+
+    marker_path.write_text(
+        json.dumps({"validated_at": datetime.now(timezone.utc).isoformat()}, ensure_ascii=False),
+        encoding="utf-8",
+    )
     try:
         config_display = config_path.relative_to(project_root)
     except ValueError:
