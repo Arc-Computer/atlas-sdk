@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import warnings
 from enum import Enum
 from typing import Any
 from typing import Dict
@@ -17,6 +18,12 @@ from pydantic import ConfigDict
 from pydantic import Field
 from pydantic import field_validator
 from pydantic import model_validator
+
+warnings.filterwarnings(
+    "ignore",
+    message='Field name "schema" in "LearningConfig" shadows an attribute in parent "BaseModel"',
+    category=UserWarning,
+)
 
 class RetryPolicy(BaseModel):
     """Retry behavior for adapter calls."""

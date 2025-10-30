@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import warnings
 from pathlib import Path
 from textwrap import dedent, indent
 
@@ -12,6 +13,13 @@ from atlas.cli import run as run_cli
 from atlas.cli import train as train_cli
 from atlas.cli.storage_runtime import InitOptions, QuitOptions, init_storage, quit_storage
 from atlas.utils.env import load_dotenv_if_available
+
+
+warnings.filterwarnings(
+    "ignore",
+    message='Field name "schema" in "LearningConfig" shadows an attribute in parent "BaseModel"',
+    category=UserWarning,
+)
 
 
 def _format_snippet(snippet: str) -> str:

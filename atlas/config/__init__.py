@@ -1,5 +1,13 @@
 """Atlas configuration helpers."""
 
+import warnings
+
+warnings.filterwarnings(
+    "ignore",
+    message='Field name "schema" in "LearningConfig" shadows an attribute in parent "BaseModel"',
+    category=UserWarning,
+)
+
 from atlas.config.loader import ConfigLoadError
 from atlas.config.loader import load_config
 from atlas.config.loader import parse_config

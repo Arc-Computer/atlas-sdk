@@ -7,10 +7,17 @@ import asyncio
 import contextlib
 import json
 import sys
+import warnings
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
+
+warnings.filterwarnings(
+    "ignore",
+    message='Field name "schema" in "LearningConfig" shadows an attribute in parent "BaseModel"',
+    category=UserWarning,
+)
 
 from atlas.cli.utils import CLIError, execute_runtime, parse_env_flags, write_run_record
 from atlas.core import arun as atlas_arun
@@ -723,21 +730,19 @@ def _run_with_config(args: argparse.Namespace) -> int:
         stream_enabled = bool(getattr(args, "stream", False))
         monitor: _StreamMonitor | None = None
         queue: asyncio.Queue[IntermediateStep | None] | None = None
-        subscription = None
         consumer_task: asyncio.Task[None] | None = None
+
+        def _event_handler(event: IntermediateStep) -> None:
+            if queue is None:
+                return
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:  # pragma: no cover - defensive guard
+                pass
 
         if stream_enabled:
             monitor = _StreamMonitor(execution_context)
             queue = asyncio.Queue()
-            loop = asyncio.get_running_loop()
-
-            def _on_next(event: IntermediateStep) -> None:
-                try:
-                    loop.call_soon_threadsafe(queue.put_nowait, event)
-                except RuntimeError:
-                    pass
-
-            subscription = execution_context.event_stream.subscribe(_on_next)
 
             async def _consume() -> None:
                 try:
@@ -759,10 +764,9 @@ def _run_with_config(args: argparse.Namespace) -> int:
                 str(config_path),
                 stream_progress=stream_enabled,
                 session_metadata={"source": "atlas run"},
+                intermediate_step_handler=_event_handler if stream_enabled else None,
             )
         finally:
-            if subscription is not None:
-                subscription.unsubscribe()
             if queue is not None:
                 with contextlib.suppress(asyncio.QueueFull):
                     queue.put_nowait(None)
