@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+# Suppress the Pydantic schema shadow warning from atlas.config.models at import time.
 import warnings
 
 warnings.filterwarnings(
