@@ -58,3 +58,41 @@ storage:
 
 adaptive_teaching:
   learning_history_limit: 10
+
+learning:
+  enabled: true
+  update_enabled: true
+  llm:
+    provider: gemini
+    model: gemini/gemini-2.5-flash
+    api_key_env: GEMINI_API_KEY
+    temperature: 0.1
+    max_output_tokens: 8192
+    timeout_seconds: 120
+  schema:
+    allowed_runtime_handles:
+      - read_file
+      - write_file
+      - list_files
+      - search_content
+      - run_command
+    cue_types: [regex, keyword, predicate]
+    default_scope_category: reinforcement
+  gates:
+    enforce_actionability: true
+    enforce_cue: true
+    enforce_generality: true
+    max_text_length: 420
+    allowed_proper_nouns: [SQL, HTTP, JSON, Atlas, API, MCP]
+  rubric_weights:
+    actionability: 0.4
+    generality: 0.3
+    hookability: 0.2
+    concision: 0.1
+  usage_tracking:
+    enabled: true
+    capture_examples: true
+    max_examples_per_entry: 3
+  history_limit: 10
+  session_note_enabled: true
+  apply_to_prompts: true
