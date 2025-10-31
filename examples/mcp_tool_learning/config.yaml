@@ -1,0 +1,60 @@
+agent:
+  type: python
+  name: mcp-file-operations-agent
+  system_prompt: |
+    You are a file operations assistant with access to MCP tools. Use the available tools efficiently
+    to complete file management tasks. Always choose the most appropriate tool for each operation.
+  tools: []
+  import_path: examples.mcp_tool_learning.mcp_agent
+  attribute: create_agent
+  working_directory: ./
+  allow_generator: false
+  llm:
+    provider: openai
+    model: gpt-4.1-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.1
+    max_output_tokens: 4096
+    timeout_seconds: 120
+
+teacher:
+  llm:
+    provider: openai
+    model: gpt-4.1-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.05
+    max_output_tokens: 4096
+    timeout_seconds: 120
+
+rim:
+  small_model:
+    provider: gemini
+    model: gemini/gemini-2.5-flash
+    api_key_env: GEMINI_API_KEY
+    max_output_tokens: 8192
+  large_model:
+    provider: gemini
+    model: gemini/gemini-2.5-flash
+    api_key_env: GEMINI_API_KEY
+    max_output_tokens: 8192
+  judge_prompt: |
+    Reward the agent for effective and efficient tool usage. Higher scores for:
+    - Using the correct tool for each task (read_file for reading, write_file for writing, etc.)
+    - Minimizing redundant operations (e.g., not listing files multiple times unnecessarily)
+    - Completing tasks with fewer steps when possible
+    - Proper error handling and recovery from failures
+    Lower scores for:
+    - Using wrong tools (e.g., trying to read with write_file)
+    - Excessive or redundant tool calls
+    - Failing to complete the task or producing incorrect results
+  variance_threshold: 0.15
+  uncertainty_threshold: 0.3
+
+storage:
+  database_url: postgresql://atlas:atlas@localhost:5433/atlas
+  min_connections: 1
+  max_connections: 5
+  statement_timeout_seconds: 30
+
+adaptive_teaching:
+  learning_history_limit: 10

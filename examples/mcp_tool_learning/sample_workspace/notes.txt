@@ -1,0 +1,13 @@
+Important Notes for MCP Tool Learning
+
+This is a test file for the Atlas SDK MCP tool learning example.
+It contains several important keywords that can be searched for:
+- important
+- test
+- learning
+- backup (mentioned here for search testing)
+
+The agent should learn to efficiently read this file using the read_file tool.
+It should also learn when to use search_content vs read_file.
+
+Task completion requires understanding context and choosing the right tool.
