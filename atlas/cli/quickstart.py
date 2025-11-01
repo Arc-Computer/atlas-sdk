@@ -134,35 +134,29 @@ class TaskMetrics:
     artifact_path: Path | None = None
 
 
-def _check_storage_available(database_url: str = DEFAULT_DATABASE_URL) -> bool:
+async def _check_storage_available(database_url: str = DEFAULT_DATABASE_URL) -> bool:
     """Check if Postgres storage is available."""
-    async def _test_connection() -> bool:
-        try:
-            config = StorageConfig(
-                database_url=database_url,
-                min_connections=1,
-                max_connections=1,
-                statement_timeout_seconds=5.0,
-            )
-            database = Database(config)
-            await database.connect()
-            await database.disconnect()
-            return True
-        except Exception:
-            return False
-
     try:
-        return asyncio.run(_test_connection())
+        config = StorageConfig(
+            database_url=database_url,
+            min_connections=1,
+            max_connections=1,
+            statement_timeout_seconds=5.0,
+        )
+        database = Database(config)
+        await database.connect()
+        await database.disconnect()
+        return True
     except Exception:
         return False
 
 
-def _ensure_storage(skip_storage: bool) -> bool:
+async def _ensure_storage(skip_storage: bool) -> bool:
     """Ensure storage is available, optionally prompting user to initialize."""
     if skip_storage:
         return False
 
-    if _check_storage_available():
+    if await _check_storage_available():
         return True
 
     print("\n⚠️  Postgres storage is not available.")
@@ -520,7 +514,7 @@ async def _cmd_quickstart_async(args: argparse.Namespace) -> int:
     config_path = _resolve_config_path(args.config)
 
     # Check storage availability
-    storage_available = _ensure_storage(args.skip_storage)
+    storage_available = await _ensure_storage(args.skip_storage)
 
     # Show cost estimate (unless offline)
     offline_mode = os.getenv("ATLAS_OFFLINE_MODE", "0") not in {"0", "", "false", "False"}
