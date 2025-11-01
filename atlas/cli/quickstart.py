@@ -354,11 +354,18 @@ async def _run_task(task: str, task_num: int, config_path: str, atlas_dir: Path)
 
     start_time = time.perf_counter()
     try:
+        # Use consistent learning_key across all quickstart tasks so learning persists
+        # This allows the system to learn from previous tasks in the sequence
+        session_metadata = {
+            "source": "atlas quickstart",
+            "task_num": task_num,
+            "learning_key_override": "atlas-quickstart-security-review",  # Consistent key for all tasks
+        }
         result = await core.arun(
             task=task,
             config_path=config_path,
             stream_progress=True,
-            session_metadata={"source": "atlas quickstart", "task_num": task_num},
+            session_metadata=session_metadata,
         )
     except Exception as exc:
         print(f"❌ Task {task_num} failed: {exc}", file=sys.stderr)
