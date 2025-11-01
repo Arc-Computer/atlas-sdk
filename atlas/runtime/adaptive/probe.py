@@ -87,7 +87,6 @@ class CapabilityProbeClient:
         dossier: Dict[str, Any],
         execution_metadata: Dict[str, Any],
     ) -> CapabilityProbeDecision:
-        
         if not self._enabled:
             return CapabilityProbeDecision(
                 mode=None,
