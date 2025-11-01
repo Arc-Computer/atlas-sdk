@@ -51,3 +51,4 @@ htmlcov/
 # Evaluation artifacts
 results/
 .atlas/
+.DS_Store

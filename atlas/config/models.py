@@ -407,7 +407,16 @@ class LearningConfig(BaseModel):
 
     enabled: bool = True
     update_enabled: bool = True
-    llm: LLMParameters | None = None
+    llm: LLMParameters | None = Field(
+        default_factory=lambda: LLMParameters(
+            provider=LLMProvider.GEMINI,
+            model="gemini/gemini-2.5-flash",
+            api_key_env="GEMINI_API_KEY",
+            temperature=0.1,
+            max_output_tokens=8192,
+            timeout_seconds=120.0,
+        )
+    )
     prompts: LearningPrompts | None = None
     history_limit: int = Field(default=10, ge=1, le=200)
     session_note_enabled: bool = True

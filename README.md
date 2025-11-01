@@ -216,7 +216,7 @@ On success you will see the export path echoed back along with a reminder that A
 PYTHONPATH=. pytest tests --disable-warnings
 ```
 
-The suite covers dependency parsing, prompt rewriting, student/teacher orchestration, RIM aggregation, adapter bridges, and database logging. Most tests rely on locally mocked adapters, so no external network calls occur.
+The suite covers dependency parsing, prompt rewriting, student/teacher orchestration, reward system aggregation, adapter bridges, and database logging. Most tests rely on locally mocked adapters, so no external network calls occur.
 
 ---
 

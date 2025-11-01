@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+__all__ = ["run", "arun"]
+
 import asyncio
 import copy
 import hashlib
@@ -286,7 +288,10 @@ def run(
                 stream_progress=stream_progress,
             )
         )
-    raise RuntimeError("atlas.run cannot be invoked inside an existing event loop")
+    raise RuntimeError(
+        "atlas.run cannot be invoked inside an existing event loop. "
+        "Use 'from atlas.core import arun' and 'await arun(...)' instead when calling from async contexts."
+    )
 
 
 def _build_student(
