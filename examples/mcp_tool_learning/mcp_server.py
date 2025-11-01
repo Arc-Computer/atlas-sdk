@@ -1,12 +1,7 @@
-"""MCP Server with File System Tools
-
-This server provides 5 file operation tools that agents can learn to use effectively.
-It demonstrates MCP integration with Atlas SDK for learning-driven tool usage optimization.
-"""
-
 import json
 import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -15,13 +10,23 @@ import mcp.types as types
 from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 
-# Initialize MCP server
 server = Server("file-operations")
+
+WORKSPACE_DIR = (Path(__file__).parent / "sample_workspace").resolve()
+
+
+def validate_path(path: str, workspace: Path = WORKSPACE_DIR) -> Path | None:
+    try:
+        resolved = (workspace / path).resolve()
+        if resolved.is_relative_to(workspace):
+            return resolved
+    except (ValueError, OSError):
+        pass
+    return None
 
 
 @server.list_tools()
 async def handle_list_tools() -> list[types.Tool]:
-    """List available tools for file operations."""
     return [
         types.Tool(
             name="read_file",
@@ -108,14 +113,20 @@ async def handle_list_tools() -> list[types.Tool]:
 async def handle_call_tool(
     name: str, arguments: dict | None
 ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
-    """Handle tool execution requests."""
     if arguments is None:
         arguments = {}
 
     try:
         if name == "read_file":
             path = arguments.get("path", "")
-            file_path = Path(path).resolve()
+            file_path = validate_path(path)
+            if file_path is None:
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=f"Error: Path outside workspace sandbox: {path}",
+                    )
+                ]
             if not file_path.exists():
                 return [
                     types.TextContent(
@@ -132,7 +143,14 @@ async def handle_call_tool(
         elif name == "write_file":
             path = arguments.get("path", "")
             content = arguments.get("content", "")
-            file_path = Path(path).resolve()
+            file_path = validate_path(path)
+            if file_path is None:
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=f"Error: Path outside workspace sandbox: {path}",
+                    )
+                ]
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
             return [
@@ -144,7 +162,14 @@ async def handle_call_tool(
 
         elif name == "list_files":
             directory = arguments.get("directory", ".")
-            dir_path = Path(directory).resolve()
+            dir_path = validate_path(directory)
+            if dir_path is None:
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=f"Error: Path outside workspace sandbox: {directory}",
+                    )
+                ]
             if not dir_path.exists():
                 return [
                     types.TextContent(
@@ -173,8 +198,14 @@ async def handle_call_tool(
         elif name == "search_content":
             pattern = arguments.get("pattern", "")
             directory = arguments.get("directory", ".")
-            dir_path = Path(directory).resolve()
-
+            dir_path = validate_path(directory)
+            if dir_path is None:
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=f"Error: Path outside workspace sandbox: {directory}",
+                    )
+                ]
             if not dir_path.exists():
                 return [
                     types.TextContent(
@@ -206,7 +237,6 @@ async def handle_call_tool(
                                     }
                                 )
                     except (UnicodeDecodeError, PermissionError):
-                        # Skip files that can't be read as text
                         continue
 
             if not matches:
@@ -217,7 +247,7 @@ async def handle_call_tool(
                 ]
 
             result_text = f"Found {len(matches)} matches for '{pattern}':\n\n"
-            for match in matches[:50]:  # Limit to 50 matches
+            for match in matches[:50]:
                 result_text += f"{match['file']}:{match['line']}: {match['content']}\n"
 
             if len(matches) > 50:
@@ -228,26 +258,70 @@ async def handle_call_tool(
         elif name == "run_command":
             command = arguments.get("command", "")
 
-            # Safety check: only allow specific safe commands
-            safe_commands = ["ls", "pwd", "echo", "cat", "grep", "wc", "head", "tail"]
-            cmd_name = command.split()[0] if command else ""
+            safe_commands = {"ls", "pwd", "echo", "cat", "grep", "wc", "head", "tail"}
 
-            if cmd_name not in safe_commands:
+            try:
+                tokens = shlex.split(command)
+            except ValueError as e:
                 return [
                     types.TextContent(
                         type="text",
-                        text=f"Error: Command '{cmd_name}' is not allowed. Safe commands: {', '.join(safe_commands)}",
+                        text=f"Error: Invalid command syntax: {e}",
                     )
                 ]
 
+            if not tokens or tokens[0] not in safe_commands:
+                cmd_name = tokens[0] if tokens else ""
+                return [
+                    types.TextContent(
+                        type="text",
+                        text=f"Error: Command '{cmd_name}' is not allowed. Safe commands: {', '.join(sorted(safe_commands))}",
+                    )
+                ]
+
+            cmd_name = tokens[0]
+            sanitized_args: list[str] = []
+            pattern_consumed = False
+
+            for arg in tokens[1:]:
+                if arg.startswith("-"):
+                    sanitized_args.append(arg)
+                    continue
+                if cmd_name in {"echo", "pwd"}:
+                    sanitized_args.append(arg)
+                    continue
+                if cmd_name == "grep" and not pattern_consumed:
+                    sanitized_args.append(arg)
+                    pattern_consumed = True
+                    continue
+
+                resolved = validate_path(arg)
+                if resolved is None:
+                    return [
+                        types.TextContent(
+                            type="text",
+                            text=f"Error: Path outside workspace sandbox: {arg}",
+                        )
+                    ]
+                try:
+                    relative = resolved.relative_to(WORKSPACE_DIR)
+                except ValueError:
+                    return [
+                        types.TextContent(
+                            type="text",
+                            text=f"Error: Path outside workspace sandbox: {arg}",
+                        )
+                    ]
+                sanitized_args.append(str(relative))
+
             try:
                 result = subprocess.run(
-                    command,
-                    shell=True,
+                    [cmd_name, *sanitized_args],
+                    shell=False,
                     capture_output=True,
                     text=True,
                     timeout=10,
-                    cwd=Path(__file__).parent / "sample_workspace",
+                    cwd=WORKSPACE_DIR,
                 )
                 output = result.stdout if result.returncode == 0 else result.stderr
                 return [
@@ -275,7 +349,6 @@ async def handle_call_tool(
 
 
 async def main():
-    """Run the MCP server using stdio transport."""
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream,
