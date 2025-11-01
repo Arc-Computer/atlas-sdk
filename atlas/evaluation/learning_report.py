@@ -520,8 +520,9 @@ def summary_to_markdown(summary: LearningSummary) -> str:
             token_delta = _format_float(entry.token_delta)
             impact_score = _format_float(entry.impact_score)
             transfer = "yes" if entry.transfer_success else "no"
+            transfer_display = f"{transfer} ({entry.transfer_level})"
             lines.append(
-                f"- `{entry.entry_id}` ({entry.audience or 'student'}) — hits {entry.total_cue_hits}, adoptions {entry.adoption_events}, adoption rate {adoption}, reward Δ {reward_delta}, tokens Δ {token_delta}, transfer {transfer}, impact score {impact_score}"
+                f"- `{entry.entry_id}` ({entry.audience or 'student'}) — hits {entry.total_cue_hits}, adoptions {entry.adoption_events}, adoption rate {adoption}, reward Δ {reward_delta}, tokens Δ {token_delta}, transfer {transfer_display}, impact score {impact_score}"
             )
             failure_stats = entry.failure_avoidance or {}
             if failure_stats:

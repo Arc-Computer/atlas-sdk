@@ -188,3 +188,4 @@ def test_summary_to_markdown_includes_impact_section():
     markdown = summary_to_markdown(summary)
     assert "Playbook Entry Impact" in markdown
     assert "impact score" in markdown
+    assert "yes (domain)" in markdown  # Verify transfer_level is displayed
