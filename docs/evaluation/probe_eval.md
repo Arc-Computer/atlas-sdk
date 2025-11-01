@@ -11,8 +11,8 @@ Goal: compare several LLM backends (Gemini 2.5 Flash, Claude Haiku 4.5, Grok 4 F
 - API keys for Google, Anthropic, and xAI available via `.env`.
 
 The repository ships:
-- `atlas/data/sample_probe_payloads.jsonl` — three anonymised seed examples (auto/paired/escalate) for smoke testing.
-- `data/probe_eval_synthetic.jsonl` — 25 synthetic traces spanning all probe modes (auto/paired/coach/escalate) used in the latest evaluation below.
+- `atlas/data/sample_probe_payloads.jsonl` — three anonymised seed examples (auto/paired/coach) for smoke testing.
+- `data/probe_eval_synthetic.jsonl` — 25 synthetic traces spanning all probe modes (auto/paired/coach) used in the latest evaluation below.
 
 ### Metrics
 For each model:
@@ -67,13 +67,13 @@ Append multiple exports (varying `--offset`) if you need more coverage, then fee
 
 ### Latest Evaluation (2025-10-20)
 
-Dataset: `data/probe_eval_synthetic.jsonl` (25 probe traces spanning auto/paired/coach/escalate)
+Dataset: `data/probe_eval_synthetic.jsonl` (25 probe traces spanning auto/paired/coach)
 
-| Model ID | Accuracy | Successes | Failures | Mode distribution (auto / paired / coach / escalate) | Mean latency (s) | Median latency (s) | p95 latency (s) |
+| Model ID | Accuracy | Successes | Failures | Mode distribution (auto / paired / coach) | Mean latency (s) | Median latency (s) | p95 latency (s) |
 |----------|---------:|----------:|---------:|------------------------------------------------------|-----------------:|-------------------:|----------------:|
-| gemini   | 54 %     | 24        | 1        | 7 / 4 / 10 / 3                                       | 8.77             | 8.84               | 14.41           |
-| anthropic| 64 %     | 25        | 0        | 8 / 7 / 8 / 2                                        | 1.25             | 1.16               | 1.94            |
-| xai      | 50 %     | 2         | 23       | 1 / 0 / 1 / 0                                        | 2.79             | 2.79               | 3.90            |
+| gemini   | 54 %     | 24        | 1        | 7 / 4 / 13                                       | 8.77             | 8.84               | 14.41           |
+| anthropic| 64 %     | 25        | 0        | 8 / 7 / 10                                        | 1.25             | 1.16               | 1.94            |
+| xai      | 50 %     | 2         | 23       | 1 / 0 / 1                                        | 2.79             | 2.79               | 3.90            |
 
 - Claude Haiku is currently the most accurate probe model (≈ 64 %) with sub‑2 s latency and no failures across the dataset.  
 - Gemini Flash trails on routing accuracy (~54 %) but remains reliable (1 failure) with ~8.8 s average latency.  

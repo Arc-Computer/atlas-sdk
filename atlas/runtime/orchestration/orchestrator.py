@@ -132,7 +132,7 @@ class Orchestrator:
             decision = AdaptiveModeDecision(mode=forced_mode, confidence=1.0, source="forced")
         else:
             decision = await self._determine_adaptive_mode(task, context, dossier)
-        mode = decision.mode or "escalate"
+        mode = decision.mode or "paired"
         context.metadata["execution_mode"] = mode
         self._store_mode_metadata(context, decision)
         confidence_display = f"{decision.confidence:.2f}" if isinstance(decision.confidence, (int, float)) else "n/a"
@@ -389,7 +389,7 @@ class Orchestrator:
     ) -> AdaptiveModeDecision:
         adaptive_cfg = self._adaptive
         if not adaptive_cfg.enabled:
-            return AdaptiveModeDecision(mode="escalate", source="adaptive_disabled")
+            return AdaptiveModeDecision(mode="paired", source="adaptive_disabled")
 
         if adaptive_cfg.mode_override:
             return AdaptiveModeDecision(
@@ -416,11 +416,11 @@ class Orchestrator:
         if probe_result is not None:
             mode = probe_result.mode
             confidence = probe_result.confidence
-            if mode not in {"auto", "paired", "coach", "escalate"}:
+            if mode not in {"auto", "paired", "coach"}:
                 mode = self._map_confidence_to_mode(confidence)
             if not mode:
                 fallback_mode = adaptive_cfg.probe.fallback_mode
-                mode = fallback_mode if fallback_mode in {"paired", "coach", "escalate"} else "paired"
+                mode = fallback_mode if fallback_mode in {"paired", "coach"} else "paired"
             return AdaptiveModeDecision(
                 mode=mode,
                 confidence=confidence,
@@ -430,7 +430,7 @@ class Orchestrator:
 
         fallback_mode = adaptive_cfg.probe.fallback_mode
         fallback_source = "probe_disabled" if self._capability_probe is None else "probe_fallback"
-        mode = fallback_mode if fallback_mode in {"paired", "coach", "escalate"} else "paired"
+        mode = fallback_mode if fallback_mode in {"paired", "coach"} else "paired"
         return AdaptiveModeDecision(mode=mode, source=fallback_source)
 
     async def _run_capability_probe(
@@ -524,7 +524,7 @@ class Orchestrator:
             return "paired"
         if confidence >= thresholds.coach:
             return "coach"
-        return "escalate"
+        return "coach"
 
     def _store_mode_metadata(self, context: ExecutionContext, decision: AdaptiveModeDecision) -> None:
         context.record_mode_decision(
@@ -706,62 +706,50 @@ class Orchestrator:
                 _store_outcome(step, outcome)
             else:
                 steps = [self._lookup_step(plan, step_id) for step_id in level]
-                if execution_mode == "escalate":
-                    for step in steps:
-                        outcome = await self._run_step(
-                            task,
-                            step,
-                            context_outputs,
-                            context,
-                            require_validation=True,
-                            allow_retry=True,
+                tasks = [
+                    self._run_step(
+                        task,
+                        step,
+                        dict(context_outputs),
+                        context,
+                        require_validation=True,
+                        allow_retry=True,
+                    )
+                    for step in steps
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                captured_exception: Exception | None = None
+                for step, outcome in zip(steps, results):
+                    if isinstance(outcome, Exception):
+                        evaluation = self._build_error_evaluation(str(outcome))
+                        step_summaries.append(
+                            {
+                                "step_id": step.id,
+                                "description": step.description,
+                                "output": "",
+                                "trace": "",
+                                "evaluation": evaluation.to_dict(),
+                                "metadata": {},
+                                "attempts": 0,
+                            }
                         )
-                        _store_outcome(step, outcome)
-                else:
-                    tasks = [
-                        self._run_step(
-                            task,
-                            step,
-                            dict(context_outputs),
-                            context,
-                            require_validation=True,
-                            allow_retry=True,
+                        step_results.append(
+                            StepResult(
+                                step_id=step.id,
+                                trace="",
+                                output="",
+                                evaluation=evaluation,
+                                attempts=0,
+                                metadata={},
+                            )
                         )
-                        for step in steps
-                    ]
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-                    captured_exception: Exception | None = None
-                    for step, outcome in zip(steps, results):
-                        if isinstance(outcome, Exception):
-                            evaluation = self._build_error_evaluation(str(outcome))
-                            step_summaries.append(
-                                {
-                                    "step_id": step.id,
-                                    "description": step.description,
-                                    "output": "",
-                                    "trace": "",
-                                    "evaluation": evaluation.to_dict(),
-                                    "metadata": {},
-                                    "attempts": 0,
-                                }
-                            )
-                            step_results.append(
-                                StepResult(
-                                    step_id=step.id,
-                                    trace="",
-                                    output="",
-                                    evaluation=evaluation,
-                                    attempts=0,
-                                    metadata={},
-                                )
-                            )
-                            if captured_exception is None:
-                                captured_exception = outcome
-                            continue
+                        if captured_exception is None:
+                            captured_exception = outcome
+                        continue
 
-                        _store_outcome(step, outcome)
-                    if captured_exception is not None:
-                        raise captured_exception
+                    _store_outcome(step, outcome)
+                if captured_exception is not None:
+                    raise captured_exception
 
         organized_results = self._teacher.collect_results(step_summaries)
         final_answer = await self._student.asynthesize_final_answer(task, organized_results)
