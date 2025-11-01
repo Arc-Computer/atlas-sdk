@@ -21,7 +21,7 @@ warnings.filterwarnings(
 )
 
 from atlas import core
-from atlas.cli.run import _render_learning_summary
+from atlas.cli.run import _ensure_jsonable, _render_learning_summary
 from atlas.cli.storage_runtime import DEFAULT_DATABASE_URL, InitOptions, init_storage
 from atlas.cli.utils import write_run_record
 from atlas.config.models import StorageConfig
@@ -29,6 +29,7 @@ from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.runtime.storage.database import Database
 from atlas.utils.env import load_dotenv_if_available
 
+# Load environment variables from .env file early
 load_dotenv_if_available()
 
 # Task 1: Baseline - Prompt injection in customer support bot
@@ -273,6 +274,7 @@ def _format_final_answer(answer: str, artifact_path: Path | None) -> str:
         json_data = json.loads(answer)
         is_json = True
     except (json.JSONDecodeError, ValueError):
+        # Answer is not valid JSON, will format as plain text instead
         pass
     
     if is_json and isinstance(json_data, dict):
@@ -382,13 +384,24 @@ async def _run_task(task: str, task_num: int, config_path: str, atlas_dir: Path)
     #   * reward_stats (scores, deltas)
     #   * session metadata (learning_key, etc.)
     # See docs/evaluation/learning_eval.md for learning evaluation workflow
+    result_data = None
+    if result is not None:
+        if hasattr(result, "model_dump"):
+            try:
+                result_data = _ensure_jsonable(result.model_dump())
+            except Exception:
+                # Fallback to string representation if serialization fails
+                result_data = {"error": "Failed to serialize result", "repr": str(result)}
+        else:
+            result_data = _ensure_jsonable(result)
+    
     run_payload = {
         "task": task,
         "task_num": task_num,
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "config_path": config_path,
-        "result": result.model_dump() if hasattr(result, "model_dump") else None,
-        "metadata": metadata,  # Contains full learning_state with playbook entries
+        "result": result_data,
+        "metadata": _ensure_jsonable(metadata),  # Ensure metadata is JSON serializable
     }
     artifact_path = write_run_record(atlas_dir, run_payload)
 
