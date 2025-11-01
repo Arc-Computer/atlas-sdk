@@ -90,6 +90,11 @@ class LearningSynthesizer:
         context.metadata["_reasoning_origin"] = ("learning", "synthesis")
 
         payload = self._build_payload(task, reward, trajectory, learning_state, history)
+
+        # Inject available runtime handles for LLM to use
+        handles = self._resolve_runtime_handles(context)
+        payload["available_runtime_handles"] = handles["exact"]
+
         messages = [
             {"role": "system", "content": self._prompt},
             {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},

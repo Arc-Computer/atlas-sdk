@@ -87,4 +87,16 @@ def resolve_playbook(
 
     digest = hashlib.sha256(trimmed.encode("utf-8")).hexdigest()
     cache[role] = {"raw": raw_value, "text": trimmed, "digest": digest}
+
+    # Record that learning was applied for adoption tracking
+    # Metadata must be written to session_metadata which gets persisted to the database
+    applied_key = f"applied_{role}_learning"
+    entry_count = len(metadata.get("playbook_entries", [])) if isinstance(metadata, dict) else 0
+    session_meta = context.metadata.setdefault("session_metadata", {})
+    session_meta[applied_key] = {
+        "digest": digest,
+        "char_count": len(trimmed),
+        "entry_count": entry_count,
+    }
+
     return trimmed, digest, metadata
