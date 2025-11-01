@@ -39,6 +39,8 @@ def _attach_reasoning_capture(teacher: Teacher) -> dict[str, object]:
 
 def test_teacher_live_contracts():
     async def runner() -> None:
+        ExecutionContext.get().reset()
+        ExecutionContext.get().metadata["adaptive"] = {"active_mode": "coach"}
         config = TeacherConfig(
             llm=_gpt5_params(),
             max_review_tokens=3072,
@@ -105,6 +107,7 @@ class _FakeTeacherClient:
 def test_teacher_records_reasoning_metadata():
     async def runner() -> None:
         ExecutionContext.get().reset()
+        ExecutionContext.get().metadata["adaptive"] = {"active_mode": "coach"}
         config = TeacherConfig(
             llm=_gpt5_params(),
             max_review_tokens=1024,
