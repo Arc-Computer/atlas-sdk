@@ -89,7 +89,7 @@ def test_validation_marker_written_on_failure(tmp_path: Path, capsys: pytest.Cap
         force=True,
         timeout=120,
     )
-    exit_code = env_cli._cmd_env_init(args)
+    env_cli._cmd_env_init(args)
     marker_path = project_root / ".atlas" / ".validated"
     assert marker_path.exists()
     marker_data = json.loads(marker_path.read_text(encoding="utf-8"))
