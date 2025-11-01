@@ -251,6 +251,17 @@ def _extract_token_count(metadata: dict[str, Any]) -> int | None:
     return None
 
 
+def _has_playbook_entries(metadata: dict[str, Any]) -> bool:
+    """Check if metadata contains playbook entries."""
+    state = metadata.get("learning_state")
+    if isinstance(state, dict):
+        meta = state.get("metadata")
+        if isinstance(meta, dict):
+            entries = meta.get("playbook_entries")
+            return isinstance(entries, list) and len(entries) > 0
+    return False
+
+
 def _format_final_answer(answer: str, artifact_path: Path | None) -> str:
     """Format final answer for display with smart truncation."""
     answer = answer.strip()
@@ -468,15 +479,9 @@ def _generate_insights(metrics_list: list[TaskMetrics]) -> list[str]:
 
     # Check for learning playbook entries
     for metrics in metrics_list:
-        if metrics.metadata:
-            state = metrics.metadata.get("learning_state")
-            if isinstance(state, dict):
-                meta = state.get("metadata")
-                if isinstance(meta, dict):
-                    entries = meta.get("playbook_entries")
-                    if isinstance(entries, list) and entries:
-                        insights.append("✓ Learning detected: Playbook entries active")
-                        break
+        if metrics.metadata and _has_playbook_entries(metrics.metadata):
+            insights.append("✓ Learning detected: Playbook entries active")
+            break
 
     return insights
 
@@ -552,16 +557,11 @@ async def _cmd_quickstart_async(args: argparse.Namespace) -> int:
                 print(f"\n{summary}")
             
             # Check if playbook entries exist and add note about deeper analysis
-            state = metrics_list[-1].metadata.get("learning_state")
-            if isinstance(state, dict):
-                meta = state.get("metadata")
-                if isinstance(meta, dict):
-                    entries = meta.get("playbook_entries")
-                    if isinstance(entries, list) and entries:
-                        print(f"\n💡 Learning Analysis:")
-                        print(f"   Playbook entries saved in artifacts (full structure with cue, action, scope, impact)")
-                        print(f"   For deeper analysis, run: python scripts/eval_learning.py")
-                        print(f"   See docs/evaluation/learning_eval.md for evaluation workflow")
+            if _has_playbook_entries(metrics_list[-1].metadata):
+                print(f"\n💡 Learning Analysis:")
+                print(f"   Playbook entries saved in artifacts (full structure with cue, action, scope, impact)")
+                print(f"   For deeper analysis, run: python scripts/eval_learning.py")
+                print(f"   See docs/evaluation/learning_eval.md for evaluation workflow")
 
     print(f"\n✅ Quickstart completed!")
     print(f"   Config used: {config_path}")

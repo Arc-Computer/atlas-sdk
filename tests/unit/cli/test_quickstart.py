@@ -336,3 +336,159 @@ def test_resolve_config_path_not_found(tmp_path: Path) -> None:
     with pytest.raises(SystemExit):
         quickstart_cli._resolve_config_path(str(tmp_path / "nonexistent.yaml"))
 
+
+def test_format_final_answer_json(tmp_path: Path) -> None:
+    """Test JSON structure display."""
+    json_answer = '{"result": {"key": "value", "nested": {"a": 1, "b": 2}}, "metadata": {"count": 5}}'
+    artifact_path = tmp_path / "run_20251101_181000_task1.json"
+    
+    formatted = quickstart_cli._format_final_answer(json_answer, artifact_path)
+    
+    assert "JSON structure" in formatted
+    assert "Snippet:" in formatted
+    assert "result" in formatted
+    assert "metadata" in formatted
+    assert artifact_path.name in formatted
+
+
+def test_format_final_answer_text_truncation(tmp_path: Path) -> None:
+    """Test text truncation at 1500 chars."""
+    long_text = "x" * 2000
+    artifact_path = tmp_path / "run_20251101_181000_task1.json"
+    
+    formatted = quickstart_cli._format_final_answer(long_text, artifact_path)
+    
+    assert len(formatted) < 1600  # Truncated + "..." + artifact note
+    assert "..." in formatted
+    assert artifact_path.name in formatted
+    
+    # Test that short text is not truncated
+    short_text = "This is a short answer."
+    formatted_short = quickstart_cli._format_final_answer(short_text, None)
+    assert formatted_short == short_text
+
+
+def test_format_final_answer_text_no_truncation() -> None:
+    """Test that text under 1500 chars is not truncated."""
+    short_text = "This is a test security review response."
+    formatted = quickstart_cli._format_final_answer(short_text, None)
+    assert formatted == short_text
+
+
+@patch("atlas.cli.quickstart.write_run_record")
+@patch("atlas.cli.quickstart.core.arun")
+@patch("atlas.cli.quickstart.ExecutionContext.get")
+async def test_artifact_saving(
+    mock_get_context: MagicMock,
+    mock_arun: AsyncMock,
+    mock_write_run_record: MagicMock,
+    mock_config_path: Path,
+    mock_arun_result: MagicMock,
+    mock_execution_context: MagicMock,
+    tmp_path: Path,
+) -> None:
+    """Test that artifacts are saved per task."""
+    artifact_path = tmp_path / "runs" / "run_20251101_181000_task1.json"
+    artifact_path.parent.mkdir(parents=True)
+    
+    mock_get_context.return_value = mock_execution_context
+    mock_arun.return_value = mock_arun_result
+    mock_write_run_record.return_value = artifact_path
+    
+    atlas_dir = tmp_path / ".atlas"
+    metrics = await quickstart_cli._run_task(
+        task="Test task",
+        task_num=1,
+        config_path=str(mock_config_path),
+        atlas_dir=atlas_dir,
+    )
+    
+    assert metrics.artifact_path == artifact_path
+    mock_write_run_record.assert_called_once()
+    call_args = mock_write_run_record.call_args[0]
+    assert call_args[0] == atlas_dir
+    assert "task" in call_args[1]
+    assert "task_num" in call_args[1]
+    assert "metadata" in call_args[1]
+
+
+@patch("atlas.cli.quickstart.core.arun")
+@patch("atlas.cli.quickstart.ExecutionContext.get")
+@patch("atlas.cli.quickstart._check_storage_available")
+async def test_learning_analysis_note_shown(
+    mock_check_storage: MagicMock,
+    mock_get_context: MagicMock,
+    mock_arun: AsyncMock,
+    monkeypatch: pytest.MonkeyPatch,
+    mock_config_path: Path,
+    mock_arun_result: MagicMock,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Test that learning note appears when playbook entries exist."""
+    monkeypatch.setenv("ATLAS_OFFLINE_MODE", "1")
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    
+    # Create mock context with playbook entries
+    mock_context = MagicMock()
+    mock_context.metadata = {
+        "reward_summary": {"score": 0.75},
+        "token_usage": {"total_tokens": 1000},
+        "learning_state": {
+            "metadata": {
+                "playbook_entries": [
+                    {"cue": "test", "action": "test_action", "scope": "test_scope"}
+                ]
+            }
+        },
+    }
+    
+    mock_check_storage.return_value = False
+    mock_get_context.return_value = mock_context
+    mock_arun.return_value = mock_arun_result
+    
+    parser = cli_main.build_parser()
+    args = parser.parse_args(["quickstart", "--offline", "--config", str(mock_config_path), "--tasks", "1", "--skip-storage"])
+    
+    exit_code = await quickstart_cli._cmd_quickstart_async(args)
+    
+    assert exit_code == 0
+    captured = capsys.readouterr()
+    assert "💡 Learning Analysis:" in captured.out
+    assert "Playbook entries saved in artifacts" in captured.out
+    assert "scripts/eval_learning.py" in captured.out
+
+
+def test_has_playbook_entries() -> None:
+    """Test helper function for detecting playbook entries."""
+    # Test with playbook entries
+    metadata_with_entries = {
+        "learning_state": {
+            "metadata": {
+                "playbook_entries": [{"cue": "test", "action": "test_action"}]
+            }
+        }
+    }
+    assert quickstart_cli._has_playbook_entries(metadata_with_entries) is True
+    
+    # Test with empty playbook entries
+    metadata_empty = {
+        "learning_state": {
+            "metadata": {
+                "playbook_entries": []
+            }
+        }
+    }
+    assert quickstart_cli._has_playbook_entries(metadata_empty) is False
+    
+    # Test without playbook entries
+    metadata_no_entries = {
+        "learning_state": {
+            "metadata": {}
+        }
+    }
+    assert quickstart_cli._has_playbook_entries(metadata_no_entries) is False
+    
+    # Test without learning_state
+    metadata_no_state = {}
+    assert quickstart_cli._has_playbook_entries(metadata_no_state) is False
+
