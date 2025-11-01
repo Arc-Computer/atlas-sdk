@@ -132,7 +132,7 @@ class Orchestrator:
             decision = AdaptiveModeDecision(mode=forced_mode, confidence=1.0, source="forced")
         else:
             decision = await self._determine_adaptive_mode(task, context, dossier)
-        mode = decision.mode or "escalate"
+        mode = decision.mode or "paired"
         context.metadata["execution_mode"] = mode
         self._store_mode_metadata(context, decision)
         confidence_display = f"{decision.confidence:.2f}" if isinstance(decision.confidence, (int, float)) else "n/a"
@@ -389,7 +389,7 @@ class Orchestrator:
     ) -> AdaptiveModeDecision:
         adaptive_cfg = self._adaptive
         if not adaptive_cfg.enabled:
-            return AdaptiveModeDecision(mode="escalate", source="adaptive_disabled")
+            return AdaptiveModeDecision(mode="paired", source="adaptive_disabled")
 
         if adaptive_cfg.mode_override:
             return AdaptiveModeDecision(
@@ -416,11 +416,11 @@ class Orchestrator:
         if probe_result is not None:
             mode = probe_result.mode
             confidence = probe_result.confidence
-            if mode not in {"auto", "paired", "coach", "escalate"}:
+            if mode not in {"auto", "paired", "coach"}:
                 mode = self._map_confidence_to_mode(confidence)
             if not mode:
                 fallback_mode = adaptive_cfg.probe.fallback_mode
-                mode = fallback_mode if fallback_mode in {"paired", "coach", "escalate"} else "paired"
+                mode = fallback_mode if fallback_mode in {"paired", "coach"} else "paired"
             return AdaptiveModeDecision(
                 mode=mode,
                 confidence=confidence,
@@ -430,7 +430,7 @@ class Orchestrator:
 
         fallback_mode = adaptive_cfg.probe.fallback_mode
         fallback_source = "probe_disabled" if self._capability_probe is None else "probe_fallback"
-        mode = fallback_mode if fallback_mode in {"paired", "coach", "escalate"} else "paired"
+        mode = fallback_mode if fallback_mode in {"paired", "coach"} else "paired"
         return AdaptiveModeDecision(mode=mode, source=fallback_source)
 
     async def _run_capability_probe(

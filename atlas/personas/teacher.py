@@ -60,7 +60,7 @@ class Teacher:
         mode = self._active_mode()
         if mode in {"auto", "paired"}:
             return plan.model_copy(update={"execution_mode": "single_shot"})
-        reviewed = await self._review_plan_llm(task, plan, force_refresh=(mode == "escalate"))
+        reviewed = await self._review_plan_llm(task, plan, force_refresh=(mode == "coach"))
         return reviewed
 
     async def _review_plan_llm(self, task: str, plan: Plan, *, force_refresh: bool = False) -> Plan:
@@ -476,7 +476,7 @@ class Teacher:
         mode = adaptive.get("active_mode")
         if isinstance(mode, str) and mode:
             return mode
-        return "escalate"
+        return "paired"
 
     def _shorten_guidance(self, guidance: str) -> str:
         sentences = [segment.strip() for segment in guidance.split(".") if segment.strip()]

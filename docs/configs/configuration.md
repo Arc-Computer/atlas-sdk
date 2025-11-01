@@ -148,7 +148,7 @@ adaptive_teaching:
 - Confidence ≥ auto threshold → **auto** (student runs alone).
 - Between auto and paired → **paired** (teacher reviews plan).
 - Between paired and coach → **coach** (teacher in the loop).
-- Below coach threshold → escalate to human or fall back to `fallback_mode`.
+- Below coach threshold → fall back to `fallback_mode` (default: **paired**).
 
 Choose a probe model that is inexpensive and responsive—the probe runs on every task, so latency adds directly to user-facing wait times.
 

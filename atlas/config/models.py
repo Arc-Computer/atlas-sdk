@@ -223,7 +223,7 @@ class TeacherPrompts(BaseModel):
     validation: str
     guidance: str
 
-AdaptiveMode = Literal["auto", "paired", "coach", "escalate"]
+AdaptiveMode = Literal["auto", "paired", "coach"]
 
 
 class AdaptiveProbeThresholds(BaseModel):
@@ -257,7 +257,7 @@ class AdaptiveProbeConfig(BaseModel):
         )
     )
     thresholds: AdaptiveProbeThresholds = Field(default_factory=AdaptiveProbeThresholds)
-    fallback_mode: Literal["paired", "coach", "escalate"] = "paired"
+    fallback_mode: Literal["paired", "coach"] = "paired"
     evidence_limit: int = Field(default=6, ge=1, le=32)
     timeout_seconds: float = Field(default=15.0, ge=1.0)
 

@@ -310,12 +310,12 @@ def test_capability_probe_prefers_auto_mode_with_helpful_stats():
     asyncio.run(runner())
 
 
-def test_capability_probe_escalates_on_high_risk_signals():
+def test_capability_probe_coach_on_high_risk_signals():
     async def runner() -> None:
         probe = CapabilityProbeClient(AdaptiveProbeConfig())
         probe._client = _ProbeClientStub(
             {
-                "mode": "escalate",
+                "mode": "coach",
                 "confidence": 0.34,
                 "evidence": ["learning_history_sparse", "recent_scores_below_threshold"],
             }
@@ -327,7 +327,7 @@ def test_capability_probe_escalates_on_high_risk_signals():
             dossier=dossier,
             execution_metadata=metadata,
         )
-        assert decision.mode == "escalate"
+        assert decision.mode == "coach"
         assert decision.confidence == pytest.approx(0.34, rel=1e-2)
         assert "learning_history_sparse" in decision.raw["evidence"]
         assert "recent_scores_below_threshold" in decision.raw["evidence"]
@@ -335,7 +335,7 @@ def test_capability_probe_escalates_on_high_risk_signals():
     asyncio.run(runner())
 
 
-def test_areview_plan_refreshes_cache_on_escalation():
+def test_areview_plan_refreshes_cache_on_coach_mode():
     async def runner() -> None:
         ExecutionContext.get().reset()
         ExecutionContext.get().metadata["adaptive"] = {"active_mode": "coach"}
@@ -354,16 +354,18 @@ def test_areview_plan_refreshes_cache_on_escalation():
         teacher = Teacher(config, prompts)
         plan = Plan(steps=[Step(id=1, description="draft summary", depends_on=[])])
         teacher._client = _StaticResponseClient(
-            {"steps": [{"id": 1, "description": "coach plan", "depends_on": [], "tool": None, "tool_params": None}]}
+            {"steps": [{"id": 1, "description": "coach plan no refresh", "depends_on": [], "tool": None, "tool_params": None}]}
         )
-        reviewed_coach = await teacher.areview_plan("Summarize Atlas", plan)
-        assert reviewed_coach.steps[0].description == "coach plan"
-        ExecutionContext.get().metadata["adaptive"]["active_mode"] = "escalate"
+        # First call with coach mode - should call LLM
+        reviewed_coach_1 = await teacher.areview_plan("Summarize Atlas", plan)
+        assert reviewed_coach_1.steps[0].description == "coach plan no refresh"
+
+        # Second call with coach mode and force_refresh=True - should call LLM again
         teacher._client = _StaticResponseClient(
-            {"steps": [{"id": 1, "description": "escalated plan", "depends_on": [], "tool": None, "tool_params": None}]}
+            {"steps": [{"id": 1, "description": "coach plan refreshed", "depends_on": [], "tool": None, "tool_params": None}]}
         )
-        reviewed_escalate = await teacher.areview_plan("Summarize Atlas", plan)
-        assert reviewed_escalate.steps[0].description == "escalated plan"
+        reviewed_coach_2 = await teacher.areview_plan("Summarize Atlas", plan)
+        assert reviewed_coach_2.steps[0].description == "coach plan refreshed"
 
     asyncio.run(runner())
 
