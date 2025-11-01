@@ -231,5 +231,5 @@ atlas train --config-name offline/base --dry-run
 ## Next Steps
 
 - Browse `configs/examples/` for richer orchestration templates.
-- Enable RIM judges by toggling `rim.active_judges`.
+- Enable reward-system judges by toggling `rim.active_judges`.
 - Integrate Atlas into async services with `core.arun`.

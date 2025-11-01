@@ -1,73 +1,92 @@
 # Configuration Guide
 
-Atlas implements adaptive teaching through three models: the agent (student), teacher, and RIM (reward integrity model). Configuration controls how these components interact and when interventions occur.
+Atlas orchestrates three collaborating systems—the **student agent**, the **teacher coach**, and the **reward system** that measures progress. This guide gives you practical levers for steering each component so you can align Atlas with your domain, latency targets, and cost envelope.
 
-## Core Architecture
+> Reference facts in this document come directly from the source code. Default values are taken from `atlas/config/models.py` and the runtime configurators under `atlas/config`.
 
-The agent executes tasks while the teacher provides validation and guidance based on capability assessment. RIM evaluates execution quality through multi-judge consensus, triggering learning synthesis when patterns emerge. Learning manifests as playbook entries that inject into student prompts when activation cues match.
+## Architecture Overview
 
-All three models can use different providers and tiers. The most common pattern uses a strong agent model, reuses it for teacher validation, and delegates reward evaluation to cheaper models since RIM runs after every task.
+- **Student agent** executes the user task. You control its adapter (OpenAI-compatible, HTTP, or Python callable) and prompt surface.
+- **Teacher** reviews plans and can coach step-by-step when the capability probe signals elevated risk.
+- **Reward system** scores the student output asynchronously using one or more judge models. Scores and rationales flow into learning.
+- **Learning synthesizer** (fed by the reward system) distills durable playbook entries and injects them back into student/teacher prompts when activations match.
 
-## Agent Configuration
+Atlas keeps the systems loosely coupled: swap any model stack without touching orchestration logic, and tune thresholds to decide when each role wakes up.
 
-The agent adapter determines how Atlas invokes your model. OpenAI adapters work with any OpenAI-compatible endpoint and support structured outputs via `response_format`. Python adapters wrap custom implementations that return strings or generators. HTTP adapters proxy arbitrary endpoints by templating payloads and extracting results via JSONPath.
+## Student Agent
+
+The agent adapter defines how Atlas invokes your runtime:
 
 ```yaml
 agent:
-  type: openai
-  name: my-agent
-  system_prompt: "Task-specific instructions"
+  type: openai                # also accepts python or http_api
+  name: security-analyst
+  system_prompt: |
+    You are the Atlas student. Produce actionable, evidence-backed responses.
   llm:
     provider: openai
     model: gpt-4.1-mini
     api_key_env: OPENAI_API_KEY
-  response_format:
-    type: json_schema
-    json_schema: {...}
+    temperature: 0.1
+    max_output_tokens: 8192
+    timeout_seconds: 180
 ```
 
-OpenAI adapters inject execution metadata into prompts through `metadata_digest` controls. The digest budget defaults to 10% of the model's context window and includes recent step summaries, learning history, reward statistics, and drift alerts. Increasing `char_budget` surfaces more execution context at the cost of prompt tokens. The `include_session_keys` list filters which metadata categories appear. Reducing `max_learning_history_entries` limits how many past learning cycles the agent sees, trading historical context for token efficiency.
+- **OpenAI adapter** (see `atlas/config/models.py::OpenAIAdapterConfig`) works with any OpenAI-compatible endpoint while exposing response-formatting and metadata-digest controls.
+- **Python adapter** wraps a local async or sync function. The SDK passes prompt metadata (including optional `llm_config`) so your code can call downstream models directly.
+- **HTTP adapter** templates arbitrary REST endpoints and extracts responses with JSONPath sequences.
 
-## Teacher Configuration
+Metadata digestion is enabled by default. The digest budget reserves ~10% of a model’s published context window and can be tightened via `metadata_digest.char_budget`, `max_learning_history_entries`, or `include_session_keys`.
 
-The teacher model validates plans in paired mode and provides step-by-step guidance in coach mode. It never activates in auto mode. Teacher LLM selection trades cost against validation quality. Using the same model as the agent maintains consistency but doubles inference cost during paired execution. Using a weaker model reduces cost but may produce lower-quality guidance.
+## Teacher Coach
+
+Teachers operate in three modes driven by the capability probe:
 
 ```yaml
 teacher:
   llm:
     provider: openai
-    model: gpt-4.1-mini
+    model: gpt-4.1
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.05
 ```
 
-Teacher invocation frequency depends on adaptive teaching thresholds. Lowering the auto threshold increases autonomous execution, reducing teacher calls. Raising the paired threshold pushes more tasks into coach mode, increasing teacher involvement. The probe evaluates agent capability per-task and selects the execution mode accordingly.
+- **Paired mode**: teacher audits the plan before execution.
+- **Coach mode**: teacher guides each intermediate step when confidence dips.
+- **Auto mode**: no teacher involvement.
 
-## RIM Configuration
+Reducing thresholds (see the adaptive teaching section) expands auto mode and cuts cost. Raising them increases review coverage.
 
-RIM performs two-stage evaluation using small and large models. The small model handles initial judgment across multiple aspects in parallel. When judge variance exceeds `variance_threshold` or uncertainty exceeds `uncertainty_threshold`, the large model arbitrates. This architecture balances cost and consistency.
+## Reward System
+
+The reward system replaces autonomous “RIM” terminology from earlier docs. Configuration still uses the `rim` key for backward compatibility; the behaviour is unchanged. The block defines a two-tier judge stack that scores every completed task and feeds learning:
 
 ```yaml
 rim:
   small_model:
     provider: gemini
     model: gemini/gemini-2.5-flash
+    api_key_env: GEMINI_API_KEY
     max_output_tokens: 8192
   large_model:
     provider: gemini
-    model: gemini/gemini-2.5-flash
+    model: gemini/gemini-2.5-pro
+    api_key_env: GEMINI_API_KEY
     max_output_tokens: 8192
   variance_threshold: 0.15
-  uncertainty_threshold: 0.3
+  uncertainty_threshold: 0.30
   judge_prompt: |
-    Domain-specific evaluation criteria
+    Reward grounded, verifiable answers that follow safety guardrails.
 ```
 
-The small model runs 2-3 parallel judgments per task. Large model escalation occurs in 20-40% of evaluations at default thresholds. Raising `variance_threshold` to 0.25-0.30 reduces escalations, cutting costs but potentially introducing scoring inconsistency. The `judge_prompt` steers evaluation criteria toward domain objectives. Clear, specific prompts reduce variance and improve score reliability.
+1. **Small model pass** (Gemini 2.5 Flash by default) runs every time.
+2. **Large model escalation** (Gemini 2.5 Pro in the example) triggers when judge variance or self-reported uncertainty breach configured thresholds.
 
-Using identical models for small and large tiers works when the model has sufficient capability for judgment. Using a stronger large model improves tie-breaking quality when small model judgments conflict. The cost difference only matters during escalation, so this optimization has bounded impact.
+Tune the thresholds to trade cost for consistency. Increasing `variance_threshold` toward 0.30 reduces escalations; tightening it to ~0.10 yields more second-opinion arbitrations.
 
-## Learning Configuration
+## Learning Synthesizer
 
-Learning synthesizes playbook entries from execution traces and injects them into agent prompts when cues activate. The system defaults to Gemini Flash for synthesis since this operation runs asynchronously after task completion. Synthesis frequency depends on `history_limit`, which controls how many executions accumulate before triggering analysis.
+Default values for the learning synthesizer now live in code (`LearningConfig.llm` sets Gemini 2.5 Flash with temperature 0.1 and 8 192 max tokens). Configuration controls both the synthesis schedule and the structure of the emitted playbook entries:
 
 ```yaml
 learning:
@@ -78,36 +97,37 @@ learning:
     model: gemini/gemini-2.5-flash
     temperature: 0.1
     max_output_tokens: 8192
+    timeout_seconds: 120
+  history_limit: 10
+  apply_to_prompts: true
   schema:
     allowed_runtime_handles:
       - read_file
-      - write_file
+      - search_content
     cue_types: [regex, keyword, predicate]
   gates:
     enforce_actionability: true
     enforce_cue: true
     enforce_generality: true
-    max_text_length: 800
+    max_text_length: 420
   rubric_weights:
     actionability: 0.4
     generality: 0.3
     hookability: 0.2
     concision: 0.1
-  history_limit: 10
-  apply_to_prompts: true
 ```
 
-The schema section defines which runtime handles (tool names) can appear in synthesized entries. Entries referencing unlisted handles fail validation. This prevents hallucinated tool references when the LLM generates playbook guidance. The `cue_types` list enables different activation patterns: keyword matching for exact phrases, regex for flexible patterns, and predicate for structured conditions on execution context.
-
-Gates enforce quality constraints. Actionability requires entries to specify concrete tool usage rather than abstract advice. Cue enforcement mandates clear activation triggers so entries don't fire indiscriminately. Generality prevents overfitting to specific task instances. The `max_text_length` limit caps entry size, directly controlling prompt token overhead when entries inject. Default 420 characters balances detail against efficiency. Increasing to 600-800 allows richer guidance but inflates prompts.
-
-Rubric weights determine how entries score during validation. Higher actionability weight prioritizes concrete tool patterns over general principles. Higher generality weight favors transferable lessons over task-specific solutions. Adjusting these weights steers what kinds of knowledge the system retains.
-
-Setting `apply_to_prompts: false` disables prompt injection while still generating and storing playbook entries. This mode supports analysis and export workflows without affecting runtime behavior.
+- **history_limit** decides how many recent runs the synthesizer reviews at once. Lower values trigger quicker feedback loops; higher values capture longer-term patterns.
+- **apply_to_prompts** toggles prompt injection. Set it to `false` to capture learning while keeping live traffic untouched.
+- **apply_to_prompts (runtime override)** defaults to `true`, so both student and teacher prompts include pam­phlets when the synthesizer has entries for the active learning key. Flip it to `false` when you want to measure a baseline without adaptive context.
+- **Prompt format**: injected blocks are wrapped with lightweight delimiters (`>>> Student Playbook >>>`, `>>> Teacher Playbook >>>`) and trimmed to roughly 1 000 characters. Metadata such as version or timestamp is surfaced on a single header line when present in `learning_state["metadata"]`.
+- **Caching behaviour**: the teacher’s plan cache includes a digest of the injected pamphlet, so changing learning content invalidates stale reviews without flushing the entire cache.
+- **schema + gates** enforce tool fidelity and prevent overfit entries. Entries referencing handles outside `allowed_runtime_handles` are rejected at validation time.
+- **Evaluation harnesses**: when running the learning or runtime evaluation harnesses, keep `apply_to_prompts` enabled so the captured metrics reflect the adaptive system end to end. Disable it only after you have baseline numbers for comparison.
 
 ## Adaptive Teaching
 
-Adaptive teaching controls when teacher intervention occurs based on capability probes. The probe runs before each task, evaluating whether the agent can handle it autonomously.
+Capability probes determine when the teacher intervenes. The probe runs before each task and selects a mode based on confidence scores.
 
 ```yaml
 adaptive_teaching:
@@ -115,7 +135,8 @@ adaptive_teaching:
   probe:
     llm:
       provider: xai
-      model: xai/grok-4-fast
+      model: xai/grok-2-mini
+      api_key_env: XAI_API_KEY
     thresholds:
       auto: 0.85
       paired: 0.65
@@ -124,117 +145,93 @@ adaptive_teaching:
   learning_history_limit: 10
 ```
 
-Probe thresholds define mode transitions. Confidence above 0.85 triggers auto mode (no teacher). Confidence 0.65-0.85 triggers paired mode (teacher validates plan). Confidence 0.35-0.65 triggers coach mode (teacher guides each step). Below 0.35 escalates to human review.
+- Confidence ≥ auto threshold → **auto** (student runs alone).
+- Between auto and paired → **paired** (teacher reviews plan).
+- Between paired and coach → **coach** (teacher in the loop).
+- Below coach threshold → escalate to human or fall back to `fallback_mode`.
 
-Lowering the auto threshold increases autonomous execution, reducing teacher overhead. Raising it pushes more tasks into paired mode for validation. The paired threshold controls the auto-to-paired boundary, while coach threshold controls paired-to-coach escalation.
+Choose a probe model that is inexpensive and responsive—the probe runs on every task, so latency adds directly to user-facing wait times.
 
-Setting `enabled: false` or `mode_override: auto` forces autonomous execution regardless of capability, eliminating probe and teacher costs entirely. The `fallback_mode` determines behavior when probing fails or times out.
+## Storage & Persistence
 
-The probe uses a fast, cheap model since it runs before every task. Probe latency adds directly to task startup time, so fast models (Grok Fast, Gemini Flash) minimize this overhead.
-
-## Storage Configuration
-
-Storage persists execution traces, rewards, and learning data to PostgreSQL. Without storage, learning cannot function since playbook entries require database persistence.
+Persistent storage unlocks telemetry, learning, and reporting:
 
 ```yaml
 storage:
-  database_url: postgresql://user:pass@host:port/dbname
+  database_url: postgresql://atlas:atlas@localhost:5433/atlas
   min_connections: 1
   max_connections: 5
   statement_timeout_seconds: 30
 ```
 
-Connection pooling parameters control concurrency. Single-agent workflows work with min=1, max=5. Multi-agent or high-throughput deployments benefit from higher limits. The `statement_timeout_seconds` prevents hung queries from blocking the pool.
+Atlas expects PostgreSQL. Set the connection pool based on concurrency, and keep `statement_timeout_seconds` low enough to prevent wedged queries.
 
-## Configuration Strategies
+## Configuration Playbooks
 
-Budget optimization uses Gemini Flash across all components except the agent. This reduces RIM and learning costs while maintaining agent quality. Disabling adaptive teaching eliminates probe overhead. Increasing RIM variance threshold reduces large model escalations.
+Use these starting points and adjust to your workload.
 
-```yaml
-agent:
-  llm:
-    model: gpt-4.1-mini
+### Cost-Optimised Stack
 
-rim:
-  small_model:
-    model: gemini/gemini-2.5-flash
-  large_model:
-    model: gemini/gemini-2.5-flash
-  variance_threshold: 0.25
+- Student: `gpt-4.1-mini`
+- Teacher: `gpt-4.1-mini`
+- Reward system: Gemini 2.5 Flash for both tiers with `variance_threshold: 0.25`
+- Learning: keep defaults, optionally drop `history_limit` to 6 for faster convergence
+- Adaptive teaching: `enabled: false` for fully autonomous runs
 
-learning:
-  llm:
-    model: gemini/gemini-2.5-flash
-  gates:
-    max_text_length: 500
+This profile minimises judge escalations and removes probe/teacher overhead while preserving learning.
 
-adaptive_teaching:
-  enabled: false
-```
+### Quality-First Stack
 
-Quality optimization uses stronger models and tighter thresholds. Lower variance threshold increases RIM consistency through more frequent large model arbitration. Higher auto threshold ensures teacher validation on borderline tasks. Increased learning text length allows more detailed guidance.
+- Student: `gpt-4.1`
+- Teacher: `gpt-4o`
+- Reward system: Gemini 2.5 Flash (small) + Gemini 2.5 Pro (large), `variance_threshold: 0.10`
+- Learning: raise `gates.max_text_length` to 800 for richer guidance
+- Adaptive teaching: tighten thresholds (`auto: 0.92`, `paired: 0.75`, `coach: 0.45`)
 
-```yaml
-agent:
-  llm:
-    model: o1-preview
+Choose this preset when correctness outweighs latency or cost.
 
-teacher:
-  llm:
-    model: gpt-5
+### Latency-Sensitive Stack
 
-rim:
-  small_model:
-    model: gemini/gemini-2.5-pro
-  large_model:
-    model: gemini/gemini-2.5-pro
-  variance_threshold: 0.10
+- Student: `gpt-4.1-nano`
+- Teacher: disabled (`adaptive_teaching.enabled: false`)
+- Reward system: 2× Gemini 2.5 Flash with `variance_threshold: 0.30`
+- Learning: set `update_enabled: false` to avoid synthesis during live traffic
+- Storage: keep enabled for auditability even when learning is paused
 
-learning:
-  llm:
-    model: gemini/gemini-2.5-pro
-  gates:
-    max_text_length: 800
+This keeps the critical path to a single fast model call while still collecting reward signals for offline review.
 
-adaptive_teaching:
-  probe:
-    thresholds:
-      auto: 0.90
-```
+## Observability & Feedback Loops
 
-Latency optimization uses fast models and reduces intervention frequency. Disabling probes eliminates pre-task overhead. Reducing learning history limit triggers synthesis less often. Lowering teacher thresholds increases auto mode usage.
+Monitor the impact of configuration changes directly from the `sessions` table:
 
-The dominant cost factors are agent calls (1-5 per task), RIM calls (2-4 per task), and teacher calls (0-3 per task depending on mode). Learning synthesis runs every N tasks where N equals `history_limit`, so its per-task cost amortizes across the window. Probe cost is negligible since fast models handle capability assessment.
+- **Average duration (seconds)**
+  ```sql
+  SELECT
+    AVG(EXTRACT(EPOCH FROM (completed_at - created_at))) AS avg_duration_seconds
+  FROM sessions
+  WHERE completed_at IS NOT NULL
+    AND created_at > NOW() - INTERVAL '7 days';
+  ```
+- **Average token usage**
+  ```sql
+  SELECT
+    AVG((metadata->'token_usage'->>'total_tokens')::numeric) AS avg_total_tokens
+  FROM sessions
+  WHERE metadata ? 'token_usage'
+    AND created_at > NOW() - INTERVAL '7 days';
+  ```
+- **Learning adoption**
+  ```sql
+  SELECT
+    COUNT(*) FILTER (WHERE metadata->>'applied_student_learning' IS NOT NULL) * 100.0 / COUNT(*) AS adoption_pct
+  FROM sessions
+  WHERE created_at > NOW() - INTERVAL '7 days';
+  ```
 
-## Performance Metrics
+Low adoption means cues are too narrow or entries are being rejected. High adoption without measurable uplift generally points to a reward prompt that is not emphasising the right behaviours.
 
-Track configuration impact through session metrics. Cost per task reflects LLM calls across agent, teacher, and RIM. Latency per task includes model inference plus orchestration overhead. Token usage determines billing under per-token pricing.
+## Next Steps
 
-```sql
-SELECT
-  AVG(total_cost) as avg_cost,
-  AVG(duration_seconds) as avg_duration,
-  AVG(total_tokens) as avg_tokens
-FROM sessions
-WHERE created_at > NOW() - INTERVAL '7 days';
-```
-
-Learning adoption rate measures how often playbook entries inject into prompts. Low adoption suggests cues are too specific or entries fail to match actual tasks. High adoption with poor performance improvement indicates low-quality entries, suggesting tighter gate rules or adjusted rubric weights.
-
-```sql
-SELECT
-  COUNT(*) FILTER (WHERE metadata->>'applied_student_learning' IS NOT NULL) * 100.0 / COUNT(*) as adoption_pct
-FROM sessions
-WHERE created_at > NOW() - INTERVAL '7 days';
-```
-
-Execution mode distribution shows how often the system operates autonomously versus requiring teacher intervention. High auto mode percentage indicates strong agent capability or loose thresholds. High coach mode percentage suggests aggressive thresholds or weak agent performance.
-
-```sql
-SELECT
-  metadata->>'execution_mode' as mode,
-  COUNT(*) as count
-FROM sessions
-WHERE created_at > NOW() - INTERVAL '7 days'
-GROUP BY mode;
-```
+- Start from `configs/examples/openai_agent.yaml` and tailor the agent/teacher section.
+- Keep reward-system prompts in version control; small prompt tweaks have large scoring effects.
+- Re-run the evaluation harnesses in `docs/evaluation/` whenever you change providers or prompts so the student, teacher, and reward system stay calibrated together.
