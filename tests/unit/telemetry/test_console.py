@@ -96,7 +96,7 @@ def test_console_streamer_renders_events_and_summary():
     assert "retry 2" in output
     assert "guidance" in output
     assert "Reward score=0.80" in output
-    assert "RIM scores" in output
+    assert "Judge scores" in output
 
 
 def test_console_streamer_failure_message():

@@ -1,1 +1,1 @@
-"""Retry logic with RIM feedback."""
+"""Retry logic with reward system feedback."""

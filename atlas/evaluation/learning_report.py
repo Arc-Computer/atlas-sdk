@@ -95,6 +95,7 @@ class PlaybookImpactEntry:
     token_delta: float | None
     unique_incidents: int
     transfer_success: bool
+    transfer_level: str
     failure_avoidance: dict[str, Any] | None = None
     impact_score: float | None = None
 
@@ -714,6 +715,12 @@ def _build_playbook_impact(playbook_meta: dict[str, Any] | None) -> list[Playboo
             incident_ids = [str(item) for item in raw_incidents if isinstance(item, str)]
         unique_incidents = len(set(incident_ids))
         transfer_success = unique_incidents > 1
+        transfer_level = (
+            "universal" if unique_incidents >= 10 else
+            "workflow" if unique_incidents >= 5 else
+            "domain" if unique_incidents >= 2 else
+            "task"
+        )
         retry_avg = _safe_ratio(impact.get("retry_sum"), impact.get("retry_samples"))
         failure_events = int(impact.get("failure_events") or 0)
         failure_stats = None
@@ -745,6 +752,7 @@ def _build_playbook_impact(playbook_meta: dict[str, Any] | None) -> list[Playboo
                 token_delta=token_delta,
                 unique_incidents=unique_incidents,
                 transfer_success=transfer_success,
+                transfer_level=transfer_level,
                 failure_avoidance=failure_stats,
                 impact_score=impact_score,
             )

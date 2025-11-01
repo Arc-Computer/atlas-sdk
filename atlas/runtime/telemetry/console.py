@@ -154,7 +154,7 @@ class ConsoleTelemetryStreamer:
             score_value = reward_payload.get("score")
             score_text = f"{float(score_value):.2f}" if isinstance(score_value, (int, float)) else "n/a"
             judges = reward_payload.get("judges")
-            rim_scores: list[str] = []
+            judge_scores: list[str] = []
             rationale_snippet: str | None = None
             if isinstance(judges, list):
                 for index, judge in enumerate(judges, start=1):
@@ -162,7 +162,7 @@ class ConsoleTelemetryStreamer:
                     identifier = judge_payload.get("identifier") or f"judge{index}"
                     judge_score = judge_payload.get("score")
                     if isinstance(judge_score, (int, float)):
-                        rim_scores.append(f"{identifier}:{float(judge_score):.2f}")
+                        judge_scores.append(f"{identifier}:{float(judge_score):.2f}")
                     if rationale_snippet is None:
                         judge_rationale = judge_payload.get("rationale")
                         if isinstance(judge_rationale, str) and judge_rationale.strip():
@@ -171,9 +171,9 @@ class ConsoleTelemetryStreamer:
                 reward_rationale = reward_payload.get("rationale")
                 if isinstance(reward_rationale, str) and reward_rationale.strip():
                     rationale_snippet = self._shorten(reward_rationale.strip(), 160)
-            rim_display = ", ".join(rim_scores) if rim_scores else "none"
+            judge_display = ", ".join(judge_scores) if judge_scores else "none"
             self._write(
-                f"STEP {step_id}: retry {attempt} | Reward score={score_text} | RIM scores: {rim_display}"
+                f"STEP {step_id}: retry {attempt} | Reward score={score_text} | Judge scores: {judge_display}"
             )
             if rationale_snippet:
                 self._write(

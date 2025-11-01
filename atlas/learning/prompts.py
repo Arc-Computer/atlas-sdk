@@ -73,7 +73,8 @@ Step 4: Formulate Imperative
 
 Step 5: Articulate Expected Effect
   - Explain WHY this action improves outcomes
-  - Connect to reward improvement or error prevention
+  - Connect to reward improvement, error prevention, or token efficiency
+  - When reward is equal, prefer actions that reduce token usage
   - Keep under 200 characters
   - Focus on mechanism, not description
 
