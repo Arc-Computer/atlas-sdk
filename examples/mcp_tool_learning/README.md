@@ -22,7 +22,7 @@ This example demonstrates how Atlas SDK enables agents to learn efficient tool u
            │
            ▼
 ┌─────────────────────┐
-│   Atlas SDK Core    │  Orchestration + RIM rewards
+│   Atlas SDK Core    │  Orchestration + reward system
 └──────────┬──────────┘
            │
            ▼
@@ -74,7 +74,7 @@ atlas init  # Starts Docker + Postgres for telemetry persistence
 |------|---------|
 | `mcp_server.py` | MCP server with 5 file tools (read, write, list, search, run_command) |
 | `mcp_agent.py` | LangGraph agent that connects to MCP server and exposes tools |
-| `config.yaml` | Atlas configuration (Python adapter, LLM settings, RIM rewards) |
+| `config.yaml` | Atlas configuration (Python adapter, LLM settings, reward system) |
 | `learning_harness.py` | Runs 25 progressive learning tasks and tracks metrics |
 | `sample_workspace/` | Test files for agent operations |
 
@@ -188,7 +188,7 @@ agent:
   attribute: create_agent
 ```
 
-The RIM (Reward Inference Model) provides learning signals:
+The reward system provides learning signals:
 
 ```yaml
 rim:
@@ -240,7 +240,7 @@ Approximate costs for the full 25-run learning session:
 |-----------|-------|--------------|-----------------|
 | Student (Agent) | GPT-4.1-mini | ~$0.03 | ~$0.75 |
 | Teacher (Validator) | GPT-4.1-mini | ~$0.02 | ~$0.50 |
-| RIM (Rewards) | Gemini-2.5-Flash | ~$0.01 | ~$0.25 |
+| Reward system | Gemini-2.5-Flash | ~$0.01 | ~$0.25 |
 | **Total** | - | **~$0.06** | **~$1.50** |
 
 **Note:** Actual costs vary based on:
