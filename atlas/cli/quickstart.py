@@ -501,8 +501,9 @@ def _generate_insights(metrics_list: list[TaskMetrics]) -> list[str]:
 
 def _estimate_cost(num_tasks: int) -> str:
     """Estimate cost for running tasks."""
-    # Rough estimate: ~$0.05 per task with GPT-4o-mini
-    cost_per_task = 0.05
+    # Rough estimate: ~$0.01 per task with GPT-4o-mini
+    # Note: Actual cost is typically $0.001-0.005 depending on response length
+    cost_per_task = 0.01
     total = num_tasks * cost_per_task
     return f"~${total:.2f}-{total * 1.5:.2f}"
 
