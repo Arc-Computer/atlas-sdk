@@ -106,17 +106,14 @@ repository, then point the CLI at the generated factories. Key flags (see
   factories (merge with `--env-config` / `--agent-config` when you already have
   a JSON or YAML config file).
 - `--no-run` – only analyse the project; do not execute the discovery loop.
-- `--validate` – force execution even if the CLI recommends skipping (helpful
-  once Docker containers, databases, and API keys are ready).
 
 The CLI prints a summary of what it detected and, when it sees a heavy stack
-such as LangGraph or DeepAgents, surfaces preflight notes (e.g., “start worker
-services before running discovery”). When LLM-generated factories warn that
+such as LangGraph or DeepAgents, surfaces preflight notes (e.g., "start worker
+services before running discovery"). When LLM-generated factories warn that
 dependencies are offline, Atlas automatically sets `ATLAS_DISCOVERY_VALIDATE=0`,
 skips the sample run, and records the notes in `.atlas/discover.json`. Re-run
-with `--validate` (or set the env var to `1`) once services are healthy to reuse
-the same factories without manual edits; the forced mode flag will remain until
-you refresh discovery.
+`atlas env init` once services are healthy to regenerate and validate factories;
+the forced mode flag will remain until you refresh discovery.
 
 ## 3. Execute tasks with the cached metadata
 
@@ -133,8 +130,8 @@ the metadata stays in sync.
 
 Preflight notes recorded during discovery are replayed before the run so you can
 double-check that the required services are online. If you deferred execution
-during discovery, re-run `atlas env init --validate` once the environment is
-ready, then call `atlas run` to capture the first telemetry-rich trajectory.
+during discovery, re-run `atlas env init` once the environment is ready, then call
+`atlas run` to capture the first telemetry-rich trajectory.
 
 Every runtime invocation persists telemetry and reward traces to
 `.atlas/runs/*.json`, giving the learning eval pipeline the "what/how/why" data
