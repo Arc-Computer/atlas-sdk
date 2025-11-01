@@ -56,8 +56,7 @@ def mock_execution_context():
 def test_quickstart_command_registered() -> None:
     """Test that quickstart command appears in CLI."""
     parser = cli_main.build_parser()
-    args = parser.parse_args(["quickstart", "--help"])
-    # Should not raise SystemExit
+    args = parser.parse_args(["quickstart", "--offline"])
     assert args.command == "quickstart"
 
 
@@ -129,10 +128,11 @@ def test_quickstart_missing_config_file(monkeypatch: pytest.MonkeyPatch, tmp_pat
     parser = cli_main.build_parser()
     args = parser.parse_args(["quickstart", "--config", str(tmp_path / "nonexistent.yaml"), "--tasks", "1"])
 
-    exit_code = args.handler(args)
+    with pytest.raises(SystemExit) as exc_info:
+        args.handler(args)
     captured = capsys.readouterr()
 
-    assert exit_code == 1
+    assert exc_info.value.code == 1
     assert "Config file not found" in captured.err
 
 
