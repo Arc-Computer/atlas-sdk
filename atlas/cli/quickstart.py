@@ -363,13 +363,21 @@ async def _run_task(task: str, task_num: int, config_path: str, atlas_dir: Path)
     tokens = _extract_token_count(metadata)
 
     # Save run artifact
+    # Artifact includes:
+    # - Full result with final_answer
+    # - Complete metadata including:
+    #   * learning_state.metadata.playbook_entries (cue, action, scope, provenance, impact)
+    #   * learning_usage (cue hits, adoptions, token usage)
+    #   * reward_stats (scores, deltas)
+    #   * session metadata (learning_key, etc.)
+    # See docs/evaluation/learning_eval.md for learning evaluation workflow
     run_payload = {
         "task": task,
         "task_num": task_num,
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "config_path": config_path,
         "result": result.model_dump() if hasattr(result, "model_dump") else None,
-        "metadata": metadata,
+        "metadata": metadata,  # Contains full learning_state with playbook entries
     }
     artifact_path = write_run_record(atlas_dir, run_payload)
 
@@ -542,6 +550,18 @@ async def _cmd_quickstart_async(args: argparse.Namespace) -> int:
             summary = _render_learning_summary(metrics_list[-1].metadata, stream=True)
             if summary:
                 print(f"\n{summary}")
+            
+            # Check if playbook entries exist and add note about deeper analysis
+            state = metrics_list[-1].metadata.get("learning_state")
+            if isinstance(state, dict):
+                meta = state.get("metadata")
+                if isinstance(meta, dict):
+                    entries = meta.get("playbook_entries")
+                    if isinstance(entries, list) and entries:
+                        print(f"\n💡 Learning Analysis:")
+                        print(f"   Playbook entries saved in artifacts (full structure with cue, action, scope, impact)")
+                        print(f"   For deeper analysis, run: python scripts/eval_learning.py")
+                        print(f"   See docs/evaluation/learning_eval.md for evaluation workflow")
 
     print(f"\n✅ Quickstart completed!")
     print(f"   Config used: {config_path}")
