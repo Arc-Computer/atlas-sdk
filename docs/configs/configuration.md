@@ -59,7 +59,7 @@ Reducing thresholds (see the adaptive teaching section) expands auto mode and cu
 
 ## Reward System
 
-The reward system replaces autonomous “RIM” terminology from earlier docs. Configuration still uses the `rim` key for backward compatibility; the behaviour is unchanged. The block defines a two-tier judge stack that scores every completed task and feeds learning:
+The block defines a two-tier judge stack that scores every completed task and feeds learning:
 
 ```yaml
 rim:
