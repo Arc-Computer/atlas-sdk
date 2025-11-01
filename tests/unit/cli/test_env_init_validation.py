@@ -30,8 +30,9 @@ def test_validation_always_runs_regardless_of_auto_skip(stateful_project, capsys
     exit_code = env_cli._cmd_env_init(args)
     assert exit_code == 0
     captured = capsys.readouterr()
-    assert "Validation succeeded" in captured.out or "Validation failed" in captured.out
+    assert "Validation succeeded" in captured.out or "Validation failed" in captured.err
     assert "Validation deferred" not in captured.out
+    assert "Validation deferred" not in captured.err
     assert "--validate" not in captured.out
     assert "--validate" not in captured.err
     marker_path = project_root / ".atlas" / ".validated"
@@ -143,8 +144,9 @@ def test_validation_output_with_auto_skip(secrl_project, capsys: pytest.CaptureF
     exit_code = env_cli._cmd_env_init(args)
     assert exit_code == 0
     captured = capsys.readouterr()
-    assert "Validation succeeded" in captured.out or "Validation failed" in captured.out
+    assert "Validation succeeded" in captured.out or "Validation failed" in captured.err
     assert "Validation deferred" not in captured.out
+    assert "Validation deferred" not in captured.err
     marker_path = project_root / ".atlas" / ".validated"
     assert marker_path.exists()
 
