@@ -175,8 +175,9 @@ AGENT_RUNTIME_HELPER = textwrap.dedent(
         if os.path.exists(marker) or os.environ.get("ATLAS_SKIP_VALIDATION") == "1":
             return
         raise RuntimeError(
-            "Atlas generated factories have not been validated. Run `atlas env init --validate` "
-            "to refresh the validation marker or set ATLAS_SKIP_VALIDATION=1 to bypass."
+            "Atlas generated factories have not been validated. "
+            "Run 'atlas env init' to regenerate and validate factories, "
+            "or set ATLAS_SKIP_VALIDATION=1 to bypass this check."
         )
 
     def _atlas_jsonable(value, depth=0):
@@ -2078,23 +2079,24 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         )
     )
 
-    validation_success = False
-    validation_errors: list[str] = []
-    if not auto_skip:
-        validation_success, validation_errors = _validate_discovered_artifacts(
-            project_root,
-            atlas_dir,
-            targets.environment,
-            targets.agent,
-        )
-        if validation_success:
-            print("Validation succeeded for generated factories.")
-        else:
-            print("Validation failed; generated factories may not execute correctly:", file=sys.stderr)
-            for message in validation_errors:
-                print(f"  - {message}", file=sys.stderr)
+    validation_success, validation_errors = _validate_discovered_artifacts(
+        project_root,
+        atlas_dir,
+        targets.environment,
+        targets.agent,
+    )
+
+    if validation_success:
+        print("Validation succeeded for generated factories.")
+        if auto_skip:
+            print("  Note: Sample run was skipped due to missing prerequisites.")
+            print("  Run atlas again once dependencies are ready.")
     else:
-        print("Validation deferred (will be checked at runtime).")
+        print("Validation failed; generated factories may not execute correctly:", file=sys.stderr)
+        for message in validation_errors:
+            print(f"  - {message}", file=sys.stderr)
+        if auto_skip:
+            print("  Note: This may be due to missing prerequisites noted above.", file=sys.stderr)
 
     marker_path.write_text(
         json.dumps({"validated_at": datetime.now(timezone.utc).isoformat()}, ensure_ascii=False),
@@ -2144,11 +2146,6 @@ def register_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPars
     )
     init_parser.add_argument(
         "--skip-sample-run",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
-    init_parser.add_argument(
-        "--validate",
         action="store_true",
         help=argparse.SUPPRESS,
     )

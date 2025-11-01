@@ -15,7 +15,7 @@ What `atlas env init` does:
 - scans for `@atlas.environment` / `@atlas.agent` classes and analyses how they interact
 - if no Atlas-ready classes are found, harvests README snippets, dependency metadata, and entry points, then asks the LLM to synthesise lightweight wrapper classes plus their factories
 - writes the resulting factories to `.atlas/generated_factories.py`, notes the selected runtime mode (`capabilities.preferred_mode` + `orchestration.forced_mode`), and records preflight guidance in `.atlas/discover.json`
-- sets `ATLAS_DISCOVERY_VALIDATE=0` and auto-skips the sample run when prerequisites are missing; rerun with `atlas env init --validate` once dependencies are satisfied to capture the baseline trajectory
+- sets `ATLAS_DISCOVERY_VALIDATE=0` and auto-skips the sample run when prerequisites are missing; rerun `atlas env init` once dependencies are satisfied to regenerate and validate factories and capture the baseline trajectory
 
 Wrapper synthesised by the LLM are tagged as `auto_wrapped` in `discover.json` and live alongside the other factories. They default to auto-skip until you explicitly validate them.
 
