@@ -4,7 +4,7 @@ Use the dual-agent evaluation harness to compare student/teacher model pairings 
 
 ### Goals
 - Validate default student/teacher pairings across SRE, security, compliance, customer comms, and analytics scenarios.
-- Capture wall-clock latency and RIM reward scores for each pairing.
+- Capture wall-clock latency and reward-system scores for each pairing.
 - Produce a machine-readable summary to inform the default model selection.
 
 ### Dataset

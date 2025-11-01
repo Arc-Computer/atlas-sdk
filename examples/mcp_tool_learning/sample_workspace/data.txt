@@ -1,0 +1,9 @@
+Sample Data File
+
+This file contains some sample data for testing:
+- Item 1: Test data point with value 123
+- Item 2: Another test entry with value 456
+- Item 3: Important data with value 789
+
+The numbers 123, 456, and 789 can be found using regex search.
+This demonstrates the search_content tool with pattern matching.

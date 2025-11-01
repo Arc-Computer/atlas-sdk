@@ -1,6 +1,6 @@
-## Reward Model Evaluation
+## Reward System Evaluation
 
-This evaluation mirrors the probe and runtime sweeps for reward interpreters (RIM). The harness replays captured session trajectories, swaps judge pairings, and reports how each combination scores, escalates, and performs. Use it to validate default reward models and justify alternates before rolling them into production configs.
+This evaluation mirrors the probe and runtime sweeps for reward-system judges (previously referred to as RIM). The harness replays captured session trajectories, swaps judge pairings, and reports how each combination scores, escalates, and performs. Use it to validate default reward models and justify alternates before rolling them into production configs.
 
 ### Objectives
 - Compare small/large judge stacks against the dataset that ships with `configs/examples/openai_agent.yaml`.

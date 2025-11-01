@@ -1,0 +1,8 @@
+Configuration Settings
+
+mode=test
+environment=learning
+verbose=true
+
+This is a simple configuration file for testing purposes.
+The agent should learn that configuration files often contain key-value pairs.

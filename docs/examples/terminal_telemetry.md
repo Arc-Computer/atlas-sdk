@@ -49,7 +49,7 @@ Final answer:
   Atlas SDK ships a teacher-student loop...
 - gather dataset A | attempts: 1 | score: 0.91
 - synthesise findings | attempts: 2 | score: 0.88
-RIM scores | max: 0.91 | avg: 0.89
+Reward-system scores | max: 0.91 | avg: 0.89
 ```
 
 - Disable streaming: set `stream_progress=False` when calling `core.run` or `core.arun`.
