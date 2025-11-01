@@ -297,7 +297,7 @@ def build_evaluator_factory(
     def factory(config, reward_cfg):
         reward_cfg = reward_cfg or RewardObjectiveConfig()
         if reward_cfg.type != "rim":
-            raise ValueError("capture_reward_trajectories currently supports RIM reward only.")
+            raise ValueError("capture_reward_trajectories currently supports reward system only.")
         rim_config = config.rim
         if reward_cfg.parameters:
             rim_config = rim_config.model_copy(update=reward_cfg.parameters)

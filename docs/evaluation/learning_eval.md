@@ -57,6 +57,17 @@ Three rubric gates run on every synthesis:
 
 Scores for actionability, generality, hookability, and concision (weights: 0.4 / 0.3 / 0.2 / 0.1) are computed even when gates fail. If any gate fails the existing pamphlet is preserved and the rejection is recorded for auditing.
 
+#### Understanding Rubric Weights
+
+The default weights prioritize machine-actionability and transfer potential:
+
+- **Actionability (0.4)** – Can the agent execute this? Is the runtime handle valid and mapped to a real tool?
+- **Generality (0.3)** – Will this transfer to new tasks? Are there hardcoded IDs, timestamps, or overfit patterns?
+- **Hookability (0.2)** – Can we detect when this applies? Is the cue machine-readable (valid regex/keyword/predicate)?
+- **Concision (0.1)** – Is the guidance succinct? Does it respect character limits without verbosity?
+
+Tune these in `learning.rubric_weights` if your workload demands different priorities. For example, set `generality: 0.5` if cross-task transfer is most critical, or increase `concision: 0.2` if prompt token budgets are tight.
+
 ### Configuring schema, gates, and instrumentation
 
 Atlas reads these rails from the existing `learning` block in your agent config (for example `configs/<project>.yaml`). If you omit the block, Atlas instantiates the default `LearningConfig`. To enable stricter constraints or adjust weights, add a section like:

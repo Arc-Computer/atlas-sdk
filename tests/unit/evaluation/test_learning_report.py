@@ -174,6 +174,7 @@ def test_summary_to_markdown_includes_impact_section():
                 token_delta=-60.0,
                 unique_incidents=2,
                 transfer_success=True,
+                transfer_level="domain",
                 failure_avoidance={
                     "retry_avg": 1.5,
                     "retry_samples": 2,
@@ -187,3 +188,4 @@ def test_summary_to_markdown_includes_impact_section():
     markdown = summary_to_markdown(summary)
     assert "Playbook Entry Impact" in markdown
     assert "impact score" in markdown
+    assert "yes (domain)" in markdown  # Verify transfer_level is displayed

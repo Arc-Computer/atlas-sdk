@@ -412,7 +412,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         "--base-config",
         type=Path,
         default=DEFAULT_CONFIG,
-        help="Base Atlas config used to derive RIM settings.",
+        help="Base Atlas config used to derive reward system settings.",
     )
     parser.add_argument(
         "--judge-combos",
