@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import os
 import sys
 import time
 import warnings
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +23,7 @@ warnings.filterwarnings(
 from atlas import core
 from atlas.cli.run import _render_learning_summary
 from atlas.cli.storage_runtime import DEFAULT_DATABASE_URL, InitOptions, init_storage
+from atlas.cli.utils import write_run_record
 from atlas.config.models import StorageConfig
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.runtime.storage.database import Database
@@ -127,6 +130,7 @@ class TaskMetrics:
     tokens: int | None = None
     duration: float | None = None
     metadata: dict[str, Any] | None = None
+    artifact_path: Path | None = None
 
 
 def _check_storage_available(database_url: str = DEFAULT_DATABASE_URL) -> bool:
@@ -247,7 +251,95 @@ def _extract_token_count(metadata: dict[str, Any]) -> int | None:
     return None
 
 
-async def _run_task(task: str, task_num: int, config_path: str) -> TaskMetrics:
+def _format_final_answer(answer: str, artifact_path: Path | None) -> str:
+    """Format final answer for display with smart truncation."""
+    answer = answer.strip()
+    
+    # Check if it's JSON
+    is_json = False
+    json_data = None
+    try:
+        json_data = json.loads(answer)
+        is_json = True
+    except (json.JSONDecodeError, ValueError):
+        pass
+    
+    if is_json and isinstance(json_data, dict):
+        # Show JSON structure + truncated snippet
+        def _describe_structure(obj, prefix="", max_depth=2, current_depth=0):
+            """Recursively describe JSON structure."""
+            if current_depth >= max_depth:
+                return "..."
+            
+            if isinstance(obj, dict):
+                keys = list(obj.keys())
+                if len(keys) == 0:
+                    return "{}"
+                lines = []
+                for key in keys[:8]:  # Show first 8 keys per level
+                    value = obj[key]
+                    if isinstance(value, dict):
+                        lines.append(f"{prefix}  • {key}: {{dict with {len(value)} keys}}")
+                        if current_depth < max_depth - 1:
+                            nested = _describe_structure(value, prefix + "    ", max_depth, current_depth + 1)
+                            if nested and nested != "...":
+                                lines.append(nested)
+                    elif isinstance(value, list):
+                        lines.append(f"{prefix}  • {key}: [list with {len(value)} items]")
+                    elif isinstance(value, str):
+                        lines.append(f"{prefix}  • {key}: \"{value[:50]}{'...' if len(value) > 50 else ''}\"")
+                    else:
+                        lines.append(f"{prefix}  • {key}: {type(value).__name__}")
+                if len(keys) > 8:
+                    lines.append(f"{prefix}  ... and {len(keys) - 8} more keys")
+                return "\n".join(lines)
+            elif isinstance(obj, list):
+                if len(obj) == 0:
+                    return "[]"
+                sample = obj[0] if len(obj) > 0 else None
+                desc = f"[list with {len(obj)} items"
+                if sample is not None:
+                    if isinstance(sample, dict):
+                        desc += f", sample: {{dict with {len(sample)} keys}}"
+                    elif isinstance(sample, str):
+                        desc += f", sample: \"{sample[:30]}...\""
+                desc += "]"
+                return desc
+            return str(obj)
+        
+        structure_desc = _describe_structure(json_data)
+        total_keys = len(json_data.keys())
+        
+        structure_lines = [f"JSON structure ({total_keys} top-level keys):"]
+        structure_lines.append(structure_desc)
+        
+        # Add truncated snippet (first 500 chars)
+        full_json = json.dumps(json_data, indent=2)
+        snippet = full_json[:500]
+        if len(full_json) > 500:
+            # Try to cut at a newline boundary
+            snippet = snippet.rsplit("\n", 1)[0] + "\n  ..."
+        
+        structure_lines.append("\nSnippet:")
+        structure_lines.append(snippet)
+        
+        formatted = "\n".join(structure_lines)
+        if artifact_path:
+            formatted += f"\n\n[Full answer available in run artifact: {artifact_path.name}]"
+        return formatted
+    else:
+        # Text response - truncate to 1500 chars
+        if len(answer) > 1500:
+            truncated = answer[:1500].rsplit("\n", 1)[0]  # Don't cut mid-line
+            formatted = truncated + "\n..."
+            if artifact_path:
+                formatted += f"\n\n[Full answer available in run artifact: {artifact_path.name}]"
+            return formatted
+        else:
+            return answer
+
+
+async def _run_task(task: str, task_num: int, config_path: str, atlas_dir: Path) -> TaskMetrics:
     """Run a single task and collect metrics."""
     print(f"\n{'='*60}")
     print(f"Task {task_num}: Security Review")
@@ -270,13 +362,21 @@ async def _run_task(task: str, task_num: int, config_path: str) -> TaskMetrics:
     reward = _extract_reward_score(metadata)
     tokens = _extract_token_count(metadata)
 
+    # Save run artifact
+    run_payload = {
+        "task": task,
+        "task_num": task_num,
+        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "config_path": config_path,
+        "result": result.model_dump() if hasattr(result, "model_dump") else None,
+        "metadata": metadata,
+    }
+    artifact_path = write_run_record(atlas_dir, run_payload)
+
     print(f"\n--- Task {task_num} Final Answer ---")
     if result.final_answer:
-        # Truncate if too long
-        answer = result.final_answer.strip()
-        if len(answer) > 500:
-            answer = answer[:500] + "..."
-        print(answer)
+        formatted_answer = _format_final_answer(result.final_answer, artifact_path)
+        print(formatted_answer)
 
     return TaskMetrics(
         task_num=task_num,
@@ -284,6 +384,7 @@ async def _run_task(task: str, task_num: int, config_path: str) -> TaskMetrics:
         tokens=tokens,
         duration=duration,
         metadata=metadata,
+        artifact_path=artifact_path,
     )
 
 
@@ -405,6 +506,9 @@ async def _cmd_quickstart_async(args: argparse.Namespace) -> int:
     all_tasks = [TASK_1, TASK_2, TASK_3]
     tasks_to_run = all_tasks[: args.tasks]
 
+    # Set up atlas directory for artifacts
+    atlas_dir = Path(".atlas")
+
     print(f"\n🚀 Starting Atlas Quickstart ({len(tasks_to_run)} task{'s' if len(tasks_to_run) != 1 else ''})")
     if storage_available:
         print("   ✓ Storage enabled (learning will persist)")
@@ -415,7 +519,7 @@ async def _cmd_quickstart_async(args: argparse.Namespace) -> int:
     metrics_list: list[TaskMetrics] = []
     for idx, task in enumerate(tasks_to_run, start=1):
         try:
-            metrics = await _run_task(task, idx, config_path)
+            metrics = await _run_task(task, idx, config_path, atlas_dir)
             metrics_list.append(metrics)
         except Exception as exc:
             print(f"\n❌ Failed to complete task {idx}: {exc}", file=sys.stderr)
@@ -441,6 +545,9 @@ async def _cmd_quickstart_async(args: argparse.Namespace) -> int:
 
     print(f"\n✅ Quickstart completed!")
     print(f"   Config used: {config_path}")
+    if metrics_list and metrics_list[0].artifact_path:
+        artifact_dir = metrics_list[0].artifact_path.parent
+        print(f"   Run artifacts saved to: {artifact_dir}")
     if not offline_mode:
         print(f"   View learning telemetry in storage or run artifacts")
     print(f"\n   Next steps:")
