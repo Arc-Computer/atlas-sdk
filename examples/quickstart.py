@@ -1,4 +1,19 @@
-"""Minimal Atlas quickstart demonstrating two learning passes."""
+"""Minimal Atlas quickstart demonstrating two learning passes.
+
+⚠️ DEPRECATED: This script is deprecated in favor of the `atlas quickstart` CLI command.
+
+The new CLI command (`atlas quickstart`) provides:
+- 3 security review tasks showing learning progression
+- Metrics visualization table
+- Better error handling and offline mode support
+- Integrated storage provisioning
+
+This script will be removed in a future version. Please migrate to:
+    atlas quickstart
+
+Or use the CLI with flags:
+    atlas quickstart --offline --tasks 2
+"""
 
 from __future__ import annotations
 
@@ -155,6 +170,12 @@ async def _main_async() -> None:
 
 
 def main() -> None:
+    import warnings
+    warnings.warn(
+        "examples/quickstart.py is deprecated. Use 'atlas quickstart' CLI command instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
     asyncio.run(_main_async())
 
 

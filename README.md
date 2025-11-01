@@ -16,7 +16,7 @@ With the split between SDK (runtime) and ATLAS (training) in mind, here's what o
 
 ## Key Highlights (v0.1.10)
 
-- **Autodiscovery-first CLI** – `atlas env init` now writes runnable configs, auto-loads `.env`/`PYTHONPATH`, and feeds straight into `atlas run --config` or the fake LLM smoke-test flow (`ATLAS_FAKE_LLM=1`) so you can validate stacks offline before hitting production creds ([docs](docs/learning_eval.md)).
+- **Autodiscovery-first CLI** – `atlas env init` now writes runnable configs, auto-loads `.env`/`PYTHONPATH`, and feeds straight into `atlas run --config` or the offline mode smoke-test flow (`ATLAS_OFFLINE_MODE=1`) so you can validate stacks offline before hitting production creds ([docs](docs/learning_eval.md)). Legacy `ATLAS_FAKE_LLM` still works but is deprecated and will show a warning.
 - **Learning Playbooks Everywhere** – Student and Teacher personas resolve hashed learning playbooks on every run, splice the guidance into planner/synthesizer/executor prompts, and update cache keys when playbooks change so prompt drift is eliminated.
 - **Persistent Telemetry & Reports** – Discovery and runtime sessions stream to Postgres, and the learning report harness filters by project/task/tags while breaking down model performance, reward deltas, and adaptive mode mix into Markdown/JSON artifacts (`scripts/eval_learning.py`).
 - **Safety Guardrails for Exports** – Session exports default to approved-only with CLI review, approval, and quarantine commands plus drift alerts embedded in metadata—production pipelines stay clean while local overrides remain available.
@@ -54,9 +54,19 @@ export OPENAI_API_KEY=sk-...
 export GEMINI_API_KEY=...
 export XAI_API_KEY=...
 ```
-Keys can also live in a local `.env` file; the Atlas CLI and quickstart scripts automatically load it via [python-dotenv](https://pypi.org/project/python-dotenv/).
+Keys can also live in a local `.env` file; the Atlas CLI automatically loads it via [python-dotenv](https://pypi.org/project/python-dotenv/).
 
-Then run the script:
+**3. Try the quickstart demonstration**
+```bash
+atlas quickstart
+```
+
+This runs 3 security review tasks showing learning progression. Use `--offline` to test without API calls:
+```bash
+atlas quickstart --offline
+```
+
+**4. Run your own tasks**
 ```bash
 atlas run --config .atlas/generated_config.yaml --task "..."
 ```

@@ -1,165 +1,175 @@
-# Stateful Agent Quickstart
+# Atlas Quickstart
 
-This guide shows how to onboard a self-managed, stateful agent into Atlas using
-the new `atlas env init` discovery workflow.
+The `atlas quickstart` command demonstrates Atlas learning capabilities with a series of security review tasks. It runs 3 progressively challenging tasks that show how Atlas learns and improves over time, displaying metrics and learning insights.
 
-## 1. Install the SDK
+## Quick Start
 
 ```bash
+# Install Atlas SDK
 pip install arc-atlas
+
+# Set your API key (or use --offline for testing)
+export OPENAI_API_KEY=sk-...
+
+# Run the quickstart demonstration
+atlas quickstart
 ```
 
-Ensure your project exports an environment and an agent. The
-`examples/agent.py` module in this repository demonstrates the
-minimal shape:
+## What You'll See
+
+The quickstart runs 3 security review tasks:
+
+1. **Task 1 (Baseline):** Prompt injection vulnerability in a customer support bot
+2. **Task 2 (Learning Applied):** Database access code review - shows learning transfer
+3. **Task 3 (Generalization):** API authentication code review - demonstrates learning across security domains
+
+After each task, you'll see a metrics table showing learning progress:
+
+```
+Learning Progress:
+┌────────┬──────────┬─────────┬───────────┐
+│ Task   │ Reward   │ Tokens  │ Time      │
+├────────┼──────────┼─────────┼───────────┤
+│ 1      │ 0.65     │ 2,341   │ 18.3s     │
+│ 2      │ 0.82 ↑   │ 1,892 ↓ │ 14.1s ↓   │
+│ 3      │ 0.88 ↑   │ 1,654 ↓ │ 12.8s ↓   │
+└────────┴──────────┴─────────┴───────────┘
+
+✓ Learning detected: Check auth patterns first
+✓ Efficiency improved: 29% fewer tokens
+✓ Quality increased: +0.23 reward score
+```
+
+## Command Options
+
+### Basic Usage
+
+```bash
+# Run all 3 tasks (default)
+atlas quickstart
+
+# Run only 1 task
+atlas quickstart --tasks 1
+
+# Run 2 tasks
+atlas quickstart --tasks 2
+```
+
+### Offline Mode
+
+Test Atlas without making real API calls:
+
+```bash
+atlas quickstart --offline
+```
+
+This sets `ATLAS_OFFLINE_MODE=1` and uses mock responses. Learning telemetry will be limited, but you can see the command structure and output format.
+
+### Custom Configuration
+
+Use a different Atlas config file:
+
+```bash
+atlas quickstart --config configs/examples/openai_agent.yaml
+```
+
+### Storage Options
+
+By default, quickstart checks if Postgres storage is available. If not found, it shows a warning and continues without persistence.
+
+```bash
+# Skip storage check entirely
+atlas quickstart --skip-storage
+
+# Storage is automatically checked if not skipped
+# If unavailable, you'll see:
+# ⚠️  Postgres storage is not available.
+#    Atlas quickstart can run without storage, but learning persistence will be disabled.
+#    To enable storage, run: atlas init
+```
+
+## Understanding the Output
+
+Each task shows:
+- **Final Answer:** The agent's security review response
+- **Learning Summary:** Reward scores, token usage, and learning insights
+- **Metrics Table:** Comparative metrics across all tasks
+
+The metrics table highlights improvements with arrows (↑ for better, ↓ for worse) and generates insights about learning progress.
+
+## Cost Estimation
+
+Before running (unless `--offline` is used), quickstart shows an estimated cost:
+
+```
+💰 Estimated cost: ~$0.10-0.15 (3 tasks, GPT-4o-mini)
+   Use --offline to skip API calls.
+```
+
+Actual costs depend on your config's model choices and task complexity.
+
+## Next Steps
+
+After running quickstart:
+
+1. **Explore Advanced Learning:** See `examples/mcp_tool_learning/` for comprehensive tool learning examples
+2. **Customize Your Config:** Edit `configs/examples/openai_agent.yaml` to adjust agent behavior
+3. **Integrate Atlas:** Use `atlas.core.arun()` in your own code:
 
 ```python
-from atlas import agent, environment
-from atlas.sdk.interfaces import DiscoveryContext, TelemetryEmitterProtocol
+from atlas import core
 
-@environment
-class CounterEnvironment:
-    def reset(self, task: str | None = None):
-        ...
-
-    def step(self, action):
-        ...
-
-@agent
-class CounterAgent:
-    def plan(self, task, observation, *, emit_event=None):
-        ...
-
-    def act(self, context: DiscoveryContext, *, emit_event=None):
-        ...
-
-    def summarize(self, context: DiscoveryContext, *, history=None, emit_event=None):
-        ...
+result = await core.arun(
+    task="Your security review task",
+    config_path="configs/examples/openai_agent.yaml",
+    stream_progress=True,
+)
 ```
 
-Decorators make autodiscovery explicit. When they are absent, the CLI falls back
-to heuristics (looking for `reset/step/close` on the environment and
-`plan/act/summarize` on the agent). If the selected classes require constructor
-arguments, `atlas env init` now gathers context from your repository, calls an
-LLM (Gemini 2.5 Flash or Claude Haiku 4.5), and materialises helper factories
-under `.atlas/generated_factories.py`. These helpers merge discovered defaults
-with any `--env-arg/--agent-arg` overrides and defer heavyweight side effects
-until validation, so the initial scan remains safe. Keep this module under
-source control; it will be regenerated whenever you rerun discovery.
+## Troubleshooting
 
-## 2. Discover the environment & agent
+### Missing API Keys
 
-Run the discovery command from the project root:
+If you see an error about missing `OPENAI_API_KEY`:
 
 ```bash
-atlas env init --task "Investigate the counter task"
+# Set the key
+export OPENAI_API_KEY=sk-...
+
+# Or use offline mode
+atlas quickstart --offline
 ```
 
-The CLI walks the project, prompts if multiple candidates are found, spins up a
-sandbox worker process, synthesises any missing factories, and runs a discovery
-loop. It writes two artefacts under
-`.atlas/`:
+### Config File Not Found
 
-- `discover.json` captures module hashes, inferred handshake, schema hints,
-  telemetry samples, and reward statistics.
-- `generated_config.yaml` records the discovered pair (`behavior: self`) so the
-  runtime can load them without additional configuration.
-
-When synthesis or preflight diagnostics flag missing dependencies, discovery
-marks `preflight.auto_skip = true`, flips `ATLAS_DISCOVERY_VALIDATE` to `0`, and
-locks the runtime into the recommended mode. The metadata exposes the choice via
-`capabilities.preferred_mode` while `.atlas/generated_config.yaml` pins
-`orchestration.forced_mode` so later `atlas run` calls route directly to `auto`
-or `paired` once you validate.
-
-If the scan finds no viable environment or agent definitions, the CLI gathers
-repository hints (README excerpts, entrypoints, dependency lists) and asks the
-LLM to mint lightweight wrapper classes plus their factories. These generated
-wrappers are tagged as `auto_wrapped` in `.atlas/discover.json`, default to
-auto-skip, and inherit the same validation flow once dependencies are in place.
-
-By default the command also performs a full sample run and records the first
-trajectory under `.atlas/runs/` for continual learning. Disable this behaviour
-with `--skip-sample-run`.
-
-### Adapting to existing stacks (LangGraph, custom frameworks, …)
-
-Most production agents already expose factory helpers or require constructor
-arguments. Pass those hints directly to `atlas env init`:
+If the default config is missing:
 
 ```bash
-atlas env init \
-  --task "Investigate incident 38" \
-  --env-fn langgraph_adapter:create_environment \
-  --agent-fn langgraph_adapter:create_agent \
-  --env-arg dataset=incidents \
-  --agent-config configs/langgraph_agent.yaml
+# Specify a custom config
+atlas quickstart --config path/to/your/config.yaml
 ```
 
-Use `atlas env scaffold --template langgraph` to drop the starter template into your
-repository, then point the CLI at the generated factories. Key flags (see
-`examples/langgraph_adapter.py` for a factory template you can adapt):
+### Storage Issues
 
-- `--env-fn / --agent-fn` – module-qualified factories that Atlas calls instead
-  of the default zero-argument constructors.
-- `--env-arg / --agent-arg` – repeatable `KEY=VALUE` entries forwarded to the
-  factories (merge with `--env-config` / `--agent-config` when you already have
-  a JSON or YAML config file).
-- `--no-run` – only analyse the project; do not execute the discovery loop.
-
-The CLI prints a summary of what it detected and, when it sees a heavy stack
-such as LangGraph or DeepAgents, surfaces preflight notes (e.g., "start worker
-services before running discovery"). When LLM-generated factories warn that
-dependencies are offline, Atlas automatically sets `ATLAS_DISCOVERY_VALIDATE=0`,
-skips the sample run, and records the notes in `.atlas/discover.json`. Re-run
-`atlas env init` once services are healthy to regenerate and validate factories;
-the forced mode flag will remain until you refresh discovery.
-
-## 3. Execute tasks with the cached metadata
-
-Once discovery is complete, you can launch the agent loop without touching
-`AdapterCapabilities` or prompt plans:
+If Postgres is unavailable, quickstart will continue without persistence. To enable storage:
 
 ```bash
-atlas run --task "Summarise the telemetry captured during discovery"
+# Initialize Atlas storage
+atlas init
+
+# Then run quickstart again
+atlas quickstart
 ```
 
-`atlas run` validates the stored module hashes before executing. If the source
-files changed, the command errors and asks you to run `atlas env init` again so
-the metadata stays in sync.
+## What's Different from the Old Script?
 
-Preflight notes recorded during discovery are replayed before the run so you can
-double-check that the required services are online. If you deferred execution
-during discovery, re-run `atlas env init` once the environment is ready, then call
-`atlas run` to capture the first telemetry-rich trajectory.
+The previous `examples/quickstart.py` script has been replaced by this CLI command. The new command provides:
 
-Every runtime invocation persists telemetry and reward traces to
-`.atlas/runs/*.json`, giving the learning eval pipeline the "what/how/why" data
-it needs.
+- ✅ 3 tasks instead of 2 passes on the same task
+- ✅ Metrics visualization table
+- ✅ Better error handling
+- ✅ Offline mode support
+- ✅ Integrated storage provisioning
+- ✅ Cost estimation
 
-### Paired-mode validation payloads
-
-When you run `atlas run` in paired mode, the teacher now exchanges a compact
-`validation_request` schema with the orchestrator. The payload highlights step
-metadata, current guidance, and hashes of large artefacts, and each request
-includes the blob content keyed by those digests so the teacher still inspects the
-full submission. Identical retries reuse the cached verdict instantly and mark the
-corresponding telemetry event with `"cached": true`, so reward gating and the
-evaluation harness continue to observe the same structured signals without incurring
-extra LLM calls.
-
-## 4. Evaluate learning progress (no hints required)
-
-With Postgres enabled (`STORAGE__DATABASE_URL`), the runtime writes each session to the `sessions` table—including
-`learning_key`, reward stats, adaptive mode history, and trajectory events. Run the evaluation helper whenever you want
-to compare recent sessions against historical baselines:
-
-```bash
-python scripts/eval_learning.py \
-  --database-url postgresql://atlas:atlas@localhost:5433/atlas \
-  --recent-window 10 \
-  --baseline-window 50
-```
-
-The script emits Markdown/JSON digests per learning key in `results/learning/` and cross-links relevant discovery runs.
-See `docs/learning_eval.md` for the full workflow.
+Use `atlas quickstart` going forward. The old script is deprecated and will be removed in a future version.

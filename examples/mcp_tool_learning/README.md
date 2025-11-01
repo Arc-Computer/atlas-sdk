@@ -251,7 +251,7 @@ Approximate costs for the full 25-run learning session:
 
 ## Related Examples
 
-- `/examples/quickstart.py` - Basic Atlas SDK usage
+- `atlas quickstart` - Basic Atlas SDK learning demonstration (CLI command)
 - `/examples/python_example.py` - Python adapter patterns
 - `/deepagents/` - Advanced LangGraph integration with MCP
 
