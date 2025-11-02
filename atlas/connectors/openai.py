@@ -179,9 +179,8 @@ class OpenAIAdapter(AgentAdapter):
             message = choice["message"]
             content = message.get("content")
             tool_calls_raw = message.get("tool_calls")
-            # Log tool calls for debugging (remove after verification)
             if tool_calls_raw:
-                logger.info("Tool calls detected in LLM response: %d calls", len(tool_calls_raw) if isinstance(tool_calls_raw, list) else 1)
+                logger.debug("Tool calls detected in LLM response: %d calls", len(tool_calls_raw) if isinstance(tool_calls_raw, list) else 1)
             tool_calls = self._normalise_tool_calls(tool_calls_raw) if tool_calls_raw is not None else None
             normalised_content = self._stringify_content(content) if content is not None else ""
             raw_usage = response.get("usage") if isinstance(response, dict) else getattr(response, "usage", None)
@@ -201,14 +200,14 @@ class OpenAIAdapter(AgentAdapter):
         tool_choice = metadata.get("tool_choice") if metadata else None
         if tools:
             kwargs["tools"] = tools
-            logger.info("Passing %d tools to litellm: %s", len(tools), [t.get("function", {}).get("name", "unknown") for t in tools])
+            logger.debug("Passing %d tools to litellm: %s", len(tools), [t.get("function", {}).get("name", "unknown") for t in tools])
             if tool_choice:
                 kwargs["tool_choice"] = tool_choice
-                logger.info("Tool choice set to: %s", tool_choice)
+                logger.debug("Tool choice set to: %s", tool_choice)
             else:
-                logger.info("No tool_choice specified, using default")
+                logger.debug("No tool_choice specified, using default")
         else:
-            logger.info("No tools found in metadata")
+            logger.debug("No tools found in metadata")
         try:
             response = await acompletion(**kwargs)
         except Exception as exc:

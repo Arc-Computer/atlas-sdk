@@ -34,11 +34,20 @@ async def validate_runtime_handles(config_path: str) -> tuple[bool, str]:
     """Run a task and validate runtime handle extraction."""
     load_dotenv_if_available()
 
-    # Task that should trigger tool calls
-    task = (
-        "Search for information about Atlas SDK documentation, then calculate "
-        "the sum of 15 and 27, then format the result as a percentage summary."
-    )
+    # Resolve absolute path for detection
+    resolved_path = Path(config_path).resolve()
+
+    # Task that should trigger tool calls - use MCP file operations for MCP configs
+    if "mcp" in str(resolved_path).lower():
+        # Use absolute path to sample_workspace for MCP example
+        mcp_dir = resolved_path.parent
+        sample_workspace = mcp_dir / "sample_workspace"
+        task = f"List all files in the {sample_workspace} directory and read the contents of {sample_workspace}/notes.txt"
+    else:
+        task = (
+            "Search for information about Atlas SDK documentation, then calculate "
+            "the sum of 15 and 27, then format the result as a percentage summary."
+        )
 
     print(f"Running task: {task}\n")
 

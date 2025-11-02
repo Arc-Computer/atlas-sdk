@@ -179,7 +179,9 @@ async def arun(
     # Set learning_state before Student/Teacher creation so resolve_playbook() can access it
     execution_context.metadata["learning_history"] = learning_history
     execution_context.metadata["learning_state"] = learning_state or {}
-    
+    # Store allowed_runtime_handles for Student to use as fallback (agentic adapters like MCP/LangGraph)
+    execution_context.metadata["allowed_runtime_handles"] = learning_cfg.schema.allowed_runtime_handles or []
+
     # Now create Student/Teacher - they will call resolve_playbook() which will find learning_state
     student = _build_student(
         adapter,

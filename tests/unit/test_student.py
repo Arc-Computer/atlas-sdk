@@ -500,26 +500,34 @@ def test_record_student_action_adoption_populates_runtime_handles():
         import atlas.personas.student as student_module
         student_module.get_tracker = lambda: MockTracker()
         
-        # Create messages with tool calls (using dict format as handled by getattr)
-        # The code uses getattr(call, "name") which works with dict-like objects
+        # Create messages with tool calls in the format AIMessage expects (dicts)
+        # AIMessage internally converts these to objects with .name attribute
         message = AIMessage(
             content="",
             tool_calls=[
-                {"name": "read_file", "args": {"path": "test.txt"}, "id": "call-1"},
-                {"name": "write_file", "args": {"path": "output.txt", "content": "data"}, "id": "call-2"},
+                {"name": "read_file", "args": {"path": "test.txt"}, "id": "call-1", "type": "tool_call"},
+                {"name": "write_file", "args": {"path": "output.txt", "content": "data"}, "id": "call-2", "type": "tool_call"},
             ],
         )
         
         step = Step(id=1, description="Test step", tool=None, tool_params=None)
+
+        # Debug: Check message.tool_calls before calling the function
+        print(f"DEBUG: message.tool_calls = {message.tool_calls}")
+        if message.tool_calls:
+            for tc in message.tool_calls:
+                print(f"DEBUG: tool_call type={type(tc)}, has name={hasattr(tc, 'name')}, name={getattr(tc, 'name', None)}")
+
         student._record_student_action_adoption(
             step=step,
             messages=[message],
             structured_output={"status": "success"},
             metadata={},
         )
-        
+
         # Verify runtime handles were populated
         handles = ExecutionContext.get().metadata.get("runtime_handles", [])
+        print(f"DEBUG: runtime_handles = {handles}")
         assert "read_file" in handles
         assert "write_file" in handles
     finally:

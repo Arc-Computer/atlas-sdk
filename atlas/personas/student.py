@@ -79,29 +79,36 @@ class Student:
 
     def _record_runtime_handles(self, additional_handles: List[str] | None = None) -> None:
         """Record available tool handles for downstream instrumentation.
-        
-        This method is called in two phases:
-        1. During init (line 78): Records handles from configured tools (self._tools)
-           - Works for raw adapters with tools configured
-        2. During execution: Records handles from actual tool calls (via additional_handles)
-           - Works for agentic adapters that call tools dynamically
-        
+
+        This method uses a three-tier approach:
+        1. Configured tools (self._tools) - for raw adapters with explicit tool config
+        2. Runtime tool calls (additional_handles) - extracted from AIMessage.tool_calls
+        3. Config fallback (allowed_runtime_handles) - for agentic adapters like MCP/LangGraph
+
+        This hybrid approach ensures both raw OpenAI/Anthropic adapters and agentic
+        Python adapters (LangGraph, MCP) can populate runtime handles correctly.
+
         Args:
-            additional_handles: Optional list of handles to merge (e.g., from tool calls)
+            additional_handles: Optional list of handles from actual tool calls
         """
         try:
             context = ExecutionContext.get()
         except Exception:  # pragma: no cover - context may be missing in tests
             return
         handles: List[str] = []
-        # Add configured tools (for raw adapters)
+        # Tier 1: Add configured tools (for raw adapters)
         for tool in self._tools or []:
             name = getattr(tool, "name", None)
             if isinstance(name, str) and name.strip():
                 handles.append(name.strip())
-        # Add additional handles (for agentic adapters from tool calls)
+        # Tier 2: Add additional handles (for agentic adapters from tool calls)
         if additional_handles:
             handles.extend(str(h) for h in additional_handles if isinstance(h, str) and h.strip())
+        # Tier 3: Fallback to config (for agentic adapters that don't expose tool_calls in messages)
+        if not handles:
+            allowed = context.metadata.get("allowed_runtime_handles", [])
+            if isinstance(allowed, list):
+                handles.extend(str(h) for h in allowed if isinstance(h, str) and h.strip())
         if not handles:
             return
         store = context.metadata.setdefault("runtime_handles", [])
@@ -498,7 +505,11 @@ class Student:
         for message in messages or []:
             if isinstance(message, AIMessage) and getattr(message, "tool_calls", None):
                 for call in message.tool_calls:
-                    name = getattr(call, "name", None)
+                    # Handle both dict (TypedDict from LangChain) and object forms
+                    if isinstance(call, dict):
+                        name = call.get("name")
+                    else:
+                        name = getattr(call, "name", None)
                     if isinstance(name, str) and name.strip():
                         runtime_handles.add(name.strip())
         # Populate runtime_handles for learning system (from actual tool calls)
