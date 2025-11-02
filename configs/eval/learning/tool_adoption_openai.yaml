@@ -58,8 +58,6 @@ agent:
     temperature: 0.2
     max_output_tokens: 4096
     timeout_seconds: 240
-  response_format:
-    type: json_object
   metadata_digest:
     enabled: true
 
