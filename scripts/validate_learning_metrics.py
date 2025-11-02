@@ -8,7 +8,7 @@ This script loads learning state from the database and validates that:
 4. Transfer success is detected correctly
 
 Usage:
-    python scripts/validate_empirical_learning.py <learning_key> [--config <config_path>]
+    python scripts/validate_learning_metrics.py <learning_key> [--config <config_path>]
 """
 
 from __future__ import annotations

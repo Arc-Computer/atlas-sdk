@@ -22,7 +22,7 @@ from atlas.utils.env import load_dotenv_if_available
 DEFAULT_TASKS = Path("atlas/data/synthetic_runtime_tasks.jsonl")
 DEFAULT_CONFIG = Path("configs/examples/openai_agent.yaml")
 DEFAULT_COMMENT = (
-    "# Atlas reward evaluation dataset. Each line is a SessionTrajectory payload captured prior to reward scoring."
+    "# Atlas reward evaluation dataset. Each line is a SessionTrajectory payload collected prior to reward scoring."
 )
 
 
@@ -34,7 +34,7 @@ class TaskRecord:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Capture SessionTrajectory payloads prior to reward scoring."
+        description="Collect SessionTrajectory payloads prior to reward scoring."
     )
     parser.add_argument(
         "--tasks",
@@ -46,7 +46,7 @@ def parse_args() -> argparse.Namespace:
         "--output",
         type=Path,
         default=Path("atlas/data/reward_eval_trajectories.jsonl"),
-        help="Destination JSONL file for captured trajectories.",
+        help="Destination JSONL file for collected trajectories.",
     )
     parser.add_argument(
         "--config",
@@ -58,7 +58,7 @@ def parse_args() -> argparse.Namespace:
         "--limit",
         type=int,
         default=30,
-        help="Total number of trajectories to capture.",
+        help="Total number of trajectories to collect.",
     )
     parser.add_argument(
         "--repeats",
@@ -297,7 +297,7 @@ def build_evaluator_factory(
     def factory(config, reward_cfg):
         reward_cfg = reward_cfg or RewardObjectiveConfig()
         if reward_cfg.type != "rim":
-            raise ValueError("capture_reward_trajectories currently supports reward system only.")
+            raise ValueError("collect_reward_trajectories currently supports reward system only.")
         rim_config = config.rim
         if reward_cfg.parameters:
             rim_config = rim_config.model_copy(update=reward_cfg.parameters)
@@ -313,7 +313,7 @@ def build_evaluator_factory(
     return factory
 
 
-async def capture_trajectories(args: argparse.Namespace) -> None:
+async def collect_trajectories(args: argparse.Namespace) -> None:
     load_dotenv_if_available()
     tasks = load_tasks(args.tasks)
     collector = TrajectoryCollector()
@@ -348,11 +348,11 @@ async def capture_trajectories(args: argparse.Namespace) -> None:
             if recorded_after > recorded_before:
                 total_runs += 1
                 print(
-                    f"[capture] collected {total_runs}/{args.limit} | task='{task_entry.task[:60]}'"
+                    f"[collect] collected {total_runs}/{args.limit} | task='{task_entry.task[:60]}'"
                 )
             else:
                 print(
-                    f"[capture] attempt {attempts} produced empty output, retrying"
+                    f"[collect] attempt {attempts} produced empty output, retrying"
                 )
             if args.sleep:
                 await asyncio.sleep(args.sleep)
@@ -365,7 +365,7 @@ async def capture_trajectories(args: argparse.Namespace) -> None:
 
 def main() -> None:
     args = parse_args()
-    asyncio.run(capture_trajectories(args))
+    asyncio.run(collect_trajectories(args))
 
 
 if __name__ == "__main__":

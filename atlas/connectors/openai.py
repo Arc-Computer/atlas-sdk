@@ -22,6 +22,7 @@ from atlas.connectors.registry import AgentAdapter
 from atlas.connectors.registry import register_adapter
 from atlas.connectors.utils import AdapterResponse, normalise_usage_payload
 from atlas.config.models import AdapterType, AdapterUnion, OpenAIAdapterConfig
+from atlas.runtime.orchestration.execution_context import ExecutionContext
 
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,13 @@ class OpenAIAdapter(AgentAdapter):
                 stats = {}
             if stats.get("omitted_sections"):
                 logger.debug("metadata digest omitted sections: %s", stats["omitted_sections"])
+            # Store digest_stats in ExecutionContext metadata for artifact capture
+            if stats:
+                try:
+                    context = ExecutionContext.get()
+                    context.metadata["digest_stats"] = stats
+                except Exception:  # pragma: no cover - instrumentation best effort
+                    logger.debug("Failed to store digest_stats", exc_info=True)
         messages.append({"role": "user", "content": prompt})
         return messages
 

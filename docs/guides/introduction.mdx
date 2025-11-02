@@ -29,7 +29,7 @@ The generated files include:
 
 If you change your environment or agent implementation, re-run `atlas env init` to refresh the cached metadata before calling `atlas run` again. The [Agent Quickstart](docs/sdk/quickstart.mdx) walks through the full onboarding flow and highlights how to validate the generated factories.
 
-Once telemetry is flowing into Postgres, use the new `scripts/eval_learning.py` helper (documented in `docs/learning_eval.md`) to compare learning trajectories—even without experience hints in the loop. It stitches together `sessions`, `trajectory_events`, and `discovery_runs` via `learning_key` so you can track reward deltas and adaptive mode shifts over time.
+Once telemetry is flowing into Postgres, use the new `scripts/report_learning.py` helper (documented in `docs/learning_eval.md`) to compare learning trajectories—even without experience hints in the loop. It stitches together `sessions`, `trajectory_events`, and `discovery_runs` via `learning_key` so you can track reward deltas and adaptive mode shifts over time.
 
 ## Leaner paired-mode validation
 

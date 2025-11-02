@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from scripts import eval_probe_models as probe_eval
+from scripts import benchmark_probe_models as probe_eval
 from scripts import export_probe_dataset as probe_export
-from scripts.eval_probe_models import ProbeResult, ProbeSample, summarise_results
+from scripts.benchmark_probe_models import ProbeResult, ProbeSample, summarise_results
 
 
 def test_load_dataset_sample() -> None:

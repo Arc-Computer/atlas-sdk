@@ -18,7 +18,7 @@ Here's what our runtime gives you out of the box.
 
 - **Autodiscovery-first CLI** – `atlas env init` now writes runnable configs, auto-loads `.env`/`PYTHONPATH`, and feeds straight into `atlas run --config` so you can validate stacks before hitting production ([docs](docs/learning_eval.md)). Legacy `ATLAS_FAKE_LLM` still works but is deprecated and will show a warning.
 - **Learning Playbooks Everywhere** – Student and Teacher personas resolve hashed learning playbooks on every run, splice the guidance into planner/synthesizer/executor prompts, and update cache keys when playbooks change so prompt drift is eliminated.
-- **Persistent Telemetry & Reports** – Discovery and runtime sessions stream to Postgres, and the learning report harness filters by project/task/tags while breaking down model performance, reward deltas, and adaptive mode mix into Markdown/JSON artifacts (`scripts/eval_learning.py`).
+- **Persistent Telemetry & Reports** – Discovery and runtime sessions stream to Postgres, and the learning report harness filters by project/task/tags while breaking down model performance, reward deltas, and adaptive mode mix into Markdown/JSON artifacts (`scripts/report_learning.py`).
 - **Safety Guardrails for Exports** – Session exports default to approved-only with CLI review, approval, and quarantine commands plus drift alerts embedded in metadata—production pipelines stay clean while local overrides remain available.
 - **Expanded Evaluation Suites** – New datasets + docs cover capability probe updates (xAI Grok), dual-agent runtime benchmarking, and reward model scoring; unit tests back each harness so you can extend with confidence.
 - **Training Integration** – `atlas train` reuses export filters, ships a sample dataset, and launches Atlas Core with Hydra overrides, making the export→train loop a single CLI hop when you're ready to fine-tune.
@@ -65,7 +65,7 @@ This runs 3 security review tasks showing learning progression. See [Quickstart 
 
 ## Examples
 
-- **Flagship Example:** [`examples/mcp_tool_learning/`](examples/mcp_tool_learning/README.md) - Production-ready MCP tool learning with LangGraph agents, demonstrating progressive learning across 25 tasks
+- **Example Use Case:** [`examples/mcp_tool_learning/`](examples/mcp_tool_learning/README.md) - Production-ready MCP tool learning with LangGraph agents, demonstrating progressive learning across 25 tasks
 - **Quickstart:** `atlas quickstart` - See learning in action with 3 security review tasks
 
 ## 📹 Video Walkthrough

@@ -9,7 +9,7 @@ from atlas.config.loader import load_config
 from atlas.evaluation import RewardEvaluation
 from atlas.runtime.schema import AtlasJudgeBreakdown, AtlasJudgeSample, AtlasRewardBreakdown
 
-from scripts.eval_reward_models import (
+from scripts.benchmark_reward_models import (
     JUDGE_COMBOS,
     TrajectoryRecord,
     aggregate_results,

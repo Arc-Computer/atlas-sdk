@@ -4,7 +4,7 @@ agent:
   system_prompt: |
     You are a local Python agent that can execute custom functions and reason about results.
   tools: []
-  # Note: This example config references the flagship mcp_tool_learning example.
+  # Note: This example config references the production-ready mcp_tool_learning example.
   # For a complete working example, see examples/mcp_tool_learning/config.yaml
   import_path: examples.mcp_tool_learning.mcp_agent
   attribute: create_agent
