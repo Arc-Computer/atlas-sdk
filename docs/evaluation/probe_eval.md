@@ -31,7 +31,7 @@ For each model:
 
 ### Running the evaluation
 ```
-python -m scripts.eval_probe_models \
+python -m scripts.benchmark_probe_models \
   --dataset data/probe_eval_synthetic.jsonl \
   --models gemini anthropic xai
 ```

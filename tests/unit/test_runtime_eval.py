@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from atlas.config.loader import load_config
-from scripts import eval_dual_agent_models as eval_mod
+from scripts import benchmark_dual_agent_models as eval_mod
 
 
 def test_load_dataset_parses_entries(tmp_path: Path) -> None:

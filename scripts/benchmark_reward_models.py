@@ -26,7 +26,7 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
 
 DEFAULT_DATASET = Path("atlas/data/reward_eval_trajectories.jsonl")
 DEFAULT_CONFIG = Path("configs/examples/openai_agent.yaml")
-REWARD_CONFIG_PATH = Path("configs/eval/reward_system.yaml")
+REWARD_CONFIG_PATH = Path("configs/eval/reward/models.yaml")
 
 
 @dataclass(frozen=True)

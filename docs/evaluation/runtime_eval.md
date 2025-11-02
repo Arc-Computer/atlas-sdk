@@ -32,7 +32,7 @@ Populate the relevant keys in your shell or `.env` file; the script calls `load_
 
 ### Running the Harness
 ```bash
-python -m scripts.eval_dual_agent_models \
+python -m scripts.benchmark_dual_agent_models \
   --dataset atlas/data/synthetic_runtime_tasks.jsonl \
   --output results/dual_agent_eval.json
 ```

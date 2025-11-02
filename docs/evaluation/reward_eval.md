@@ -14,9 +14,9 @@ This evaluation mirrors the probe and runtime sweeps for reward-system judges. T
   - `adaptive_summary`, `session_metadata`, `trajectory_type`
   - Optional `focus_prompt`
 - **Composition:** Start with the curated seed trajectories (paired, auto, coach) included in the repo, then append fresh captures that contain full `final_answer` text and step outputs. The capture tool automatically skips blank runs so the dataset only contains usable trajectories.
-- **Expansion:** Use `scripts/capture_reward_trajectories.py` to record new trajectories without editing runtime code:
+- **Expansion:** Use `scripts/collect_reward_trajectories.py` to record new trajectories without editing runtime code:
   ```bash
-  python -m scripts.capture_reward_trajectories \
+  python -m scripts.collect_reward_trajectories \
     --tasks atlas/data/synthetic_runtime_tasks.jsonl \
     --output atlas/data/reward_eval_trajectories.jsonl \
     --limit 30 \
@@ -36,16 +36,16 @@ This evaluation mirrors the probe and runtime sweeps for reward-system judges. T
 | `gpt5_stack`  | `gpt-5-mini` (OpenAI)               | `gpt-5` (OpenAI)                     | Evaluates OpenAI’s small/large pairing for parity with runtime options. |
 | `grok_stack`  | `xai/grok-4-fast` (xAI)             | `xai/grok-4` (xAI)                   | Tests xAI’s fast vs. larger Grok judges without cross-provider escalation. |
 
-Add new combinations by editing `configs/eval/reward_system.yaml`; no orchestrator code changes are required. The CLI will use the file when present and fall back to the baked-in defaults otherwise.
+Add new combinations by editing `configs/eval/reward/models.yaml`; no orchestrator code changes are required. The CLI will use the file when present and fall back to the baked-in defaults otherwise.
 
-> **Configuration-first:** The defaults above live in `configs/eval/reward_system.yaml`. Update that file to swap models or add combos—`scripts/eval_reward_models.py` will load it automatically and fall back to built-ins if the file is missing.
+> **Configuration-first:** The defaults above live in `configs/eval/reward/models.yaml`. Update that file to swap models or add combos—`scripts/benchmark_reward_models.py` will load it automatically and fall back to built-ins if the file is missing.
 
 ### Harness Workflow
 1. Ensure the dataset is committed and up to date (`atlas/data/reward_eval_trajectories.jsonl`).
 2. Export required API keys (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `XAI_API_KEY`, etc.) and optionally store them in `.env`. The harness loads `.env` automatically via `load_dotenv_if_available()`.
 3. Run the evaluator harness:
    ```bash
-   python -m scripts.eval_reward_models \
+   python -m scripts.benchmark_reward_models \
      --dataset atlas/data/reward_eval_trajectories.jsonl \
      --output results/reward/eval_gemini_claude.json \
      --repeats 1 \
@@ -55,7 +55,7 @@ Add new combinations by editing `configs/eval/reward_system.yaml`; no orchestrat
    4. Inspect the console table for high-level metrics and review the JSON artifact for per-run details.
    When you are ready to compare every judge pairing in one pass, run:
    ```bash
-   python -m scripts.eval_reward_models \
+   python -m scripts.benchmark_reward_models \
      --judge-combos gemini_pair claude_stack gpt5_stack grok_stack \
      --dataset atlas/data/reward_eval_trajectories.jsonl \
      --output results/reward/latest.json \

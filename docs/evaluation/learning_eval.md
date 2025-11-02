@@ -167,11 +167,11 @@ runs or recompute experiment-specific aggregates.
 
 ## 3. Run the Learning Evaluation Script
 
-Use the new `scripts/eval_learning.py` helper to assemble structured summaries per learning key. The script queries
+Use the new `scripts/report_learning.py` helper to assemble structured summaries per learning key. The script queries
 Postgres directly—no JSONL export required—and produces JSON + Markdown reports under `results/learning/`.
 
 ```bash
-python scripts/eval_learning.py \
+python scripts/report_learning.py \
   --database-url postgresql://atlas:atlas@localhost:5433/atlas \
   --recent-window 10 \
   --baseline-window 50 \
@@ -251,11 +251,11 @@ The new manifest includes `comparisons` and aggregate leaderboards (best/worst d
 ## 6. Suggested Experiments
 
 To stress-test the learning synthesizer and meta-prompt variants, run targeted sweeps with the configs under
-`configs/eval/`:
+`configs/eval/learning/`:
 
-- `learning_baseline.yaml` — baseline Gemini 2.5 Flash synthesiser and reinforcement-focused prompt.
-- `learning_scope_shift.yaml` — emphasises differentiation and transfer hypotheses; default scope category set to `differentiation`.
-- `learning_claude.yaml` — Claude Haiku/Sonnet stack for student/teacher/synthesiser evaluation.
+- `baseline_openai.yaml` — baseline Gemini 2.5 Flash synthesiser and reinforcement-focused prompt.
+- `scope_shift_openai.yaml` — emphasises differentiation and transfer hypotheses; default scope category set to `differentiation`.
+- `baseline_claude.yaml` — Claude Haiku/Sonnet stack for student/teacher/synthesiser evaluation.
 
 Generate fresh telemetry for each config (same dataset, different `learning_key`s), then compare `playbook_impact`
 sections across runs. Prioritise variants that increase adoption rate without regressing token deltas, and flag any

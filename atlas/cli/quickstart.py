@@ -567,7 +567,7 @@ async def _cmd_quickstart_async(args: argparse.Namespace) -> int:
             if _has_playbook_entries(metrics_list[-1].metadata):
                 print(f"\n💡 Learning Analysis:")
                 print(f"   Playbook entries saved in artifacts (full structure with cue, action, scope, impact)")
-                print(f"   For deeper analysis, run: python scripts/eval_learning.py")
+                print(f"   For deeper analysis, run: python scripts/report_learning.py")
                 print(f"   See docs/evaluation/learning_eval.md for evaluation workflow")
 
     print(f"\n✅ Quickstart completed!")

@@ -8,7 +8,7 @@ from atlas.evaluation.learning_report import (
     RewardSnapshot,
     WindowSpec,
 )
-from scripts.eval_learning import _compute_comparisons, _slug_for_key, _write_outputs
+from scripts.report_learning import _compute_comparisons, _slug_for_key, _write_outputs
 
 
 class DummySummary(LearningSummary):
