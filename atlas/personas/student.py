@@ -69,7 +69,7 @@ class Student:
         self._student_config = student_config
         self._prompts: RewrittenStudentPrompts = student_prompts
         self._apply_learning_prompts = apply_learning_prompts
-        self._bridge_llm, self._tools = build_bridge(adapter, adapter_config.tools)
+        self._bridge_llm, self._tools = build_bridge(adapter, adapter_config.tools, tool_choice=self._student_config.tool_choice)
         self._graph: Any | None = None
         self._graph_builder: ToolCallAgentGraph | None = None
         self._graph_system_prompt: str | None = None
