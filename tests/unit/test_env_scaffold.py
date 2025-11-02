@@ -59,8 +59,8 @@ def test_compose_full_config_payload_merges_discovery_targets() -> None:
         "storage": None,
     }
     targets = SelectedTargets(
-        environment=TargetSpec(factory=("examples.langgraph_adapter", "create_environment")),
-        agent=TargetSpec(factory=("examples.langgraph_adapter", "create_langgraph_agent")),
+        environment=TargetSpec(factory=("tests.fixtures.langgraph_adapter", "create_environment")),
+        agent=TargetSpec(factory=("tests.fixtures.langgraph_adapter", "create_langgraph_agent")),
     )
 
     payload, info = _compose_full_config_payload(
@@ -75,7 +75,7 @@ def test_compose_full_config_payload_merges_discovery_targets() -> None:
     assert "response_format" not in payload["agent"]
     assert payload["agent"]["name"] == "example-openai-agent"
     assert payload["agent"]["tools"] == []
-    assert payload["agent"]["import_path"] == "examples.langgraph_adapter"
+    assert payload["agent"]["import_path"] == "tests.fixtures.langgraph_adapter"
     assert payload["agent"]["attribute"] == "create_langgraph_agent"
     assert payload["agent"]["allow_generator"] is False
     assert payload["agent"]["llm"]["provider"] == "anthropic"
@@ -86,8 +86,8 @@ def test_compose_full_config_payload_merges_discovery_targets() -> None:
     assert isinstance(payload.get("runtime_safety"), dict)
 
     metadata_block = payload.get("metadata", {}).get("discovery", {})
-    assert metadata_block["agent_factory"]["module"] == "examples.langgraph_adapter"
-    assert metadata_block["environment_factory"]["module"] == "examples.langgraph_adapter"
+    assert metadata_block["agent_factory"]["module"] == "tests.fixtures.langgraph_adapter"
+    assert metadata_block["environment_factory"]["module"] == "tests.fixtures.langgraph_adapter"
     assert info["llm_provider"] == "anthropic"
     assert info["llm_model"] == "claude-3-sonnet"
 
@@ -132,8 +132,8 @@ def test_full_config_payload_validates_against_model() -> None:
         "storage": None,
     }
     targets = SelectedTargets(
-        environment=TargetSpec(factory=("examples.langgraph_adapter", "create_environment")),
-        agent=TargetSpec(factory=("examples.langgraph_adapter", "create_langgraph_agent")),
+        environment=TargetSpec(factory=("tests.fixtures.langgraph_adapter", "create_environment")),
+        agent=TargetSpec(factory=("tests.fixtures.langgraph_adapter", "create_langgraph_agent")),
     )
 
     payload, _ = _compose_full_config_payload(

@@ -9,7 +9,7 @@ from atlas.utils.triage import (
     attach_triage_to_context,
     default_build_dossier,
 )
-from examples.triage_adapters import code, sre, support
+from atlas.utils.triage_adapters import code, sre, support
 
 
 def test_builder_constructs_minimal_dossier():

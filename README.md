@@ -65,8 +65,8 @@ This runs 3 security review tasks showing learning progression. See [Quickstart 
 
 ## Examples
 
+- **Example Use Case:** [`examples/mcp_tool_learning/`](examples/mcp_tool_learning/README.md) - Production-ready MCP tool learning with LangGraph agents, demonstrating progressive learning across 25 tasks
 - **Quickstart:** `atlas quickstart` - See learning in action with 3 security review tasks
-- **Real-World Example:** [`examples/mcp_tool_learning/`](examples/mcp_tool_learning/README.md) - MCP tool learning with LangGraph agents, 25 progressive tasks
 
 ## 📹 Video Walkthrough
 
