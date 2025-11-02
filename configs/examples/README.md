@@ -26,7 +26,7 @@ Template files (snippets showing partial configurations) use descriptive names p
 |------|--------------|-------------|
 | `openai_agent.yaml` | `openai` | OpenAI-compatible agent with security review prompt |
 | `http_agent.yaml` | `http_api` | HTTP-based agent calling external REST APIs |
-| `python_agent.yaml` | `python` | Python adapter referencing the flagship `mcp_tool_learning` example |
+| `python_agent.yaml` | `python` | Python adapter referencing the production-ready `mcp_tool_learning` example |
 
 ## Production-Ready Example
 
