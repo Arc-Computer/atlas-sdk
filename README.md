@@ -5,23 +5,23 @@
 [![Downloads](https://static.pepy.tech/badge/arc-atlas)](https://pepy.tech/project/arc-atlas)
 [![Python Versions](https://img.shields.io/pypi/pyversions/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
 
-The Atlas SDK is a drop-in learning harness that enables your agent to learn from experience, adapt to new challenges, and become more efficient over time - all without modifying your existing agent code or weights. It wraps any agent (OpenAI, Claude, Gemini, local models, or your own stack) with an adaptive dual-agent reasoning loop guided by reward signals, so agents stay fast on familiar work while escalating supervision on new or risky tasks. The SDK records rich telemetry, surfaces adaptive signals in real time, and exports production data for downstream training.
+The Atlas SDK is a drop-in learning harness that enables your agent to learn from experience, adapt to new challenges, and become more efficient over time - all without modifying your existing agent code or weights. It wraps any agent (OpenAI, Claude, Gemini, local models, or your own stack) with an adaptive dual-agent reasoning loop: the **Student** (your agent) executes tasks while the **Teacher** (verifying coach) provides adaptive supervision based on a capability probe that assesses task difficulty and confidence. Reward signals from a small/large judge pair score each step and session, guiding learning and mode selection. The SDK routes tasks into supervision lanes (`auto`, `paired`, `coach`) based on probe confidence, so agents stay fast on familiar work while receiving appropriate guidance on new or risky tasks. The SDK records rich telemetry, surfaces adaptive signals in real time, and exports production trajectories for downstream training in [ATLAS Core](https://github.com/Arc-Computer/ATLAS), which uses GRPO to train improved teacher checkpoints from these runtime traces.
 
-> **How it relates to [ATLAS](https://github.com/Arc-Computer/ATLAS)**  
-> This repository delivers the runtime harness that powers continual learning in production. The `ATLAS` repo focuses on training models that ingest the structured traces produced here. Run the SDK to capture adaptive episodes; feed those traces into ATLAS to retrain and evaluate new policies.
+> **How it relates to [ATLAS Core](https://github.com/Arc-Computer/ATLAS)**  
+> This repository delivers the runtime harness that powers continual learning in production. Export your runtime trajectories with `arc-atlas` to generate JSONL files containing adaptive summaries, reward breakdowns, and execution traces. Feed those exports into [ATLAS Core](https://github.com/Arc-Computer/ATLAS), which uses GRPO (Group Relative Policy Optimization) to train improved teacher checkpoints from your production data. Redeploy the trained checkpoints back through the SDK to close the learning loop.
 
 ---
 
-With the split between SDK (runtime) and ATLAS (training) in mind, here's what our runtime gives you out of the box.
+Here's what our runtime gives you out of the box.
 
-## Key Highlights (v0.1.10)
+## Key Highlights
 
-- **Autodiscovery-first CLI** – `atlas env init` now writes runnable configs, auto-loads `.env`/`PYTHONPATH`, and feeds straight into `atlas run --config` or the offline mode smoke-test flow (`ATLAS_OFFLINE_MODE=1`) so you can validate stacks offline before hitting production creds ([docs](docs/learning_eval.md)). Legacy `ATLAS_FAKE_LLM` still works but is deprecated and will show a warning.
+- **Autodiscovery-first CLI** – `atlas env init` now writes runnable configs, auto-loads `.env`/`PYTHONPATH`, and feeds straight into `atlas run --config` so you can validate stacks before hitting production ([docs](docs/learning_eval.md)). Legacy `ATLAS_FAKE_LLM` still works but is deprecated and will show a warning.
 - **Learning Playbooks Everywhere** – Student and Teacher personas resolve hashed learning playbooks on every run, splice the guidance into planner/synthesizer/executor prompts, and update cache keys when playbooks change so prompt drift is eliminated.
 - **Persistent Telemetry & Reports** – Discovery and runtime sessions stream to Postgres, and the learning report harness filters by project/task/tags while breaking down model performance, reward deltas, and adaptive mode mix into Markdown/JSON artifacts (`scripts/eval_learning.py`).
 - **Safety Guardrails for Exports** – Session exports default to approved-only with CLI review, approval, and quarantine commands plus drift alerts embedded in metadata—production pipelines stay clean while local overrides remain available.
 - **Expanded Evaluation Suites** – New datasets + docs cover capability probe updates (xAI Grok), dual-agent runtime benchmarking, and reward model scoring; unit tests back each harness so you can extend with confidence.
-- **Offline Training Workflow** – `atlas train` reuses export filters, ships a sample dataset, and launches Atlas Core with Hydra overrides, making the export→train loop a single CLI hop when you’re ready to fine-tune.
+- **Training Integration** – `atlas train` reuses export filters, ships a sample dataset, and launches Atlas Core with Hydra overrides, making the export→train loop a single CLI hop when you're ready to fine-tune.
 
 ---
 
@@ -29,57 +29,44 @@ With the split between SDK (runtime) and ATLAS (training) in mind, here's what o
 
 > **Note**: Use Python 3.10 or newer before installing. Pip on older interpreters (e.g., 3.9) resolves `arc-atlas` 0.1.0 and the runtime crashes at import time.
 
-### Integration at a Glance
+**Install and onboard in three commands:**
 
-| If your project... | Quick path | What to know |
-| --- | --- | --- |
-| Your repo already exposes environment and agent entrypoints Atlas can instantiate (decorators optional) | `atlas env init` → `atlas run --config .atlas/generated_config.yaml --task "..."` | `atlas env init` scans for those classes/factories, writes `.atlas/generated_config.yaml` with the actual prompts + LLM defaults, and `atlas run` streams the adaptive loop live while saving the trace under `.atlas/runs/`. |
-
-**Prerequisites**
-- `pip install arc-atlas`
-- LLM credentials exported (`OPENAI_API_KEY`, `GEMINI_API_KEY`, etc.) or present in a `.env`
-- Atlas needs Postgres. Run `atlas init` to start the bundled Docker + Postgres stack if you do not have one.
-
-**1. Create a virtual environment & install the SDK**
 ```bash
-python3.11 -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -U pip
 pip install arc-atlas
+atlas env init
+atlas run --config .atlas/generated_config.yaml --task "Your task here"
 ```
 
-**2. Configure your API keys**
-```bash
-export OPENAI_API_KEY=sk-...
-export GEMINI_API_KEY=...
-export XAI_API_KEY=...
-```
-Keys can also live in a local `.env` file; the Atlas CLI automatically loads it via [python-dotenv](https://pypi.org/project/python-dotenv/).
+**What happens:**
 
-**3. Try the quickstart demonstration**
+1. **Install** – Install the SDK from PyPI
+2. **Autodiscovery** – `atlas env init` scans your codebase for environment and agent classes, analyzes their structure, and generates a runtime configuration. If no Atlas-ready classes are found, it synthesizes lightweight wrapper factories using LLM-assisted code analysis.
+3. **Run** – `atlas run` executes your agent with the generated config, streams adaptive telemetry, and saves traces to `.atlas/runs/`.
+
+The generated files (`.atlas/generated_config.yaml`, `.atlas/generated_factories.py`, `.atlas/discover.json`) are repo-aware and mirror your project's prompts, tools, and LLM choices. See [Autodiscovery Guide](docs/guides/introduction.mdx) for details.
+
+### Prerequisites
+
+- Python 3.10+ (3.13 recommended)
+- LLM credentials exported (`OPENAI_API_KEY`, `GEMINI_API_KEY`, etc.) or present in a `.env` file
+- For persistence: Run `atlas init` to start the bundled Docker + Postgres stack (optional)
+
+### Try the Quickstart Demo
+
+For a hands-on demonstration of Atlas learning capabilities:
+
 ```bash
 atlas quickstart
 ```
 
-This runs 3 security review tasks showing learning progression. Use `--offline` to test without API calls:
-```bash
-atlas quickstart --offline
-```
-
-**4. Run your own tasks**
-```bash
-atlas run --config .atlas/generated_config.yaml --task "..."
-```
-### Autodiscovery Onboarding
-
-```bash
-atlas env init
-```
-
-`atlas env init` scans your codebase, captures telemetry, and writes
-`.atlas/discover.json` / `.atlas/generated_config.yaml`.
+This runs 3 security review tasks showing learning progression. See [Quickstart Guide](docs/sdk/quickstart.mdx) for detailed usage.
 
 ---
+
+## Examples
+
+- **Quickstart:** `atlas quickstart` - See learning in action with 3 security review tasks
+- **Real-World Example:** [`examples/mcp_tool_learning/`](examples/mcp_tool_learning/README.md) - MCP tool learning with LangGraph agents, 25 progressive tasks
 
 ## 📹 Video Walkthrough
 
@@ -110,12 +97,13 @@ The README hits the highlights. For the complete guide—including configuration
 
 ```
 1. core.run()                 # load config, adapter, execution context
-2. planner role creates plan  # BYOA bridge composes dependency-aware steps
-3. validator role reviews     # ensures tooling, dependencies, and risks are handled
-4. Orchestrator.arun()        # executes steps, applies guidance, records telemetry
-5. Evaluator.ajudge()         # aggregates reward signals (process/helpfulness/custom)
-6. Database.log_*()           # stores plans, attempts, trajectory events in Postgres
-7. Review + export guards     # reward stats + drift alerts gate training exports until approved
+2. Student planner creates plan  # Bring-Your-Own-Agent bridge composes dependency-aware steps
+3. Teacher validator reviews     # ensures tooling, dependencies, and risks are handled
+4. Capability probe selects supervision lane  # routes to auto, paired, or coach based on confidence
+5. Orchestrator.arun()        # executes steps, applies guidance, records telemetry
+6. Evaluator.ajudge()         # aggregates reward signals (process/helpfulness/custom)
+7. Database.log_*()           # stores plans, attempts, trajectory events in Postgres
+8. Review + export guards     # reward stats + drift alerts gate training exports until approved
 ```
 ---
 
@@ -126,8 +114,8 @@ Configuration files live in `configs/examples/`. Each YAML document is validated
 | Section | Purpose |
 | ------- | ------- |
 | `agent` | Adapter settings (endpoint, Python import path, OpenAI model) and tool schemas |
-| `student` | Limits and prompt templates for the planning / execution / synthesis roles that drive your agent |
-| `teacher` | Parameters for the validation and guidance role (LLM settings, cache behaviour, prompt overrides) |
+| `student` | Limits and prompt templates for the Student persona's planning / execution / synthesis roles |
+| `teacher` | Parameters for the Teacher persona's validation and guidance role (LLM settings, cache behaviour, prompt overrides) |
 | `orchestration` | Retry policy, per-step timeout, and trajectory emission flags |
 | `rim` | Judge definitions, weights, aggregation strategy, thresholds |
 | `adaptive_teaching` | Capability probe defaults, persistent-learning history limit, and reward objectives |
@@ -137,11 +125,11 @@ Configuration files live in `configs/examples/`. Each YAML document is validated
 > It defaults to 10 (max 200). Override it in YAML under the `adaptive_teaching` block, or set the
 > `ATLAS_LEARNING_HISTORY_LIMIT` environment variable for a temporary change (env overrides the config when present).
 
-Atlas ships opinionated prompt templates for three cooperative roles:
+Atlas ships opinionated prompt templates for the Student and Teacher personas in the adaptive dual-agent reasoning loop:
 
-1. **Planner** – drafts a dependency-aware plan that sequences tools and actions.
-2. **Executor** – carries out each step and produces structured outputs (status, artifacts, deliverables).
-3. **Validator / Guide** – inspects execution, supplies corrective guidance, and triggers certification rewards when needed.
+1. **Student Planner** – drafts a dependency-aware plan that sequences tools and actions.
+2. **Student Executor** – carries out each step and produces structured outputs (status, artifacts, deliverables).
+3. **Teacher Validator / Guide** – inspects execution, supplies corrective guidance, and triggers certification rewards when needed.
 
 Override the defaults by providing explicit `student.prompts` and `teacher.prompts` blocks in your configuration. You can tailor each role’s prompt text directly—no `{base_prompt}` substitution required—while keeping token budgets and retry settings consistent.
 
@@ -172,7 +160,7 @@ Each line in the output is an `AtlasSessionTrace` record:
 ```json
 {
   "task": "Summarize the Atlas SDK",
-  "final_answer": "The SDK routes BYOA agents through...",
+  "final_answer": "The SDK routes Bring-Your-Own-Agent systems through...",
   "plan": {"steps": [...]},
   "steps": [{"step_id": 1, "reward": {"score": 0.92}, "status": "ok", "artifacts": {...}}],
   "session_metadata": {"session_id": 42, "status": "succeeded"}

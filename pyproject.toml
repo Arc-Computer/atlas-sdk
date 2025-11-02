@@ -2,7 +2,7 @@
 name = "arc-atlas"
 version = "0.1.11"
 description = "Teacher/Student orchestration toolkit for Bring-Your-Own-Agent workflows."
-readme = { file = "docs/pypi.md", content-type = "text/markdown" }
+readme = { file = "docs/guides/pypi.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
 keywords = ["autonomy", "agents", "langchain", "langgraph", "reasoning", "reward-models"]
 dependencies = [
