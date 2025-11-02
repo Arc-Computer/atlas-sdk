@@ -77,17 +77,31 @@ class Student:
         self._llm_stream_state: Dict[str, Dict[str, Any]] = {}
         self._record_runtime_handles()
 
-    def _record_runtime_handles(self) -> None:
-        """Record available tool handles for downstream instrumentation."""
+    def _record_runtime_handles(self, additional_handles: List[str] | None = None) -> None:
+        """Record available tool handles for downstream instrumentation.
+        
+        This method is called in two phases:
+        1. During init (line 78): Records handles from configured tools (self._tools)
+           - Works for raw adapters with tools configured
+        2. During execution: Records handles from actual tool calls (via additional_handles)
+           - Works for agentic adapters that call tools dynamically
+        
+        Args:
+            additional_handles: Optional list of handles to merge (e.g., from tool calls)
+        """
         try:
             context = ExecutionContext.get()
         except Exception:  # pragma: no cover - context may be missing in tests
             return
         handles: List[str] = []
+        # Add configured tools (for raw adapters)
         for tool in self._tools or []:
             name = getattr(tool, "name", None)
             if isinstance(name, str) and name.strip():
                 handles.append(name.strip())
+        # Add additional handles (for agentic adapters from tool calls)
+        if additional_handles:
+            handles.extend(str(h) for h in additional_handles if isinstance(h, str) and h.strip())
         if not handles:
             return
         store = context.metadata.setdefault("runtime_handles", [])
@@ -368,26 +382,18 @@ class Student:
             "    {\n"
             "      \"id\": integer,\n"
             "      \"description\": string,\n"
-            "      \"tool\": string | null,\n"
-            "      \"tool_params\": object | null,\n"
             "      \"depends_on\": [integer]\n"
             "    }\n"
             "  ]\n"
             "}\n"
             "Do not include any prose before or after the JSON object.\n"
-            "When a step benefits from a runtime tool, set \"tool\" to one of the available tool names and populate \"tool_params\" with the required arguments.\n"
-            "Reserve \"tool\": null for reasoning-only steps that do not need tool execution."
         )
         planner_prompt = self._compose_system_prompt(self._prompts.planner, "Student Playbook")
-        # Include available tools information so planner can select appropriate tools
-        available_tools_block = self._format_available_tools()
         components = [
             planner_prompt,
             f"Task: {task.strip()}",
+            json_direction,
         ]
-        if available_tools_block:
-            components.append(available_tools_block)
-        components.append(json_direction)
         return "\n\n".join(components)
 
     def _compose_synthesis_prompt(self, task: str, step_results: List[Dict[str, Any]]) -> str:
@@ -419,8 +425,6 @@ class Student:
                 task_text = stored_task.strip()
         except Exception:  # pragma: no cover - defensive
             task_text = ""
-        tool_name = step.tool.strip() if isinstance(step.tool, str) and step.tool.strip() else None
-        tool_hint = tool_name or "not specified — choose from the available tools if that will improve the outcome."
         payload = [
             f"Step ID: {step.id}",
             f"Description: {step.description}",
@@ -429,16 +433,11 @@ class Student:
             payload.append("Original Task:")
             payload.append(task_text)
         payload.extend([
-            f"Tool: {tool_hint}",
-            f"Tool Parameters: {json.dumps(step.tool_params or {}, ensure_ascii=False)}",
             f"Dependencies: {step.depends_on}",
             f"Validated Prior Results (artifacts when available): {context_block}",
             f"Guidance History: {guidance_block}",
         ])
         user_message = "\n".join(payload)
-        available_tools_block = self._format_available_tools()
-        if available_tools_block:
-            user_message = "\n".join([user_message, available_tools_block])
         executor_prompt = self._compose_system_prompt(self._prompts.executor, "Student Playbook")
         self._refresh_graph_builder()
         messages = [
@@ -464,36 +463,6 @@ class Student:
             return_direct=None,
         )
         self._graph = None
-
-    def _format_available_tools(self) -> str:
-        """Format available tools for inclusion in prompts."""
-        if not self._tools:
-            return ""
-        tool_descriptions = []
-        for tool in self._tools:
-            name = getattr(tool, "name", None)
-            description = getattr(tool, "description", None)
-            if name and description:
-                # Extract parameter info if available
-                args_schema = getattr(tool, "args_schema", None)
-                params_info = ""
-                if args_schema and hasattr(args_schema, "model_fields"):
-                    params = []
-                    for param_name, field_info in args_schema.model_fields.items():
-                        param_desc = getattr(field_info, "description", None)
-                        if param_desc:
-                            params.append(f"  - {param_name}: {param_desc}")
-                    if params:
-                        params_info = "\n" + "\n".join(params)
-                tool_descriptions.append(f"- {name}: {description}{params_info}")
-        if not tool_descriptions:
-            return ""
-        return (
-            "Available Tools:\n"
-            "You may use these tools by setting the \"tool\" field to the tool name "
-            "and \"tool_params\" to the required parameters.\n"
-            + "\n".join(tool_descriptions)
-        )
 
     def _compose_system_prompt(self, base_prompt: str, label: str) -> str:
         playbook, _, metadata = resolve_playbook("student", apply=self._apply_learning_prompts)
@@ -532,8 +501,14 @@ class Student:
                     name = getattr(call, "name", None)
                     if isinstance(name, str) and name.strip():
                         runtime_handles.add(name.strip())
-        if isinstance(step.tool, str) and step.tool.strip():
-            runtime_handles.add(step.tool.strip())
+        # Populate runtime_handles for learning system (from actual tool calls)
+        # This supplements the handles recorded during init (from self._tools)
+        # Agentic adapters don't have tools configured, so we extract from actual tool calls
+        if runtime_handles:
+            try:
+                self._record_runtime_handles(additional_handles=list(runtime_handles))
+            except Exception:
+                logger.debug("Failed to record runtime handles for step %s", step.id, exc_info=True)
         if not runtime_handles:
             return
         status_value = (structured_output.get("status") or metadata.get("status") or "").lower()

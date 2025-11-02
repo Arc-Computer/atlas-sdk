@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Validation script for tool-backed adoption tracking.
 
-This script validates that tool adoption tracking works end-to-end with production-style adapters:
-1. Runs a multi-step task that triggers tool calls
+This script validates that tool adoption tracking works end-to-end with agentic adapters:
+1. Runs a task that triggers tool calls via an agentic adapter (e.g., MCP)
 2. Provides playbook entries via test_learning_state parameter
 3. Verifies cue hits and adoption tracking in ExecutionContext metadata
+4. Verifies runtime_handles are populated from tool calls
 
 Usage:
-    python scripts/validate_tool_adoption.py --config configs/eval/learning/tool_adoption_claude.yaml
+    python scripts/validate_tool_adoption.py --config examples/mcp_tool_learning/config.yaml
 """
 
 from __future__ import annotations
@@ -24,37 +25,37 @@ from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.utils.env import load_dotenv_if_available
 
 
-# Playbook entries matching tool names
+# Playbook entries matching MCP tool names
 PLAYBOOK_ENTRIES = [
     {
-        "id": "web_search_entry",
-        "cue": {"type": "keyword", "pattern": "search|lookup|find"},
-        "action": {"imperative": "Use web_search tool", "runtime_handle": "web_search"},
+        "id": "list_files_entry",
+        "cue": {"type": "keyword", "pattern": "list|enumerate|directory"},
+        "action": {"imperative": "Use list_files tool", "runtime_handle": "list_files"},
         "scope": {"category": "reinforcement"},
     },
     {
-        "id": "calculate_entry",
-        "cue": {"type": "keyword", "pattern": "calculate|compute|sum|add"},
-        "action": {"imperative": "Use calculate tool", "runtime_handle": "calculate"},
+        "id": "read_file_entry",
+        "cue": {"type": "keyword", "pattern": "read|view|content"},
+        "action": {"imperative": "Use read_file tool", "runtime_handle": "read_file"},
         "scope": {"category": "reinforcement"},
     },
     {
-        "id": "format_text_entry",
-        "cue": {"type": "keyword", "pattern": "format|summary|report"},
-        "action": {"imperative": "Use format_text tool", "runtime_handle": "format_text"},
+        "id": "write_file_entry",
+        "cue": {"type": "keyword", "pattern": "write|create|save"},
+        "action": {"imperative": "Use write_file tool", "runtime_handle": "write_file"},
         "scope": {"category": "reinforcement"},
     },
 ]
 
 
 async def validate_tool_adoption(config_path: str) -> tuple[bool, str]:
-    """Run a multi-step task and validate tool adoption tracking."""
+    """Run a task and validate tool adoption tracking with agentic adapter."""
     load_dotenv_if_available()
     
-    # Multi-step task that should trigger tool calls
+    # Task that should trigger file operations via MCP tools
     task = (
-        "Search for information about Atlas SDK documentation, then calculate "
-        "the sum of 15 and 27, then format the result as a percentage summary."
+        "List the files in the sample_workspace directory, then read the contents of "
+        "sample_workspace/example.txt, and create a summary file with the key points."
     )
     
     # Build learning_state with playbook entries matching the runtime flow
@@ -68,15 +69,14 @@ async def validate_tool_adoption(config_path: str) -> tuple[bool, str]:
     # Run the task with test_learning_state parameter
     # This ensures playbook entries are available when resolve_playbook() is called
     # during Student/Teacher initialization, matching the actual runtime flow
-    # Force stepwise execution mode by setting execution_mode in session_metadata
-    # This ensures the planner creates a multi-step plan where tools can be selected
+    # Agentic adapters work in all execution modes (auto, paired, coach)
     try:
         result = await atlas_arun(
             task=task,
             config_path=config_path,
             session_metadata={
                 "source": "tool_adoption_validation",
-                "execution_mode": "stepwise",  # Force stepwise to enable planner tool selection
+                # Removed execution_mode - agentic adapters work in all modes
             },
             stream_progress=False,
             test_learning_state=test_learning_state,
@@ -124,8 +124,8 @@ async def validate_tool_adoption(config_path: str) -> tuple[bool, str]:
                 runtime_handle = entry_data.get("runtime_handle", "")
                 if adoptions > 0:
                     found_adoption = True
-                    # Verify runtime_handle matches expected tool names
-                    if runtime_handle not in ["web_search", "calculate", "format_text"]:
+                    # Verify runtime_handle matches expected MCP tool names
+                    if runtime_handle not in ["list_files", "read_file", "write_file"]:
                         issues.append(
                             f"Unexpected runtime_handle in adoption: {runtime_handle}"
                         )
@@ -138,6 +138,19 @@ async def validate_tool_adoption(config_path: str) -> tuple[bool, str]:
     if not unique_adoption_steps:
         issues.append("No adoption step IDs recorded")
     
+    # Verify runtime_handles are populated from tool calls
+    runtime_handles = metadata.get("runtime_handles", [])
+    if not runtime_handles:
+        issues.append("Runtime handles not populated (expected from tool calls)")
+    else:
+        # Verify at least one expected handle is present
+        expected_handles = {"list_files", "read_file", "write_file"}
+        found_expected = any(handle in expected_handles for handle in runtime_handles)
+        if not found_expected:
+            issues.append(
+                f"Expected runtime handles not found. Got: {runtime_handles}"
+            )
+    
     if issues:
         return False, "; ".join(issues)
     
@@ -146,7 +159,8 @@ async def validate_tool_adoption(config_path: str) -> tuple[bool, str]:
         f"✓ Cue hits: {cue_hits}, "
         f"✓ Action adoptions: {action_adoptions}, "
         f"✓ Adoption steps: {len(unique_adoption_steps)}, "
-        f"✓ Student entries: {len(student_roles)}"
+        f"✓ Student entries: {len(student_roles)}, "
+        f"✓ Runtime handles: {runtime_handles}"
     )
     
     return True, summary
