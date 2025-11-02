@@ -194,8 +194,9 @@ def test_env_init_auto_skips_heavy_environment(secrl_project) -> None:
     config_text = (project_root / ".atlas" / "generated_config.yaml").read_text(encoding="utf-8")
     assert "preferred_mode: paired" in config_text
     assert "forced_mode: paired" in config_text
+    # After PR #113, validation always runs regardless of auto_skip flag
     marker_path = project_root / ".atlas" / ".validated"
-    assert not marker_path.exists()
+    assert marker_path.exists()
 
 
 def test_function_factory_uses_alias_when_names_collide() -> None:

@@ -13,7 +13,15 @@ class _DummyResult:
         return {"final_answer": self.final_answer}
 
 
-async def _fake_arun(task: str, config_path: str, stream_progress: bool, session_metadata: dict[str, object]):
+async def _fake_arun(
+    task: str,
+    config_path: str,
+    publisher=None,
+    session_metadata: dict[str, object] | None = None,
+    stream_progress: bool | None = None,
+    intermediate_step_handler=None,
+    test_learning_state: dict | None = None,
+):
     context = ExecutionContext.get()
     context.metadata.update(
         {
