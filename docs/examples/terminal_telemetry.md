@@ -13,7 +13,7 @@ Atlas streams orchestration events directly to stdout, so you can follow progres
   pip install -e .[dev]
   ```
 
-- Configure the desired example, such as `configs/examples/python_agent.yaml`.
+- Configure the desired example, such as `examples/mcp_tool_learning/config.yaml`.
 
 ## Run a Task with Streaming
 
@@ -23,7 +23,7 @@ from atlas import core
 
 result = core.run(
     task="Summarize the Atlas SDK",
-    config_path="configs/examples/python_agent.yaml",
+    config_path="examples/mcp_tool_learning/config.yaml",
 )
 
 print(result.final_answer)
