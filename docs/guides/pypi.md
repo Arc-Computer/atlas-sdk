@@ -6,7 +6,7 @@ Atlas wraps your Bring-Your-Own-Agent (BYOA) in a guided Teacher → Student →
 
 ## What's New in v0.1.8
 
-- **Autodiscovery & CLI** – `atlas env init` scaffolds configs. See [Autodiscovery Guide](docs/guides/introduction.mdx).
+- **Autodiscovery & CLI** – `atlas env init` scaffolds configs. See [Autodiscovery Guide](introduction.mdx).
 - **Learning Playbooks in Runtime** – Student and Teacher personas fetch hashed “learning playbooks”, inject them into every planner/synthesizer/executor prompt, and track metadata so cached prompts stay in sync when playbooks change ([#76](https://github.com/Arc-Computer/atlas-sdk/pull/76)).
 - **Persistent Telemetry & Learning Reports** – Discovery and runtime sessions log directly to Postgres, and the new learning evaluation harness can filter by project/task/tags while generating model-level breakdowns in Markdown/JSON reports ([#72](https://github.com/Arc-Computer/atlas-sdk/pull/72), [#73](https://github.com/Arc-Computer/atlas-sdk/pull/73)).
 - **Safety Guardrails & Approvals** – Session exports require explicit approval, with CLI tooling to review/approve/quarantine runs and drift alerts captured alongside reward metadata ([#63](https://github.com/Arc-Computer/atlas-sdk/pull/63)).
@@ -93,7 +93,7 @@ rim:
 storage: null
 ```
 
-See [Configuration Guide](docs/configs/configuration.md) for comprehensive options, tuning, and advanced features.
+See [Configuration Guide](../configs/configuration.md) for comprehensive options, tuning, and advanced features.
 
 ## Run Your First Task
 
@@ -116,7 +116,7 @@ result = core.run(
 print(result.final_answer)
 ```
 
-See [Quickstart Guide](docs/sdk/quickstart.mdx) for detailed command options and learning demonstrations.
+See [Quickstart Guide](../sdk/quickstart.mdx) for detailed command options and learning demonstrations.
 
 ## Wrap Your Existing Agent
 
@@ -237,5 +237,5 @@ atlas train --config-name offline/base --dry-run
 ## Next Steps
 
 - **Real-World Example:** See [`examples/mcp_tool_learning/`](../examples/mcp_tool_learning/README.md) for production-ready MCP tool learning with LangGraph agents
-- **Quickstart Guide:** [docs/sdk/quickstart.mdx](docs/sdk/quickstart.mdx)
-- **Configuration:** [docs/configs/configuration.md](docs/configs/configuration.md)
+- **Quickstart Guide:** [../sdk/quickstart.mdx](../sdk/quickstart.mdx)
+- **Configuration:** [../configs/configuration.md](../configs/configuration.md)
