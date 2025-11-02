@@ -30,12 +30,10 @@ from atlas.cli.utils import write_run_record
 from atlas.config.models import StorageConfig
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.runtime.storage.database import Database
-from atlas.utils.env import load_dotenv_if_available
+from atlas.utils.env import is_offline_mode, load_dotenv_if_available
 
-# Load environment variables from .env file early
 load_dotenv_if_available()
 
-# Task 1: Baseline - Prompt injection in customer support bot
 TASK_1 = (
     "Review the following Python code for an AI-powered customer support bot. "
     "Identify all security vulnerabilities, especially prompt injection risks. "
@@ -64,7 +62,6 @@ TASK_1 = (
     "```\n"
 )
 
-# Task 2: Learning Applied - Database access code review
 TASK_2 = (
     "Review the following Python code that handles database access for user authentication. "
     "Identify security vulnerabilities including SQL injection, authentication bypass, and "
@@ -92,7 +89,6 @@ TASK_2 = (
     "```\n"
 )
 
-# Task 3: Generalization - API authentication code review
 TASK_3 = (
     "Review the following Python code that implements API authentication and authorization. "
     "Identify security vulnerabilities including token validation flaws, privilege escalation, "
@@ -123,6 +119,12 @@ TASK_3 = (
 )
 
 DEFAULT_CONFIG_PATH = "configs/examples/openai_agent.yaml"
+
+MAX_TEXT_LENGTH = 1500
+MAX_JSON_SNIPPET_LENGTH = 500
+MAX_KEYS_PER_LEVEL = 8
+MAX_JSON_DEPTH = 2
+MAX_RECURSION_DEPTH = 10
 
 
 @dataclass
@@ -159,7 +161,7 @@ async def _check_storage_available(database_url: str = DEFAULT_DATABASE_URL) -> 
             try:
                 await database.disconnect()
             except Exception:
-                pass  # Best effort cleanup
+                pass
 
 
 async def _ensure_storage(skip_storage: bool) -> bool:
@@ -184,14 +186,13 @@ def _set_offline_mode(offline: bool) -> None:
         print("📴 Offline mode enabled (ATLAS_OFFLINE_MODE=1)")
         print("   Learning telemetry will be limited.\n")
     elif "ATLAS_OFFLINE_MODE" not in os.environ:
-        # Respect existing setting if already set
         pass
 
 
 def _ensure_api_keys() -> None:
     """Ensure required API keys are present."""
-    if os.getenv("ATLAS_OFFLINE_MODE", "0") not in {"0", "", "false", "False"}:
-        return  # Offline mode doesn't need API keys
+    if is_offline_mode():
+        return
 
     if not os.environ.get("OPENAI_API_KEY"):
         print(
@@ -270,22 +271,25 @@ def _has_playbook_entries(metadata: dict[str, Any]) -> bool:
 
 def _format_final_answer(answer: str, artifact_path: Path | None) -> str:
     """Format final answer for display with smart truncation."""
-    answer = answer.strip()
+    try:
+        answer = answer.strip()
+    except (AttributeError, TypeError) as exc:
+        logger.warning("Failed to process answer: %s", exc, exc_info=True)
+        return f"[Error formatting answer: {exc}]"
     
-    # Check if it's JSON
     is_json = False
     json_data = None
     try:
         json_data = json.loads(answer)
         is_json = True
     except (json.JSONDecodeError, ValueError):
-        # Answer is not valid JSON, will format as plain text instead
         pass
     
     if is_json and isinstance(json_data, dict):
-        # Show JSON structure + truncated snippet
-        def _describe_structure(obj, prefix="", max_depth=2, current_depth=0):
+        def _describe_structure(obj, prefix="", max_depth=MAX_JSON_DEPTH, current_depth=0):
             """Recursively describe JSON structure."""
+            if current_depth >= MAX_RECURSION_DEPTH:
+                return "..."
             if current_depth >= max_depth:
                 return "..."
             
@@ -294,7 +298,7 @@ def _format_final_answer(answer: str, artifact_path: Path | None) -> str:
                 if len(keys) == 0:
                     return "{}"
                 lines = []
-                for key in keys[:8]:  # Show first 8 keys per level
+                for key in keys[:MAX_KEYS_PER_LEVEL]:
                     value = obj[key]
                     if isinstance(value, dict):
                         lines.append(f"{prefix}  • {key}: {{dict with {len(value)} keys}}")
@@ -308,8 +312,8 @@ def _format_final_answer(answer: str, artifact_path: Path | None) -> str:
                         lines.append(f"{prefix}  • {key}: \"{value[:50]}{'...' if len(value) > 50 else ''}\"")
                     else:
                         lines.append(f"{prefix}  • {key}: {type(value).__name__}")
-                if len(keys) > 8:
-                    lines.append(f"{prefix}  ... and {len(keys) - 8} more keys")
+                if len(keys) > MAX_KEYS_PER_LEVEL:
+                    lines.append(f"{prefix}  ... and {len(keys) - MAX_KEYS_PER_LEVEL} more keys")
                 return "\n".join(lines)
             elif isinstance(obj, list):
                 if len(obj) == 0:
@@ -325,36 +329,45 @@ def _format_final_answer(answer: str, artifact_path: Path | None) -> str:
                 return desc
             return str(obj)
         
-        structure_desc = _describe_structure(json_data)
-        total_keys = len(json_data.keys())
-        
-        structure_lines = [f"JSON structure ({total_keys} top-level keys):"]
-        structure_lines.append(structure_desc)
-        
-        # Add truncated snippet (first 500 chars)
-        full_json = json.dumps(json_data, indent=2)
-        snippet = full_json[:500]
-        if len(full_json) > 500:
-            # Try to cut at a newline boundary
-            snippet = snippet.rsplit("\n", 1)[0] + "\n  ..."
-        
-        structure_lines.append("\nSnippet:")
-        structure_lines.append(snippet)
-        
-        formatted = "\n".join(structure_lines)
-        if artifact_path:
-            formatted += f"\n\n[Full answer available in run artifact: {artifact_path.name}]"
-        return formatted
-    else:
-        # Text response - truncate to 1500 chars
-        if len(answer) > 1500:
-            truncated = answer[:1500].rsplit("\n", 1)[0]  # Don't cut mid-line
+        try:
+            structure_desc = _describe_structure(json_data)
+            total_keys = len(json_data.keys())
+            
+            structure_lines = [f"JSON structure ({total_keys} top-level keys):"]
+            structure_lines.append(structure_desc)
+            
+            try:
+                full_json = json.dumps(json_data, indent=2)
+                snippet = full_json[:MAX_JSON_SNIPPET_LENGTH]
+                if len(full_json) > MAX_JSON_SNIPPET_LENGTH:
+                    snippet = snippet.rsplit("\n", 1)[0] + "\n  ..."
+                
+                structure_lines.append("\nSnippet:")
+                structure_lines.append(snippet)
+            except (TypeError, ValueError) as exc:
+                logger.warning("Failed to serialize JSON snippet: %s", exc, exc_info=True)
+                structure_lines.append("\n[Unable to display JSON snippet]")
+            
+            formatted = "\n".join(structure_lines)
+            if artifact_path:
+                formatted += f"\n\n[Full answer available in run artifact: {artifact_path.name}]"
+            return formatted
+        except Exception as exc:
+            logger.warning("Failed to format JSON structure: %s", exc, exc_info=True)
+            is_json = False
+    
+    try:
+        if len(answer) > MAX_TEXT_LENGTH:
+            truncated = answer[:MAX_TEXT_LENGTH].rsplit("\n", 1)[0]
             formatted = truncated + "\n..."
             if artifact_path:
                 formatted += f"\n\n[Full answer available in run artifact: {artifact_path.name}]"
             return formatted
         else:
             return answer
+    except Exception as exc:
+        logger.warning("Failed to truncate text answer: %s", exc, exc_info=True)
+        return f"[Error formatting answer: {exc}]"
 
 
 async def _run_task(task: str, task_num: int, config_path: str, atlas_dir: Path) -> TaskMetrics:
@@ -366,14 +379,11 @@ async def _run_task(task: str, task_num: int, config_path: str, atlas_dir: Path)
     start_time = time.perf_counter()
     metadata = {}
     try:
-        # Use consistent learning_key across all quickstart tasks so learning persists
-        # This allows the system to learn from previous tasks in the sequence
-        # Set task-specific incident_id for transfer success tracking
         session_metadata = {
             "source": "atlas quickstart",
             "task_num": task_num,
-            "learning_key_override": "atlas-quickstart-security-review",  # Consistent key for all tasks
-            "incident_id": f"quickstart-task-{task_num}",  # Unique per task for transfer tracking
+            "learning_key_override": "atlas-quickstart-security-review",
+            "incident_id": f"quickstart-task-{task_num}",
         }
         result = await core.arun(
             task=task,
@@ -381,8 +391,6 @@ async def _run_task(task: str, task_num: int, config_path: str, atlas_dir: Path)
             stream_progress=True,
             session_metadata=session_metadata,
         )
-        # Capture metadata immediately after arun() completes, before any context reset
-        # This ensures we capture the session metadata before the next task starts
         metadata = dict(ExecutionContext.get().metadata)
     except Exception as exc:
         print(f"❌ Task {task_num} failed: {exc}", file=sys.stderr)
@@ -391,22 +399,12 @@ async def _run_task(task: str, task_num: int, config_path: str, atlas_dir: Path)
     reward = _extract_reward_score(metadata)
     tokens = _extract_token_count(metadata)
 
-    # Save run artifact
-    # Artifact includes:
-    # - Full result with final_answer
-    # - Complete metadata including:
-    #   * learning_state.metadata.playbook_entries (cue, action, scope, provenance, impact)
-    #   * learning_usage (cue hits, adoptions, token usage)
-    #   * reward_stats (scores, deltas)
-    #   * session metadata (learning_key, etc.)
-    # See docs/evaluation/learning_eval.md for learning evaluation workflow
     result_data = None
     if result is not None:
         if hasattr(result, "model_dump"):
             try:
                 result_data = _ensure_jsonable(result.model_dump())
             except Exception as exc:
-                # Fallback to string representation if serialization fails
                 logger.warning("Failed to serialize result: %s", exc, exc_info=True)
                 result_data = {
                     "error": "Failed to serialize result",
@@ -423,7 +421,7 @@ async def _run_task(task: str, task_num: int, config_path: str, atlas_dir: Path)
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "config_path": config_path,
         "result": result_data,
-        "metadata": _ensure_jsonable(metadata),  # Ensure metadata is JSON serializable
+        "metadata": _ensure_jsonable(metadata),
     }
     artifact_path = write_run_record(atlas_dir, run_payload)
 
@@ -461,7 +459,6 @@ def _format_metrics_table(metrics_list: list[TaskMetrics]) -> str:
         tokens_str = f"{metrics.tokens:,}" if metrics.tokens is not None else "N/A"
         duration_str = f"{metrics.duration:.1f}s" if metrics.duration is not None else "N/A"
 
-        # Add indicators for improvement
         if metrics.reward is not None and prev_reward is not None:
             if metrics.reward > prev_reward:
                 reward_str += " ↑"
@@ -512,7 +509,6 @@ def _generate_insights(metrics_list: list[TaskMetrics]) -> list[str]:
         if duration_pct > 0:
             insights.append(f"✓ Speed improved: {duration_pct:.0f}% faster")
 
-    # Check for learning playbook entries
     for metrics in metrics_list:
         if metrics.metadata and _has_playbook_entries(metrics.metadata):
             insights.append("✓ Learning detected: Playbook entries active")
@@ -523,26 +519,19 @@ def _generate_insights(metrics_list: list[TaskMetrics]) -> list[str]:
 
 async def _cmd_quickstart_async(args: argparse.Namespace) -> int:
     """Async implementation of quickstart command."""
-    # Set offline mode if requested
     _set_offline_mode(args.offline)
 
-    # Ensure API keys (unless offline)
     _ensure_api_keys()
 
-    # Resolve config path
     config_path = _resolve_config_path(args.config)
 
-    # Check storage availability
     storage_available = await _ensure_storage(args.skip_storage)
 
-    # Determine offline mode
-    offline_mode = os.getenv("ATLAS_OFFLINE_MODE", "0") not in {"0", "", "false", "False"}
+    offline_mode = is_offline_mode()
 
-    # Define tasks
     all_tasks = [TASK_1, TASK_2, TASK_3]
     tasks_to_run = all_tasks[: args.tasks]
 
-    # Set up atlas directory for artifacts
     atlas_dir = Path(".atlas")
 
     print(f"\n🚀 Starting Atlas Quickstart ({len(tasks_to_run)} task{'s' if len(tasks_to_run) != 1 else ''})")
@@ -551,7 +540,6 @@ async def _cmd_quickstart_async(args: argparse.Namespace) -> int:
     else:
         print("   ⚠️  Storage disabled (learning will not persist)")
 
-    # Run tasks sequentially
     metrics_list: list[TaskMetrics] = []
     for idx, task in enumerate(tasks_to_run, start=1):
         try:
@@ -564,22 +552,18 @@ async def _cmd_quickstart_async(args: argparse.Namespace) -> int:
                 continue
             return 1
 
-    # Display metrics table
     if metrics_list:
         print(_format_metrics_table(metrics_list))
 
-        # Generate insights
         insights = _generate_insights(metrics_list)
         if insights:
             print("\n" + "\n".join(insights))
 
-        # Show learning summary for last task
         if metrics_list[-1].metadata:
             summary = _render_learning_summary(metrics_list[-1].metadata, stream=True)
             if summary:
                 print(f"\n{summary}")
             
-            # Check if playbook entries exist and add note about deeper analysis
             if _has_playbook_entries(metrics_list[-1].metadata):
                 print(f"\n💡 Learning Analysis:")
                 print(f"   Playbook entries saved in artifacts (full structure with cue, action, scope, impact)")

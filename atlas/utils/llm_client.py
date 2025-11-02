@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass, field
-from typing import Any
-from typing import Dict
-from typing import Sequence
+from typing import Any, Sequence
 
 try:
     import litellm  # type: ignore[import-untyped]
@@ -18,31 +15,20 @@ except ModuleNotFoundError as exc:
     _LITELLM_ERROR = exc
 
 from atlas.config.models import LLMParameters
+from atlas.utils.env import is_offline_mode
 
 
 @dataclass
 class LLMResponse:
     content: str
     raw: Any
-    reasoning: Dict[str, Any] = field(default_factory=dict)
+    reasoning: dict[str, Any] = field(default_factory=dict)
 
 
 class LLMClient:
     def __init__(self, parameters: LLMParameters) -> None:
         self._params = parameters
-        # Support both ATLAS_OFFLINE_MODE (new) and ATLAS_FAKE_LLM (deprecated)
-        offline_mode = os.getenv("ATLAS_OFFLINE_MODE", "0") not in {"0", "", "false", "False"}
-        if not offline_mode:
-            fake_llm = os.getenv("ATLAS_FAKE_LLM", "0") not in {"0", "", "false", "False"}
-            if fake_llm:
-                import warnings
-                warnings.warn(
-                    "ATLAS_FAKE_LLM is deprecated. Use ATLAS_OFFLINE_MODE=1 instead.",
-                    DeprecationWarning,
-                    stacklevel=2
-                )
-                offline_mode = True
-        self._mock_mode = offline_mode
+        self._mock_mode = is_offline_mode()
 
     @property
     def model(self) -> str:
@@ -50,9 +36,9 @@ class LLMClient:
 
     async def acomplete(
         self,
-        messages: Sequence[Dict[str, Any]],
-        response_format: Dict[str, Any] | None = None,
-        overrides: Dict[str, Any] | None = None,
+        messages: Sequence[dict[str, Any]],
+        response_format: dict[str, Any] | None = None,
+        overrides: dict[str, Any] | None = None,
     ) -> LLMResponse:
         if self._mock_mode:
             return self._mock_response(messages, response_format)
@@ -64,9 +50,9 @@ class LLMClient:
 
     def complete(
         self,
-        messages: Sequence[Dict[str, Any]],
-        response_format: Dict[str, Any] | None = None,
-        overrides: Dict[str, Any] | None = None,
+        messages: Sequence[dict[str, Any]],
+        response_format: dict[str, Any] | None = None,
+        overrides: dict[str, Any] | None = None,
     ) -> LLMResponse:
         if self._mock_mode:
             return self._mock_response(messages, response_format)
@@ -78,16 +64,18 @@ class LLMClient:
 
     def _prepare_kwargs(
         self,
-        messages: Sequence[Dict[str, Any]],
-        response_format: Dict[str, Any] | None,
-        overrides: Dict[str, Any] | None,
-    ) -> Dict[str, Any]:
+        messages: Sequence[dict[str, Any]],
+        response_format: dict[str, Any] | None,
+        overrides: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        import os
+        
         params = self._params
         api_key = os.getenv(params.api_key_env)
         if not api_key:
             raise RuntimeError(f"Environment variable '{params.api_key_env}' is not set")
         overrides = overrides or {}
-        kwargs: Dict[str, Any] = {"model": params.model, "messages": list(messages), "api_key": api_key}
+        kwargs: dict[str, Any] = {"model": params.model, "messages": list(messages), "api_key": api_key}
         if params.api_base:
             kwargs["api_base"] = params.api_base
         if params.organization:
@@ -132,14 +120,14 @@ class LLMClient:
             raise RuntimeError("litellm is required for LLMClient operations") from _LITELLM_ERROR
 
 
-    def _extract_content(self, response: Any) -> tuple[str, Dict[str, Any]]:
+    def _extract_content(self, response: Any) -> tuple[str, dict[str, Any]]:
         try:
             choice = response["choices"][0]
             message = choice["message"]
             content = message.get("content")
             if content is None and "tool_calls" in message:
                 return json.dumps(message["tool_calls"]), {}
-            reasoning_payload: Dict[str, Any] = {}
+            reasoning_payload: dict[str, Any] = {}
             for key in ("reasoning_content", "thinking", "thinking_blocks"):
                 value = message.get(key)
                 if value:
@@ -166,7 +154,7 @@ class LLMClient:
         except (KeyError, IndexError, TypeError) as exc:
             raise RuntimeError(f"Unexpected response format from LLM client. Response: {response}") from exc
 
-    def _record_reasoning(self, payload: Dict[str, Any]) -> None:
+    def _record_reasoning(self, payload: dict[str, Any]) -> None:
         if not payload:
             return
         try:
@@ -182,8 +170,8 @@ class LLMClient:
 
     def _mock_response(
         self,
-        messages: Sequence[Dict[str, Any]],
-        response_format: Dict[str, Any] | None,
+        messages: Sequence[dict[str, Any]],
+        response_format: dict[str, Any] | None,
     ) -> LLMResponse:
         user_content = ""
         if messages:
