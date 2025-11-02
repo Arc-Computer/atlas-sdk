@@ -6,7 +6,7 @@ Atlas wraps your Bring-Your-Own-Agent (BYOA) in a guided Teacher → Student →
 
 ## What's New in v0.1.8
 
-- **Autodiscovery & CLI Upgrades** – `atlas env init` now scaffolds full configs, auto-loads `.env`/`PYTHONPATH`, and can replay discoveries with `atlas run --config` or the offline mode smoke-test path (`ATLAS_OFFLINE_MODE=1`) to validate stacks offline ([#52](https://github.com/Arc-Computer/atlas-sdk/pull/52), [#70](https://github.com/Arc-Computer/atlas-sdk/pull/70), [#74](https://github.com/Arc-Computer/atlas-sdk/pull/74), [#75](https://github.com/Arc-Computer/atlas-sdk/pull/75)). Note: Legacy `ATLAS_FAKE_LLM` still works but is deprecated and will show a warning.
+- **Autodiscovery & CLI** – `atlas env init` scaffolds configs. See [Autodiscovery Guide](docs/guides/introduction.mdx).
 - **Learning Playbooks in Runtime** – Student and Teacher personas fetch hashed “learning playbooks”, inject them into every planner/synthesizer/executor prompt, and track metadata so cached prompts stay in sync when playbooks change ([#76](https://github.com/Arc-Computer/atlas-sdk/pull/76)).
 - **Persistent Telemetry & Learning Reports** – Discovery and runtime sessions log directly to Postgres, and the new learning evaluation harness can filter by project/task/tags while generating model-level breakdowns in Markdown/JSON reports ([#72](https://github.com/Arc-Computer/atlas-sdk/pull/72), [#73](https://github.com/Arc-Computer/atlas-sdk/pull/73)).
 - **Safety Guardrails & Approvals** – Session exports require explicit approval, with CLI tooling to review/approve/quarantine runs and drift alerts captured alongside reward metadata ([#63](https://github.com/Arc-Computer/atlas-sdk/pull/63)).
@@ -93,24 +93,30 @@ rim:
 storage: null
 ```
 
+See [Configuration Guide](docs/configs/configuration.md) for comprehensive options, tuning, and advanced features.
+
 ## Run Your First Task
+
+Quick start with the demo:
+
+```bash
+atlas quickstart
+```
+
+Or run a custom task:
 
 ```python
 from atlas import core
 
 result = core.run(
-    task="Summarise the latest Atlas SDK updates",
+    task="Your task",
     config_path="atlas_quickstart.yaml",
-    stream_progress=True,
 )
 
 print(result.final_answer)
 ```
 
-`result` is an `atlas.types.Result` containing the final answer, reviewed plan, and per-step evaluations. Set `stream_progress=True` to mirror planner/executor telemetry in your terminal.
-The console summary includes the adaptive mode, confidence, certification flag, and session reward so you can watch the J-curve without any database setup.
-
-Need the structured metadata? Access `ExecutionContext.get().metadata` after the run or export later via the CLI once storage is configured.
+See [Quickstart Guide](docs/sdk/quickstart.mdx) for detailed command options and learning demonstrations.
 
 ## Wrap Your Existing Agent
 
@@ -230,6 +236,6 @@ atlas train --config-name offline/base --dry-run
 
 ## Next Steps
 
-- Browse `configs/examples/` for richer orchestration templates.
-- Enable reward-system judges by toggling `rim.active_judges`.
-- Integrate Atlas into async services with `core.arun`.
+- **Real-World Example:** See [`examples/mcp_tool_learning/`](../examples/mcp_tool_learning/README.md) for production-ready MCP tool learning with LangGraph agents
+- **Quickstart Guide:** [docs/sdk/quickstart.mdx](docs/sdk/quickstart.mdx)
+- **Configuration:** [docs/configs/configuration.md](docs/configs/configuration.md)

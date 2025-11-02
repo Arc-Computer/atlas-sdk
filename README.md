@@ -61,10 +61,7 @@ Keys can also live in a local `.env` file; the Atlas CLI automatically loads it 
 atlas quickstart
 ```
 
-This runs 3 security review tasks showing learning progression. Use `--offline` to test without API calls:
-```bash
-atlas quickstart --offline
-```
+This runs 3 security review tasks showing learning progression. See [Quickstart Guide](docs/sdk/quickstart.mdx) for detailed usage.
 
 **4. Run your own tasks**
 ```bash
@@ -77,9 +74,14 @@ atlas env init
 ```
 
 `atlas env init` scans your codebase, captures telemetry, and writes
-`.atlas/discover.json` / `.atlas/generated_config.yaml`.
+`.atlas/discover.json` / `.atlas/generated_config.yaml`. See [Autodiscovery Guide](docs/guides/introduction.mdx) for details.
 
 ---
+
+## Examples
+
+- **Quickstart:** `atlas quickstart` - See learning in action with 3 security review tasks
+- **Real-World Example:** [`examples/mcp_tool_learning/`](examples/mcp_tool_learning/README.md) - MCP tool learning with LangGraph agents, 25 progressive tasks
 
 ## 📹 Video Walkthrough
 

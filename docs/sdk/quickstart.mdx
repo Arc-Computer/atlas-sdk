@@ -8,7 +8,7 @@ The `atlas quickstart` command demonstrates Atlas learning capabilities with a s
 # Install Atlas SDK
 pip install arc-atlas
 
-# Set your API key (or use --offline for testing)
+# Set your API key
 export OPENAI_API_KEY=sk-...
 
 # Run the quickstart demonstration
@@ -55,16 +55,6 @@ atlas quickstart --tasks 1
 atlas quickstart --tasks 2
 ```
 
-### Offline Mode
-
-Test Atlas without making real API calls:
-
-```bash
-atlas quickstart --offline
-```
-
-This sets `ATLAS_OFFLINE_MODE=1` and uses mock responses. Learning telemetry will be limited, but you can see the command structure and output format.
-
 ### Custom Configuration
 
 Use a different Atlas config file:
@@ -99,11 +89,10 @@ The metrics table highlights improvements with arrows (↑ for better, ↓ for w
 
 ## Cost Estimation
 
-Before running (unless `--offline` is used), quickstart shows an estimated cost:
+Before running, quickstart shows an estimated cost:
 
 ```
 💰 Estimated cost: ~$0.10-0.15 (3 tasks, GPT-4o-mini)
-   Use --offline to skip API calls.
 ```
 
 Actual costs depend on your config's model choices and task complexity.
@@ -112,7 +101,7 @@ Actual costs depend on your config's model choices and task complexity.
 
 After running quickstart:
 
-1. **Explore Advanced Learning:** See `examples/mcp_tool_learning/` for comprehensive tool learning examples
+1. **Real-World Example:** See [`examples/mcp_tool_learning/`](../examples/mcp_tool_learning/README.md) for a comprehensive production-ready example showing tool learning with MCP, LangGraph agents, and progressive learning across 25 tasks.
 2. **Customize Your Config:** Edit `configs/examples/openai_agent.yaml` to adjust agent behavior
 3. **Integrate Atlas:** Use `atlas.core.arun()` in your own code:
 
@@ -135,9 +124,6 @@ If you see an error about missing `OPENAI_API_KEY`:
 ```bash
 # Set the key
 export OPENAI_API_KEY=sk-...
-
-# Or use offline mode
-atlas quickstart --offline
 ```
 
 ### Config File Not Found
@@ -168,7 +154,6 @@ The previous `examples/quickstart.py` script has been replaced by this CLI comma
 - ✅ 3 tasks instead of 2 passes on the same task
 - ✅ Metrics visualization table
 - ✅ Better error handling
-- ✅ Offline mode support
 - ✅ Integrated storage provisioning
 - ✅ Cost estimation
 
