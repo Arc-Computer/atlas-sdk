@@ -116,11 +116,7 @@ result = core.run(
 print(result.final_answer)
 ```
 
-<<<<<<< HEAD
 See [Quickstart Guide](../sdk/quickstart.mdx) for detailed command options and learning demonstrations.
-=======
-See [Quickstart Guide](docs/sdk/quickstart.mdx) for detailed command options and learning demonstrations.
->>>>>>> 451f9ac (docs: consolidate redundant documentation per audit plan)
 
 ## Wrap Your Existing Agent
 
