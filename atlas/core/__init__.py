@@ -67,6 +67,7 @@ async def arun(
     session_metadata: dict[str, Any] | None = None,
     stream_progress: bool | None = None,
     intermediate_step_handler: Callable[[IntermediateStep], None] | None = None,
+    test_learning_state: dict[str, Any] | None = None,
 ) -> Result:
     config = load_config(config_path)
     execution_context = ExecutionContext.get()
@@ -124,6 +125,64 @@ async def arun(
         },
     }
     execution_context.metadata["learning_apply_to_prompts"] = apply_learning_prompts
+    
+    # Build learning_key and load learning_state BEFORE Student/Teacher creation
+    # so resolve_playbook() can access playbook entries during initialization
+    session_meta = execution_context.metadata.setdefault("session_metadata", {})
+    learning_key = _build_learning_key(task, config, session_meta)
+    session_meta["learning_key"] = learning_key
+    execution_context.metadata["learning_key"] = learning_key
+    database = Database(config.storage) if config.storage else None
+    session_id: int | None = None
+    
+    # Load learning_state early before Student/Teacher creation
+    # so resolve_playbook() can access playbook entries during initialization
+    if test_learning_state is not None:
+        # For testing/validation: use provided learning_state
+        learning_state = test_learning_state
+        learning_history = {}
+        # Still connect to database if available for session creation and persistence
+        if database:
+            await database.connect()
+            metadata = execution_context.metadata.get("session_metadata")
+            session_id = await database.create_session(task, metadata=metadata)
+            if session_id is not None:
+                execution_context.metadata["session_id"] = session_id
+            if publisher is not None and session_id is not None:
+                publisher.publish_control_event(
+                    "session-started",
+                    {"session_id": session_id, "task": task},
+                )
+    elif database:
+        # Load from database before Student/Teacher creation to ensure
+        # learning_state is available when resolve_playbook() is called
+        await database.connect()
+        learning_state = await database.fetch_learning_state(learning_key)
+        history_records = await database.fetch_learning_history(learning_key)
+        learning_history = aggregate_learning_history(
+            history_records,
+            limit=getattr(adaptive_teaching_cfg, "learning_history_limit", DEFAULT_HISTORY_LIMIT),
+        )
+        metadata = execution_context.metadata.get("session_metadata")
+        session_id = await database.create_session(task, metadata=metadata)
+        if session_id is not None:
+            execution_context.metadata["session_id"] = session_id
+        if publisher is not None and session_id is not None:
+            publisher.publish_control_event(
+                "session-started",
+                {"session_id": session_id, "task": task},
+            )
+    else:
+        learning_history = {}
+        learning_state = {}
+
+    # Set learning_state before Student/Teacher creation so resolve_playbook() can access it
+    execution_context.metadata["learning_history"] = learning_history
+    execution_context.metadata["learning_state"] = learning_state or {}
+    # Store allowed_runtime_handles for Student to use as fallback (agentic adapters like MCP/LangGraph)
+    execution_context.metadata["allowed_runtime_handles"] = learning_cfg.schema.allowed_runtime_handles or []
+
+    # Now create Student/Teacher - they will call resolve_playbook() which will find learning_state
     student = _build_student(
         adapter,
         config,
@@ -141,36 +200,8 @@ async def arun(
     execution_context.metadata["adaptive_default_tags"] = list(getattr(adaptive_teaching_cfg, "default_tags", []) or [])
     execution_context.metadata["learning_usage_config"] = learning_cfg.usage_tracking.model_dump()
     triage_adapter = _load_triage_adapter(getattr(adaptive_teaching_cfg, "triage_adapter", None))
-    session_meta = execution_context.metadata.setdefault("session_metadata", {})
-    learning_key = _build_learning_key(task, config, session_meta)
-    session_meta["learning_key"] = learning_key
-    execution_context.metadata["learning_key"] = learning_key
-    database = Database(config.storage) if config.storage else None
-    session_id: int | None = None
+    
     try:
-        if database:
-            await database.connect()
-            learning_state = await database.fetch_learning_state(learning_key)
-            history_records = await database.fetch_learning_history(learning_key)
-            learning_history = aggregate_learning_history(
-                history_records,
-                limit=getattr(adaptive_teaching_cfg, "learning_history_limit", DEFAULT_HISTORY_LIMIT),
-            )
-            metadata = execution_context.metadata.get("session_metadata")
-            session_id = await database.create_session(task, metadata=metadata)
-            if session_id is not None:
-                execution_context.metadata["session_id"] = session_id
-            if publisher is not None and session_id is not None:
-                publisher.publish_control_event(
-                    "session-started",
-                    {"session_id": session_id, "task": task},
-                )
-        else:
-            learning_history = {}
-            learning_state = {}
-
-        execution_context.metadata["learning_history"] = learning_history
-        execution_context.metadata["learning_state"] = learning_state or {}
 
         capability_probe_client = CapabilityProbeClient(adaptive_teaching_cfg.probe)
 

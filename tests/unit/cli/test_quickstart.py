@@ -453,7 +453,7 @@ async def test_learning_analysis_note_shown(
     captured = capsys.readouterr()
     assert "💡 Learning Analysis:" in captured.out
     assert "Playbook entries saved in artifacts" in captured.out
-    assert "scripts/eval_learning.py" in captured.out
+    assert "scripts/report_learning.py" in captured.out
 
 
 def test_has_playbook_entries() -> None:

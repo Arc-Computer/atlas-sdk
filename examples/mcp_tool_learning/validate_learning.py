@@ -54,7 +54,7 @@ async def main():
     
     print("\n✅ Validation complete!")
     print("   Learning key: mcp-tool-learning-validation")
-    print("   Run validation script: python scripts/validate_empirical_learning.py mcp-tool-learning-validation")
+    print("   Run validation script: python scripts/validate_learning_metrics.py mcp-tool-learning-validation")
     return 0
 
 

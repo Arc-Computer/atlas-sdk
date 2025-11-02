@@ -69,7 +69,7 @@ class Student:
         self._student_config = student_config
         self._prompts: RewrittenStudentPrompts = student_prompts
         self._apply_learning_prompts = apply_learning_prompts
-        self._bridge_llm, self._tools = build_bridge(adapter, adapter_config.tools)
+        self._bridge_llm, self._tools = build_bridge(adapter, adapter_config.tools, tool_choice=self._student_config.tool_choice)
         self._graph: Any | None = None
         self._graph_builder: ToolCallAgentGraph | None = None
         self._graph_system_prompt: str | None = None
@@ -77,17 +77,38 @@ class Student:
         self._llm_stream_state: Dict[str, Dict[str, Any]] = {}
         self._record_runtime_handles()
 
-    def _record_runtime_handles(self) -> None:
-        """Record available tool handles for downstream instrumentation."""
+    def _record_runtime_handles(self, additional_handles: List[str] | None = None) -> None:
+        """Record available tool handles for downstream instrumentation.
+
+        This method uses a three-tier approach:
+        1. Configured tools (self._tools) - for raw adapters with explicit tool config
+        2. Runtime tool calls (additional_handles) - extracted from AIMessage.tool_calls
+        3. Config fallback (allowed_runtime_handles) - for agentic adapters like MCP/LangGraph
+
+        This hybrid approach ensures both raw OpenAI/Anthropic adapters and agentic
+        Python adapters (LangGraph, MCP) can populate runtime handles correctly.
+
+        Args:
+            additional_handles: Optional list of handles from actual tool calls
+        """
         try:
             context = ExecutionContext.get()
         except Exception:  # pragma: no cover - context may be missing in tests
             return
         handles: List[str] = []
+        # Tier 1: Add configured tools (for raw adapters)
         for tool in self._tools or []:
             name = getattr(tool, "name", None)
             if isinstance(name, str) and name.strip():
                 handles.append(name.strip())
+        # Tier 2: Add additional handles (for agentic adapters from tool calls)
+        if additional_handles:
+            handles.extend(str(h) for h in additional_handles if isinstance(h, str) and h.strip())
+        # Tier 3: Fallback to config (for agentic adapters that don't expose tool_calls in messages)
+        if not handles:
+            allowed = context.metadata.get("allowed_runtime_handles", [])
+            if isinstance(allowed, list):
+                handles.extend(str(h) for h in allowed if isinstance(h, str) and h.strip())
         if not handles:
             return
         store = context.metadata.setdefault("runtime_handles", [])
@@ -368,20 +389,19 @@ class Student:
             "    {\n"
             "      \"id\": integer,\n"
             "      \"description\": string,\n"
-            "      \"tool\": string | null,\n"
-            "      \"tool_params\": object | null,\n"
             "      \"depends_on\": [integer]\n"
             "    }\n"
             "  ]\n"
             "}\n"
-            "Do not include any prose before or after the JSON object."
+            "Do not include any prose before or after the JSON object.\n"
         )
         planner_prompt = self._compose_system_prompt(self._prompts.planner, "Student Playbook")
-        return "\n\n".join([
+        components = [
             planner_prompt,
             f"Task: {task.strip()}",
             json_direction,
-        ])
+        ]
+        return "\n\n".join(components)
 
     def _compose_synthesis_prompt(self, task: str, step_results: List[Dict[str, Any]]) -> str:
         serialized_results = json.dumps(step_results, ensure_ascii=False, indent=2)
@@ -420,8 +440,6 @@ class Student:
             payload.append("Original Task:")
             payload.append(task_text)
         payload.extend([
-            f"Tool: {step.tool or 'none'}",
-            f"Tool Parameters: {json.dumps(step.tool_params or {}, ensure_ascii=False)}",
             f"Dependencies: {step.depends_on}",
             f"Validated Prior Results (artifacts when available): {context_block}",
             f"Guidance History: {guidance_block}",
@@ -487,11 +505,21 @@ class Student:
         for message in messages or []:
             if isinstance(message, AIMessage) and getattr(message, "tool_calls", None):
                 for call in message.tool_calls:
-                    name = getattr(call, "name", None)
+                    # Handle both dict (TypedDict from LangChain) and object forms
+                    if isinstance(call, dict):
+                        name = call.get("name")
+                    else:
+                        name = getattr(call, "name", None)
                     if isinstance(name, str) and name.strip():
                         runtime_handles.add(name.strip())
-        if isinstance(step.tool, str) and step.tool.strip():
-            runtime_handles.add(step.tool.strip())
+        # Populate runtime_handles for learning system (from actual tool calls)
+        # This supplements the handles recorded during init (from self._tools)
+        # Agentic adapters don't have tools configured, so we extract from actual tool calls
+        if runtime_handles:
+            try:
+                self._record_runtime_handles(additional_handles=list(runtime_handles))
+            except Exception:
+                logger.debug("Failed to record runtime handles for step %s", step.id, exc_info=True)
         if not runtime_handles:
             return
         status_value = (structured_output.get("status") or metadata.get("status") or "").lower()

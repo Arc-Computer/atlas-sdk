@@ -22,6 +22,7 @@ from atlas.connectors.registry import AgentAdapter
 from atlas.connectors.registry import register_adapter
 from atlas.connectors.utils import AdapterResponse, normalise_usage_payload
 from atlas.config.models import AdapterType, AdapterUnion, OpenAIAdapterConfig
+from atlas.runtime.orchestration.execution_context import ExecutionContext
 
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,13 @@ class OpenAIAdapter(AgentAdapter):
                 stats = {}
             if stats.get("omitted_sections"):
                 logger.debug("metadata digest omitted sections: %s", stats["omitted_sections"])
+            # Store digest_stats in ExecutionContext metadata for artifact capture
+            if stats:
+                try:
+                    context = ExecutionContext.get()
+                    context.metadata["digest_stats"] = stats
+                except Exception:  # pragma: no cover - instrumentation best effort
+                    logger.debug("Failed to store digest_stats", exc_info=True)
         messages.append({"role": "user", "content": prompt})
         return messages
 
@@ -171,6 +179,8 @@ class OpenAIAdapter(AgentAdapter):
             message = choice["message"]
             content = message.get("content")
             tool_calls_raw = message.get("tool_calls")
+            if tool_calls_raw:
+                logger.debug("Tool calls detected in LLM response: %d calls", len(tool_calls_raw) if isinstance(tool_calls_raw, list) else 1)
             tool_calls = self._normalise_tool_calls(tool_calls_raw) if tool_calls_raw is not None else None
             normalised_content = self._stringify_content(content) if content is not None else ""
             raw_usage = response.get("usage") if isinstance(response, dict) else getattr(response, "usage", None)
@@ -185,6 +195,19 @@ class OpenAIAdapter(AgentAdapter):
         messages = self._build_messages(prompt, metadata)
         kwargs = self._base_kwargs()
         kwargs["messages"] = messages
+        # Extract tools and tool_choice from metadata and pass to litellm
+        tools = metadata.get("tools") if metadata else None
+        tool_choice = metadata.get("tool_choice") if metadata else None
+        if tools:
+            kwargs["tools"] = tools
+            logger.debug("Passing %d tools to litellm: %s", len(tools), [t.get("function", {}).get("name", "unknown") for t in tools])
+            if tool_choice:
+                kwargs["tool_choice"] = tool_choice
+                logger.debug("Tool choice set to: %s", tool_choice)
+            else:
+                logger.debug("No tool_choice specified, using default")
+        else:
+            logger.debug("No tools found in metadata")
         try:
             response = await acompletion(**kwargs)
         except Exception as exc:

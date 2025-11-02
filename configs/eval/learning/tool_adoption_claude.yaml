@@ -1,0 +1,155 @@
+agent:
+  type: openai
+  name: runtime-learning-claude-tools
+  system_prompt: |
+    You are the Atlas Student operating with Anthropic Claude. Follow runtime instructions, ground conclusions in evidence, and respect the JSON schema below.
+    JSON schema:
+    {
+      "summary": string,
+      "diagnostics": string[],
+      "mitigations": string[],
+      "communications": string[],
+      "evidence": string[]
+    }
+  tools:
+    - name: web_search
+      description: Search the web for information about a topic
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+            description: The search query to look up
+          max_results:
+            type: integer
+            description: Maximum number of results to return
+            default: 5
+        required: [query]
+    - name: calculate
+      description: Perform mathematical calculations
+      parameters:
+        type: object
+        properties:
+          expression:
+            type: string
+            description: Mathematical expression to evaluate (e.g., "15 + 27", "42 * 0.85")
+          format:
+            type: string
+            description: Output format (e.g., "number", "percentage", "decimal")
+            default: "number"
+        required: [expression]
+    - name: format_text
+      description: Format text according to specified style
+      parameters:
+        type: object
+        properties:
+          text:
+            type: string
+            description: Text to format
+          style:
+            type: string
+            description: Formatting style (e.g., "summary", "report", "list")
+            default: "summary"
+        required: [text]
+  llm:
+    provider: anthropic
+    model: claude-haiku-4-5
+    api_key_env: ANTHROPIC_API_KEY
+    temperature: 0.2
+    max_output_tokens: 4096
+    timeout_seconds: 240
+  metadata_digest:
+    enabled: true
+
+student:
+  max_plan_tokens: 4096
+  max_step_tokens: 4096
+  max_synthesis_tokens: 2048
+  tool_choice: required  # Temporarily set to required for diagnosis
+
+teacher:
+  llm:
+    provider: anthropic
+    model: claude-sonnet-4-5-20250929
+    api_key_env: ANTHROPIC_API_KEY
+    temperature: 0.05
+    max_output_tokens: 4096
+    timeout_seconds: 240
+
+orchestration:
+  max_retries: 1
+  step_timeout_seconds: 900
+
+rim:
+  small_model:
+    provider: anthropic
+    model: claude-haiku-4-5
+    api_key_env: ANTHROPIC_API_KEY
+    max_output_tokens: 4096
+  large_model:
+    provider: anthropic
+    model: claude-sonnet-4-5-20250929
+    api_key_env: ANTHROPIC_API_KEY
+    max_output_tokens: 4096
+  judge_prompt: 'reward the agent when evidence-backed mitigations align with runtime policies'
+  variance_threshold: 0.15
+  uncertainty_threshold: 0.3
+
+storage:
+  database_url: postgresql://atlas:atlas@localhost:5433/atlas
+  min_connections: 1
+  max_connections: 5
+  statement_timeout_seconds: 30
+
+learning:
+  enabled: true
+  update_enabled: true
+  llm:
+    provider: anthropic
+    model: claude-sonnet-4-5-20250929
+    api_key_env: ANTHROPIC_API_KEY
+    temperature: 0.2
+    max_output_tokens: 8000
+    timeout_seconds: 120
+  prompts:
+    synthesizer: |
+      Role: Atlas learning synthesizer (Claude Sonnet). Produce JSON matching `playbook_entry.v1` and respect the impact instrumentation now available.
+
+      When drafting entries:
+      - Reference recent impact metrics (reward/token deltas, transfer signals) to justify why an entry should stay active.
+      - Record `metadata.impact_hypothesis` summarising the expected adaptive-efficiency win (e.g., "cuts log triage retries by 2×").
+      - Prefer concise imperative statements and keep pamphlet paragraphs ≤120 characters.
+
+      Preserve schema, include at most two entries per synthesis, and do not emit markdown or commentary.
+  schema:
+    allowed_runtime_handles:
+      - web_search
+      - calculate
+      - format_text
+    default_scope_category: reinforcement
+  usage_tracking:
+    enabled: true
+    capture_examples: true
+    max_examples_per_entry: 3
+  gates:
+    enforce_actionability: true
+    enforce_cue: true
+    max_text_length: 420
+    allowed_proper_nouns:
+      - SQL
+      - HTTP
+      - JSON
+      - Atlas
+      - API
+      - Reward
+      - Include
+    banned_incident_tokens:
+      - postmortem
+    allow_length_overflow_margin: 40
+
+metadata:
+  experiment:
+    name: 20251030_tool_adoption_claude
+    learning_key: runtime.synthetic.claude.tools
+    seed: 20251030
+

@@ -433,3 +433,120 @@ def test_student_skips_playbook_when_disabled():
     planner_prompt = student._compose_planner_prompt("Investigate issue")
     assert "Student Playbook" not in planner_prompt
     assert planner_prompt.startswith("Planner body")
+
+
+def test_record_runtime_handles_with_additional_handles():
+    """Test that _record_runtime_handles merges additional handles from tool calls."""
+    ExecutionContext.get().reset()
+    student = object.__new__(Student)
+    student._tools = []  # No configured tools (agentic adapter scenario)
+
+    # Initially no handles
+    assert ExecutionContext.get().metadata.get("runtime_handles") is None
+
+    # Add handles from tool calls
+    student._record_runtime_handles(additional_handles=["read_file", "write_file"])
+    handles = ExecutionContext.get().metadata.get("runtime_handles", [])
+    assert "read_file" in handles
+    assert "write_file" in handles
+    assert len(handles) == 2
+
+
+def test_record_runtime_handles_merges_handles():
+    """Test that _record_runtime_handles merges configured tools and additional handles."""
+    ExecutionContext.get().reset()
+    student = object.__new__(Student)
+    
+    # Mock tool objects
+    tool1 = SimpleNamespace(name="configured_tool")
+    tool2 = SimpleNamespace(name="another_tool")
+    student._tools = [tool1, tool2]
+
+    # Record from configured tools
+    student._record_runtime_handles()
+    handles = ExecutionContext.get().metadata.get("runtime_handles", [])
+    assert "configured_tool" in handles
+    assert "another_tool" in handles
+    assert len(handles) == 2
+
+    # Add handles from tool calls (should merge, not replace)
+    student._record_runtime_handles(additional_handles=["read_file", "write_file"])
+    handles = ExecutionContext.get().metadata.get("runtime_handles", [])
+    assert "configured_tool" in handles
+    assert "another_tool" in handles
+    assert "read_file" in handles
+    assert "write_file" in handles
+    assert len(handles) == 4
+
+
+def test_record_student_action_adoption_populates_runtime_handles():
+    """Test that _record_student_action_adoption extracts handles from tool calls and populates runtime_handles."""
+    ExecutionContext.get().reset()
+    
+    # Mock tracker
+    class MockTracker:
+        enabled = True
+        def record_action_adoption(self, role, handle, **kwargs):
+            pass
+
+    student = object.__new__(Student)
+    student._tools = []  # Agentic adapter - no configured tools
+    
+    # Mock the tracker
+    from atlas.learning.usage import get_tracker
+    original_get_tracker = get_tracker
+    try:
+        # Replace get_tracker temporarily
+        import atlas.personas.student as student_module
+        student_module.get_tracker = lambda: MockTracker()
+        
+        # Create messages with tool calls in the format AIMessage expects (dicts)
+        # AIMessage internally converts these to objects with .name attribute
+        message = AIMessage(
+            content="",
+            tool_calls=[
+                {"name": "read_file", "args": {"path": "test.txt"}, "id": "call-1", "type": "tool_call"},
+                {"name": "write_file", "args": {"path": "output.txt", "content": "data"}, "id": "call-2", "type": "tool_call"},
+            ],
+        )
+        
+        step = Step(id=1, description="Test step", tool=None, tool_params=None)
+
+        # Debug: Check message.tool_calls before calling the function
+        print(f"DEBUG: message.tool_calls = {message.tool_calls}")
+        if message.tool_calls:
+            for tc in message.tool_calls:
+                print(f"DEBUG: tool_call type={type(tc)}, has name={hasattr(tc, 'name')}, name={getattr(tc, 'name', None)}")
+
+        student._record_student_action_adoption(
+            step=step,
+            messages=[message],
+            structured_output={"status": "success"},
+            metadata={},
+        )
+
+        # Verify runtime handles were populated
+        handles = ExecutionContext.get().metadata.get("runtime_handles", [])
+        print(f"DEBUG: runtime_handles = {handles}")
+        assert "read_file" in handles
+        assert "write_file" in handles
+    finally:
+        # Restore original get_tracker
+        student_module.get_tracker = original_get_tracker
+
+
+def test_record_runtime_handles_handles_empty_additional_handles():
+    """Test that _record_runtime_handles handles None and empty additional_handles gracefully."""
+    ExecutionContext.get().reset()
+    student = object.__new__(Student)
+    student._tools = []
+
+    # None should be fine
+    student._record_runtime_handles(additional_handles=None)
+    handles = ExecutionContext.get().metadata.get("runtime_handles", [])
+    assert handles == []
+
+    # Empty list should be fine
+    student._record_runtime_handles(additional_handles=[])
+    handles = ExecutionContext.get().metadata.get("runtime_handles", [])
+    assert handles == []

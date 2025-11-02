@@ -92,12 +92,13 @@ def _summarize_tool(tool: ToolDefinition) -> Dict[str, Any]:
 class BYOABridgeLLM(BaseChatModel):
     """LangChain chat model that proxies requests through an Atlas adapter."""
 
-    def __init__(self, adapter: AgentAdapter, tool_definitions: Sequence[ToolDefinition]):
+    def __init__(self, adapter: AgentAdapter, tool_definitions: Sequence[ToolDefinition], tool_choice: str | None = None):
         super().__init__()
         self._adapter = adapter
         self._tool_definitions = list(tool_definitions)
         self._tool_metadata = [_summarize_tool(tool) for tool in tool_definitions]
         self._bound_tools: List[BaseTool] = []
+        self._tool_choice = tool_choice
     @property
     def _llm_type(self) -> str:
         return "atlas-byoa-bridge"
@@ -108,9 +109,9 @@ class BYOABridgeLLM(BaseChatModel):
         tool_choice: str | None = None,
         **kwargs: Any,
     ) -> "BYOABridgeLLM":
-        del tool_choice, kwargs
+        del kwargs
         bound_tools = [tool for tool in tools if isinstance(tool, BaseTool)]
-        clone = BYOABridgeLLM(self._adapter, self._tool_definitions)
+        clone = BYOABridgeLLM(self._adapter, self._tool_definitions, tool_choice=tool_choice or self._tool_choice)
         clone._bound_tools = bound_tools
         return clone
     def _serialize_message(self, message: BaseMessage) -> Dict[str, Any]:
@@ -215,7 +216,26 @@ class BYOABridgeLLM(BaseChatModel):
     ) -> ChatResult:
         del run_manager, kwargs
         prompt = self._render_prompt(messages)
-        response = await self._adapter.ainvoke(prompt)
+        # Convert tool_metadata to OpenAI function calling format and pass via metadata
+        tools = None
+        if self._tool_metadata:
+            tools = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool_meta["name"],
+                        "description": tool_meta["description"],
+                        "parameters": tool_meta["parameters"],
+                    },
+                }
+                for tool_meta in self._tool_metadata
+            ]
+        metadata = {}
+        if tools:
+            metadata["tools"] = tools
+        if self._tool_choice:
+            metadata["tool_choice"] = self._tool_choice
+        response = await self._adapter.ainvoke(prompt, metadata=metadata if metadata else None)
         content, tool_calls, usage = self._parse_response(response)
         return self._to_chat_result(content, tool_calls, usage)
     def _generate(
@@ -237,10 +257,10 @@ class BYOABridgeLLM(BaseChatModel):
             return self._bound_tools
         return [_build_tool(self._adapter, tool) for tool in self._tool_definitions]
 
-def build_bridge(adapter: AgentAdapter, tool_definitions: Sequence[ToolDefinition]) -> Tuple[BYOABridgeLLM, List[BaseTool]]:
-    base_llm = BYOABridgeLLM(adapter, tool_definitions)
+def build_bridge(adapter: AgentAdapter, tool_definitions: Sequence[ToolDefinition], tool_choice: str | None = None) -> Tuple[BYOABridgeLLM, List[BaseTool]]:
+    base_llm = BYOABridgeLLM(adapter, tool_definitions, tool_choice=tool_choice)
     tools = base_llm.bound_tools
-    bridged_llm = base_llm.bind_tools(tools)
+    bridged_llm = base_llm.bind_tools(tools, tool_choice=tool_choice)
     return bridged_llm, list(tools)
 
 __all__ = ["BYOABridgeLLM", "build_bridge"]
