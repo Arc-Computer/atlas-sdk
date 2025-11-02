@@ -374,7 +374,9 @@ class Student:
             "    }\n"
             "  ]\n"
             "}\n"
-            "Do not include any prose before or after the JSON object."
+            "Do not include any prose before or after the JSON object.\n"
+            "When a step benefits from a runtime tool, set \"tool\" to one of the available tool names and populate \"tool_params\" with the required arguments.\n"
+            "Reserve \"tool\": null for reasoning-only steps that do not need tool execution."
         )
         planner_prompt = self._compose_system_prompt(self._prompts.planner, "Student Playbook")
         # Include available tools information so planner can select appropriate tools
@@ -417,6 +419,8 @@ class Student:
                 task_text = stored_task.strip()
         except Exception:  # pragma: no cover - defensive
             task_text = ""
+        tool_name = step.tool.strip() if isinstance(step.tool, str) and step.tool.strip() else None
+        tool_hint = tool_name or "not specified — choose from the available tools if that will improve the outcome."
         payload = [
             f"Step ID: {step.id}",
             f"Description: {step.description}",
@@ -425,18 +429,16 @@ class Student:
             payload.append("Original Task:")
             payload.append(task_text)
         payload.extend([
-            f"Tool: {step.tool or 'none'}",
+            f"Tool: {tool_hint}",
             f"Tool Parameters: {json.dumps(step.tool_params or {}, ensure_ascii=False)}",
             f"Dependencies: {step.depends_on}",
             f"Validated Prior Results (artifacts when available): {context_block}",
             f"Guidance History: {guidance_block}",
         ])
-        # If step.tool is None but tools are available, encourage tool use
-        if not step.tool and self._tools:
-            available_tool_names = [getattr(tool, "name", "") for tool in self._tools if getattr(tool, "name", None)]
-            if available_tool_names:
-                payload.append(f"Note: Tools are available ({', '.join(available_tool_names)}). Consider using them if appropriate.")
         user_message = "\n".join(payload)
+        available_tools_block = self._format_available_tools()
+        if available_tools_block:
+            user_message = "\n".join([user_message, available_tools_block])
         executor_prompt = self._compose_system_prompt(self._prompts.executor, "Student Playbook")
         self._refresh_graph_builder()
         messages = [
