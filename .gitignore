@@ -30,6 +30,7 @@ ENV/
 .idea/
 *.swp
 *.swo
+.cursor/
 
 # Testing
 .pytest_cache/
@@ -44,6 +45,7 @@ htmlcov/
 *.db
 *.sqlite
 *.sqlite3
+atlas-postgres.yaml
 
 # Logs
 *.log
