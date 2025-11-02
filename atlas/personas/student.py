@@ -377,11 +377,16 @@ class Student:
             "Do not include any prose before or after the JSON object."
         )
         planner_prompt = self._compose_system_prompt(self._prompts.planner, "Student Playbook")
-        return "\n\n".join([
+        # Include available tools information so planner can select appropriate tools
+        available_tools_block = self._format_available_tools()
+        components = [
             planner_prompt,
             f"Task: {task.strip()}",
-            json_direction,
-        ])
+        ]
+        if available_tools_block:
+            components.append(available_tools_block)
+        components.append(json_direction)
+        return "\n\n".join(components)
 
     def _compose_synthesis_prompt(self, task: str, step_results: List[Dict[str, Any]]) -> str:
         serialized_results = json.dumps(step_results, ensure_ascii=False, indent=2)
@@ -426,6 +431,11 @@ class Student:
             f"Validated Prior Results (artifacts when available): {context_block}",
             f"Guidance History: {guidance_block}",
         ])
+        # If step.tool is None but tools are available, encourage tool use
+        if not step.tool and self._tools:
+            available_tool_names = [getattr(tool, "name", "") for tool in self._tools if getattr(tool, "name", None)]
+            if available_tool_names:
+                payload.append(f"Note: Tools are available ({', '.join(available_tool_names)}). Consider using them if appropriate.")
         user_message = "\n".join(payload)
         executor_prompt = self._compose_system_prompt(self._prompts.executor, "Student Playbook")
         self._refresh_graph_builder()
@@ -452,6 +462,36 @@ class Student:
             return_direct=None,
         )
         self._graph = None
+
+    def _format_available_tools(self) -> str:
+        """Format available tools for inclusion in prompts."""
+        if not self._tools:
+            return ""
+        tool_descriptions = []
+        for tool in self._tools:
+            name = getattr(tool, "name", None)
+            description = getattr(tool, "description", None)
+            if name and description:
+                # Extract parameter info if available
+                args_schema = getattr(tool, "args_schema", None)
+                params_info = ""
+                if args_schema and hasattr(args_schema, "model_fields"):
+                    params = []
+                    for param_name, field_info in args_schema.model_fields.items():
+                        param_desc = getattr(field_info, "description", None)
+                        if param_desc:
+                            params.append(f"  - {param_name}: {param_desc}")
+                    if params:
+                        params_info = "\n" + "\n".join(params)
+                tool_descriptions.append(f"- {name}: {description}{params_info}")
+        if not tool_descriptions:
+            return ""
+        return (
+            "Available Tools:\n"
+            "You may use these tools by setting the \"tool\" field to the tool name "
+            "and \"tool_params\" to the required parameters.\n"
+            + "\n".join(tool_descriptions)
+        )
 
     def _compose_system_prompt(self, base_prompt: str, label: str) -> str:
         playbook, _, metadata = resolve_playbook("student", apply=self._apply_learning_prompts)

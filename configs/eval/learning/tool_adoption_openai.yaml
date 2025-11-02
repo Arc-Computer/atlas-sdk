@@ -65,7 +65,7 @@ student:
   max_plan_tokens: 4096
   max_step_tokens: 4096
   max_synthesis_tokens: 2048
-  tool_choice: auto
+  tool_choice: required  # Temporarily set to required for diagnosis
 
 teacher:
   llm:
