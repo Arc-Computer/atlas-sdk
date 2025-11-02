@@ -8,7 +8,7 @@ This script validates that tool adoption tracking works end-to-end with agentic 
 4. Verifies runtime_handles are populated from tool calls
 
 Usage:
-    python scripts/validate_tool_adoption.py --config examples/mcp_tool_learning/config.yaml
+    python scripts/validate_tool_adoption.py --config configs/eval/learning/tool_adoption_openai.yaml
 """
 
 from __future__ import annotations
@@ -25,24 +25,24 @@ from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.utils.env import load_dotenv_if_available
 
 
-# Playbook entries matching MCP tool names
+# Playbook entries matching tool names from tool_adoption configs
 PLAYBOOK_ENTRIES = [
     {
-        "id": "list_files_entry",
-        "cue": {"type": "keyword", "pattern": "list|enumerate|directory"},
-        "action": {"imperative": "Use list_files tool", "runtime_handle": "list_files"},
+        "id": "web_search_entry",
+        "cue": {"type": "keyword", "pattern": "search|lookup|find"},
+        "action": {"imperative": "Use web_search tool", "runtime_handle": "web_search"},
         "scope": {"category": "reinforcement"},
     },
     {
-        "id": "read_file_entry",
-        "cue": {"type": "keyword", "pattern": "read|view|content"},
-        "action": {"imperative": "Use read_file tool", "runtime_handle": "read_file"},
+        "id": "calculate_entry",
+        "cue": {"type": "keyword", "pattern": "calculate|compute|sum|add"},
+        "action": {"imperative": "Use calculate tool", "runtime_handle": "calculate"},
         "scope": {"category": "reinforcement"},
     },
     {
-        "id": "write_file_entry",
-        "cue": {"type": "keyword", "pattern": "write|create|save"},
-        "action": {"imperative": "Use write_file tool", "runtime_handle": "write_file"},
+        "id": "format_text_entry",
+        "cue": {"type": "keyword", "pattern": "format|summary|report"},
+        "action": {"imperative": "Use format_text tool", "runtime_handle": "format_text"},
         "scope": {"category": "reinforcement"},
     },
 ]
@@ -52,10 +52,10 @@ async def validate_tool_adoption(config_path: str) -> tuple[bool, str]:
     """Run a task and validate tool adoption tracking with agentic adapter."""
     load_dotenv_if_available()
     
-    # Task that should trigger file operations via MCP tools
+    # Task that should trigger tool calls
     task = (
-        "List the files in the sample_workspace directory, then read the contents of "
-        "sample_workspace/example.txt, and create a summary file with the key points."
+        "Search for information about Atlas SDK documentation, then calculate "
+        "the sum of 15 and 27, then format the result as a percentage summary."
     )
     
     # Build learning_state with playbook entries matching the runtime flow
@@ -124,8 +124,8 @@ async def validate_tool_adoption(config_path: str) -> tuple[bool, str]:
                 runtime_handle = entry_data.get("runtime_handle", "")
                 if adoptions > 0:
                     found_adoption = True
-                    # Verify runtime_handle matches expected MCP tool names
-                    if runtime_handle not in ["list_files", "read_file", "write_file"]:
+                    # Verify runtime_handle matches expected tool names
+                    if runtime_handle not in ["web_search", "calculate", "format_text"]:
                         issues.append(
                             f"Unexpected runtime_handle in adoption: {runtime_handle}"
                         )
@@ -144,7 +144,7 @@ async def validate_tool_adoption(config_path: str) -> tuple[bool, str]:
         issues.append("Runtime handles not populated (expected from tool calls)")
     else:
         # Verify at least one expected handle is present
-        expected_handles = {"list_files", "read_file", "write_file"}
+        expected_handles = {"web_search", "calculate", "format_text"}
         found_expected = any(handle in expected_handles for handle in runtime_handles)
         if not found_expected:
             issues.append(
