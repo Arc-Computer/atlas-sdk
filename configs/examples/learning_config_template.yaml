@@ -1,0 +1,54 @@
+# Learning Configuration Template
+#
+# This template shows the MINIMAL learning configuration needed.
+# Most settings use sensible defaults, so you typically only need to specify the LLM.
+#
+# Minimal configuration (recommended):
+#
+# learning:
+#   llm:
+#     provider: gemini
+#     model: gemini/gemini-2.5-flash
+#     api_key_env: GEMINI_API_KEY
+#     temperature: 0.1
+#     max_output_tokens: 8192
+#     timeout_seconds: 120
+#   gates:
+#     enforce_actionability: true
+#     enforce_cue: true
+#
+# Defaults (you don't need to specify these):
+#   enabled: true                    # Learning enabled
+#   update_enabled: true             # Allow learning updates
+#   provisional_acceptance: true     # Empirical validation enabled
+#   enforce_generality: false        # Use empirical validation (not syntactic gates)
+#   pruning_config:                 # Automatic pruning with defaults
+#     min_sessions: 10
+#     min_cue_hit_rate: 0.05
+#     min_reward_delta: 0.01
+#     min_transfer_sessions: 20
+#
+# Optional customization (only if you need to override defaults):
+#
+# learning:
+#   llm:
+#     provider: gemini
+#     model: gemini/gemini-2.5-flash
+#     api_key_env: GEMINI_API_KEY
+#     temperature: 0.1
+#     max_output_tokens: 8192
+#     timeout_seconds: 120
+#   history_limit: 10                # Override default (10)
+#   session_note_enabled: true        # Override default (true)
+#   apply_to_prompts: true           # Override default (true)
+#   gates:
+#     enforce_actionability: true
+#     enforce_cue: true
+#     enforce_generality: false      # Override default (false) - only if you want old behavior
+#   pruning_config:                  # Override defaults if needed
+#     min_sessions: 10
+#     min_cue_hit_rate: 0.05
+#     min_reward_delta: 0.01
+#     min_transfer_sessions: 20
+
+

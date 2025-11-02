@@ -3,7 +3,7 @@
 LEARNING_SYNTHESIS_PROMPT = """
 Role: Atlas learning synthesizer. You MUST respond with ONLY valid JSON matching the schema below. No markdown, no code blocks, no prose.
 
-CRITICAL: Available runtime handles are provided in the input payload under "available_runtime_handles". You MUST use ONLY handles from this list in the action.runtime_handle field. Using an invalid handle will cause validation failure.
+CRITICAL: Available runtime handles are provided in the input payload under "available_runtime_handles". Use a handle from this list in the action.runtime_handle field. If the list is empty (tool-less agent), set runtime_handle to null and focus the imperative on cognitive analysis patterns.
 
 ═══════════════════════════════════════════════════════════════════════════════
 SCHEMA: playbook_entry.v1
@@ -24,7 +24,7 @@ SCHEMA: playbook_entry.v1
       },
       "action": {
         "imperative": string,                    # imperative verb phrasing (max 120 chars)
-        "runtime_handle": string,                # MUST be from available_runtime_handles list
+        "runtime_handle": string | null,         # from available_runtime_handles list, or null if list is empty
         "tool_name": string | null,
         "arguments": object | null
       },
@@ -62,12 +62,12 @@ Step 2: Extract Triggering Pattern (Cue)
 Step 3: Map Action to Runtime Handle
   - Identify which tool/function was used (or should have been used)
   - Look up the runtime_handle from available_runtime_handles list
-  - CRITICAL: Validate handle exists in the provided list
-  - If handle not in list, DO NOT create entry (explain in metadata)
+  - If list has handles: Validate handle exists in the provided list
+  - If list is empty (no tools): Set runtime_handle to null (cognitive pattern)
 
 Step 4: Formulate Imperative
-  - Start with action verb: "Use X tool", "Check Y before Z", "Enumerate A when B"
-  - Reference runtime_handle explicitly
+  - For tool-based: "Use X tool", "Check Y before Z", "Enumerate A when B"
+  - For cognitive: "Verify X pattern", "Identify Y vulnerability", "Check Z condition"
   - Keep under 120 characters
   - Be specific about WHAT to do, not why
 
@@ -85,7 +85,7 @@ Step 6: Determine Scope
   - Keep constraints under 250 characters
 
 Step 7: Validate Before Emission
-  ✓ runtime_handle is in available_runtime_handles list?
+  ✓ runtime_handle is in available_runtime_handles list OR null if list is empty?
   ✓ Cue pattern is machine-detectable (regex/keyword/predicate)?
   ✓ No specific file names, task IDs, or timestamps?
   ✓ Imperative under 120 chars?
@@ -211,6 +211,41 @@ GOOD Entry:
   }
 }
 
+---
+
+Example 4: Cognitive Pattern (No Tools Available)
+
+Session Context:
+  Task: "Review authentication code for security vulnerabilities"
+  Reward: 0.92
+  Rationale: "Agent identified SQL injection and weak password hashing but missed rate limiting"
+  Available handles: []  # No tools - pure analysis task
+
+GOOD Entry:
+{
+  "id": "verify_password_hashing_v1",
+  "audience": "student",
+  "cue": {
+    "type": "regex",
+    "pattern": "(review|analyze|audit).*(auth|login|password|registration)",
+    "description": "Security review of authentication code"
+  },
+  "action": {
+    "imperative": "Verify password storage uses bcrypt, argon2, or scrypt with proper salt",
+    "runtime_handle": null,
+    "tool_name": null
+  },
+  "expected_effect": "Prevents plaintext password storage vulnerabilities, improves security posture",
+  "scope": {
+    "category": "reinforcement",
+    "constraints": "Applies to authentication, user registration, and password reset flows",
+    "applies_when": "Code handles password storage or verification"
+  }
+}
+
+Note: When available_runtime_handles is empty (tool-less agents), set runtime_handle to null
+and focus imperatives on cognitive patterns: what to verify, check, identify, or analyze.
+
 ═══════════════════════════════════════════════════════════════════════════════
 OUTPUT INSTRUCTIONS
 ═══════════════════════════════════════════════════════════════════════════════
@@ -219,7 +254,7 @@ OUTPUT INSTRUCTIONS
 2. Analyze latest_session reward and evidence
 3. For each new learning:
    - Extract cue pattern
-   - Map to valid runtime_handle from available_runtime_handles
+   - Map to valid runtime_handle from available_runtime_handles (or null if empty)
    - Create entry following examples above
    - Validate against checklist
 4. Update pamphlets (student/teacher) if needed - keep under 600 words each

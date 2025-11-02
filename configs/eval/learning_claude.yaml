@@ -132,7 +132,6 @@ learning:
   gates:
     enforce_actionability: true
     enforce_cue: true
-    enforce_generality: true
     max_text_length: 420
     allowed_proper_nouns:
       - SQL

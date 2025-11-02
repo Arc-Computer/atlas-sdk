@@ -17,6 +17,10 @@ _INCIDENT_PATTERN = re.compile(
     r"\b(?:incident|case|ticket)[\s#_\-]+[A-Za-z0-9][A-Za-z0-9_\-]*",
     re.IGNORECASE,
 )
+_FILE_PATH_PATTERN = re.compile(
+    r"(?:^|[\s\"'`])(?:/|\.\.?/|~/?)[\w./\-]+[/.](?:py|js|ts|java|rb|go|rs|yaml|yml|json|txt|md|sql|sh|bat|ps1)[\s\"'`]",
+    re.IGNORECASE,
+)
 _HASH = hashlib.sha256
 
 
@@ -81,6 +85,7 @@ def evaluate_playbook_entries(
     schema: PlaybookEntrySchemaConfig,
     allowed_handles: Sequence[str],
     allowed_prefixes: Sequence[str],
+    allow_missing_mapping: bool = False,
 ) -> Tuple[List[EvaluatedPlaybookEntry], Dict[str, Any]]:
     """Evaluate each candidate playbook entry against rubric gates and weights."""
 
@@ -98,6 +103,7 @@ def evaluate_playbook_entries(
             schema=schema,
             allowed_handles=allowed_set,
             allowed_prefixes=prefix_set,
+            allow_missing_mapping=allow_missing_mapping,
         )
         evaluations.append(EvaluatedPlaybookEntry(entry=entry, evaluation=evaluation))
         for gate_name, gate_passed in evaluation.gates.items():
@@ -235,6 +241,7 @@ def _evaluate_entry(
     schema: PlaybookEntrySchemaConfig,
     allowed_handles: Iterable[str],
     allowed_prefixes: Iterable[str],
+    allow_missing_mapping: bool = False,
 ) -> PlaybookEntryEvaluation:
     gate_results: Dict[str, bool] = {}
     failure_reasons: List[str] = []
@@ -242,7 +249,7 @@ def _evaluate_entry(
     handle = entry.get("action", {}).get("runtime_handle")
     imperative = entry.get("action", {}).get("imperative")
     handle_valid = _handle_is_allowed(handle, allowed_handles, allowed_prefixes)
-    action_gate = bool(imperative) and (handle_valid or schema.allow_missing_tool_mapping)
+    action_gate = bool(imperative) and (handle_valid or schema.allow_missing_tool_mapping or allow_missing_mapping)
     gate_results["actionability"] = (not gates.enforce_actionability) or action_gate
     if gates.enforce_actionability and not action_gate:
         message = "runtime handle missing" if not handle_valid else "imperative missing"
@@ -363,11 +370,16 @@ def _generality_gate(
     *,
     gates: PlaybookEntryGateRules,
 ) -> Tuple[bool, str]:
+    """
+    Lightweight syntactic filters for obvious anti-patterns.
+    Only rejects entries we KNOW are bad (dates, incident IDs, specific file paths).
+    Domain terminology and length are NOT checked - empirical validation will decide.
+    """
     text_segments: List[str] = []
     cue = entry.get("cue", {})
     action = entry.get("action", {})
     scope = entry.get("scope", {})
-    analysis_segments: List[str] = []
+    
     text_segments.extend(
         segment
         for segment in (
@@ -380,27 +392,33 @@ def _generality_gate(
         )
         if isinstance(segment, str)
     )
-    for segment in text_segments:
-        words = segment.split()
-        if len(words) > 1:
-            analysis_segments.append(" ".join(words[1:]))
+    
     combined = " ".join(text_segments)
     if not combined:
         return False, "empty_text"
+    
+    # Check for obvious anti-patterns only
     lower = combined.lower()
+    
+    # Banned incident tokens (incident, ticket, case, postmortem)
     for token in gates.banned_incident_tokens:
         if token and token in lower:
             return False, f"banned_token:{token}"
+    
+    # Date patterns (specific dates indicate task-specific overfitting)
     if _DATE_PATTERN.search(combined):
         return False, "contains_date"
+    
+    # Incident ID patterns (ticket-123, incident-456, case-789)
     if _INCIDENT_PATTERN.search(combined):
         return False, "contains_incident_reference"
-    analysis_text = " ".join(analysis_segments) if analysis_segments else combined
-    offending = _detect_proper_nouns(analysis_text, gates.allowed_proper_nouns)
-    if offending:
-        return False, f"proper_nouns:{','.join(offending[:3])}"
-    if len(combined) > (gates.max_text_length + gates.allow_length_overflow_margin):
-        return False, "exceeds_length"
+    
+    # Specific file paths (absolute paths or paths with extensions indicate task-specific)
+    if _FILE_PATH_PATTERN.search(combined):
+        return False, "contains_specific_file_path"
+    
+    # All checks passed - entry is provisionally acceptable
+    # Proper nouns and length limits are NOT checked - empirical validation will decide
     return True, ""
 
 

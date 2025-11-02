@@ -355,7 +355,7 @@ class PlaybookEntryGateRules(BaseModel):
 
     enforce_actionability: bool = True
     enforce_cue: bool = True
-    enforce_generality: bool = True
+    enforce_generality: bool = False  # Default False - use empirical validation instead
     max_text_length: int = Field(default=420, ge=100, le=2000)
     allowed_proper_nouns: List[str] = Field(
         default_factory=lambda: ["SQL", "HTTP", "JSON", "Atlas", "API"]
@@ -375,6 +375,17 @@ class PlaybookEntryRubricWeights(BaseModel):
     generality: float = Field(default=0.3, ge=0.0, le=1.0)
     hookability: float = Field(default=0.2, ge=0.0, le=1.0)
     concision: float = Field(default=0.1, ge=0.0, le=1.0)
+
+
+class PlaybookPruningConfig(BaseModel):
+    """Configuration for empirical pruning of playbook entries."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    min_sessions: int = Field(default=10, ge=1, le=100)
+    min_cue_hit_rate: float = Field(default=0.05, ge=0.0, le=1.0)
+    min_reward_delta: float = Field(default=0.01, ge=-1.0, le=1.0)
+    min_transfer_sessions: int = Field(default=20, ge=1, le=100)
 
 
 class PlaybookEntrySchemaConfig(BaseModel):
@@ -407,6 +418,7 @@ class LearningConfig(BaseModel):
 
     enabled: bool = True
     update_enabled: bool = True
+    provisional_acceptance: bool = Field(default=True, description="Accept entries provisionally even if they fail generality gate")
     llm: LLMParameters | None = Field(
         default_factory=lambda: LLMParameters(
             provider=LLMProvider.GEMINI,
@@ -424,6 +436,7 @@ class LearningConfig(BaseModel):
     schema: PlaybookEntrySchemaConfig = Field(default_factory=PlaybookEntrySchemaConfig)
     rubric_weights: PlaybookEntryRubricWeights = Field(default_factory=PlaybookEntryRubricWeights)
     gates: PlaybookEntryGateRules = Field(default_factory=PlaybookEntryGateRules)
+    pruning_config: PlaybookPruningConfig = Field(default_factory=PlaybookPruningConfig)
     usage_tracking: LearningUsageConfig = Field(default_factory=LearningUsageConfig)
 
 class RIMConfig(BaseModel):
