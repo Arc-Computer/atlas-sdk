@@ -362,12 +362,15 @@ def _load_triage_adapter(path: str | None):
 
 
 def _build_learning_key(task: str, config: AtlasConfig, session_meta: Dict[str, Any]) -> str:
-    existing_key = session_meta.get("learning_key")
-    if isinstance(existing_key, str) and existing_key.strip():
-        return existing_key.strip()
+    # learning_key_override takes precedence (force override)
+    # This allows callers to force a specific learning key regardless of existing values
     override_key = session_meta.get("learning_key_override")
     if isinstance(override_key, str) and override_key.strip():
         return override_key.strip()
+    # Otherwise use existing key if present
+    existing_key = session_meta.get("learning_key")
+    if isinstance(existing_key, str) and existing_key.strip():
+        return existing_key.strip()
     agent_name = getattr(config.agent, "name", "agent")
     tenant_id = session_meta.get("tenant_id") or session_meta.get("tenant") or "default"
     raw_tags = session_meta.get("tags") or []

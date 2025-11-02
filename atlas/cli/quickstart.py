@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import sys
 import time
@@ -13,6 +14,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 warnings.filterwarnings(
     "ignore",
@@ -136,6 +139,7 @@ class TaskMetrics:
 
 async def _check_storage_available(database_url: str = DEFAULT_DATABASE_URL) -> bool:
     """Check if Postgres storage is available."""
+    database = None
     try:
         config = StorageConfig(
             database_url=database_url,
@@ -147,8 +151,15 @@ async def _check_storage_available(database_url: str = DEFAULT_DATABASE_URL) -> 
         await database.connect()
         await database.disconnect()
         return True
-    except Exception:
+    except Exception as exc:
+        logger.debug("Storage check failed: %s", exc)
         return False
+    finally:
+        if database:
+            try:
+                await database.disconnect()
+            except Exception:
+                pass  # Best effort cleanup
 
 
 async def _ensure_storage(skip_storage: bool) -> bool:
@@ -353,6 +364,7 @@ async def _run_task(task: str, task_num: int, config_path: str, atlas_dir: Path)
     print(f"{'='*60}\n")
 
     start_time = time.perf_counter()
+    metadata = {}
     try:
         # Use consistent learning_key across all quickstart tasks so learning persists
         # This allows the system to learn from previous tasks in the sequence
@@ -369,12 +381,13 @@ async def _run_task(task: str, task_num: int, config_path: str, atlas_dir: Path)
             stream_progress=True,
             session_metadata=session_metadata,
         )
+        # Capture metadata immediately after arun() completes, before any context reset
+        # This ensures we capture the session metadata before the next task starts
+        metadata = dict(ExecutionContext.get().metadata)
     except Exception as exc:
         print(f"❌ Task {task_num} failed: {exc}", file=sys.stderr)
         raise
     duration = time.perf_counter() - start_time
-
-    metadata = dict(ExecutionContext.get().metadata)
     reward = _extract_reward_score(metadata)
     tokens = _extract_token_count(metadata)
 
@@ -392,9 +405,15 @@ async def _run_task(task: str, task_num: int, config_path: str, atlas_dir: Path)
         if hasattr(result, "model_dump"):
             try:
                 result_data = _ensure_jsonable(result.model_dump())
-            except Exception:
+            except Exception as exc:
                 # Fallback to string representation if serialization fails
-                result_data = {"error": "Failed to serialize result", "repr": str(result)}
+                logger.warning("Failed to serialize result: %s", exc, exc_info=True)
+                result_data = {
+                    "error": "Failed to serialize result",
+                    "repr": str(result),
+                    "exception": str(exc),
+                    "exception_type": type(exc).__name__,
+                }
         else:
             result_data = _ensure_jsonable(result)
     
@@ -502,15 +521,6 @@ def _generate_insights(metrics_list: list[TaskMetrics]) -> list[str]:
     return insights
 
 
-def _estimate_cost(num_tasks: int) -> str:
-    """Estimate cost for running tasks."""
-    # Rough estimate: ~$0.01 per task with GPT-4o-mini
-    # Note: Actual cost is typically $0.001-0.005 depending on response length
-    cost_per_task = 0.01
-    total = num_tasks * cost_per_task
-    return f"~${total:.2f}-{total * 1.5:.2f}"
-
-
 async def _cmd_quickstart_async(args: argparse.Namespace) -> int:
     """Async implementation of quickstart command."""
     # Set offline mode if requested
@@ -525,12 +535,8 @@ async def _cmd_quickstart_async(args: argparse.Namespace) -> int:
     # Check storage availability
     storage_available = await _ensure_storage(args.skip_storage)
 
-    # Show cost estimate (unless offline)
+    # Determine offline mode
     offline_mode = os.getenv("ATLAS_OFFLINE_MODE", "0") not in {"0", "", "false", "False"}
-    if not offline_mode:
-        cost = _estimate_cost(args.tasks)
-        print(f"\n💰 Estimated cost: {cost} ({args.tasks} tasks, GPT-4o-mini)")
-        print("   Use --offline to skip API calls.\n")
 
     # Define tasks
     all_tasks = [TASK_1, TASK_2, TASK_3]
