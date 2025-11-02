@@ -68,11 +68,16 @@ async def validate_tool_adoption(config_path: str) -> tuple[bool, str]:
     # Run the task with test_learning_state parameter
     # This ensures playbook entries are available when resolve_playbook() is called
     # during Student/Teacher initialization, matching the actual runtime flow
+    # Force stepwise execution mode by setting execution_mode in session_metadata
+    # This ensures the planner creates a multi-step plan where tools can be selected
     try:
         result = await atlas_arun(
             task=task,
             config_path=config_path,
-            session_metadata={"source": "tool_adoption_validation"},
+            session_metadata={
+                "source": "tool_adoption_validation",
+                "execution_mode": "stepwise",  # Force stepwise to enable planner tool selection
+            },
             stream_progress=False,
             test_learning_state=test_learning_state,
         )
