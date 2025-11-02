@@ -356,10 +356,12 @@ async def _run_task(task: str, task_num: int, config_path: str, atlas_dir: Path)
     try:
         # Use consistent learning_key across all quickstart tasks so learning persists
         # This allows the system to learn from previous tasks in the sequence
+        # Set task-specific incident_id for transfer success tracking
         session_metadata = {
             "source": "atlas quickstart",
             "task_num": task_num,
             "learning_key_override": "atlas-quickstart-security-review",  # Consistent key for all tasks
+            "incident_id": f"quickstart-task-{task_num}",  # Unique per task for transfer tracking
         }
         result = await core.arun(
             task=task,

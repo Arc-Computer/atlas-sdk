@@ -230,6 +230,15 @@ class LearningSynthesizer:
         if not isinstance(current_metadata, dict):
             current_metadata = {}
 
+        # Prune ineffective entries from existing playbook before evaluating new candidates
+        existing_entries = current_metadata.get("playbook_entries")
+        if isinstance(existing_entries, list) and existing_entries:
+            pruned_entries = self._prune_ineffective_entries(
+                existing_entries,
+                min_sessions=self._config.pruning_config.min_sessions,
+            )
+            current_metadata["playbook_entries"] = pruned_entries
+
         playbook_eval = self._evaluate_playbook_entries(payload, current_metadata, context)
         metadata = playbook_eval["metadata"]
         accepted = playbook_eval["accepted"]
@@ -299,24 +308,46 @@ class LearningSynthesizer:
             schema=self._schema,
             allowed_handles=handles["exact"],
             allowed_prefixes=handles["prefixes"],
+            allow_missing_mapping=handles.get("allow_missing_mapping", False),
         )
         summary["weights"] = self._normalised_weights_map()
-        summary["accepted"] = True
-
-        failures: List[Dict[str, Any]] = []
+        
+        # Separate blocking failures (semantic correctness) from non-blocking warnings (generality)
+        # Actionability and cue gates are blocking - entries must pass these
+        # Generality gate is non-blocking - entries can be accepted provisionally
+        blocking_failures: List[Dict[str, Any]] = []
+        provisional_warnings: List[Dict[str, Any]] = []
+        
         for item in evaluations:
             if not item.passed():
-                summary["accepted"] = False
-                failures.append(
-                    {
-                        "id": item.entry.get("id"),
-                        "gates": item.evaluation.gates,
-                        "scores": item.evaluation.scores,
-                        "reasons": item.evaluation.failure_reasons,
-                    }
-                )
-
-        accepted = summary["accepted"]
+                gates = item.evaluation.gates
+                # Actionability and cue are blocking (semantic correctness)
+                if not gates.get("actionability", True) or not gates.get("cue", True):
+                    blocking_failures.append(
+                        {
+                            "id": item.entry.get("id"),
+                            "gates": gates,
+                            "scores": item.evaluation.scores,
+                            "reasons": item.evaluation.failure_reasons,
+                        }
+                    )
+                # Generality is non-blocking (empirical validation will decide)
+                elif not gates.get("generality", True):
+                    provisional_warnings.append(
+                        {
+                            "id": item.entry.get("id"),
+                            "gates": gates,
+                            "scores": item.evaluation.scores,
+                            "reasons": item.evaluation.failure_reasons,
+                        }
+                    )
+        
+        # Accept if no blocking failures (allow provisional entries)
+        accepted = len(blocking_failures) == 0
+        summary["accepted"] = accepted
+        summary["provisional_count"] = len(provisional_warnings)
+        summary["blocking_failures"] = len(blocking_failures)
+        failures = blocking_failures + provisional_warnings
         timestamp = datetime.now(timezone.utc).isoformat()
         metadata["playbook_version"] = self._schema.version
         metadata["last_evaluation"] = {
@@ -346,9 +377,15 @@ class LearningSynthesizer:
         if accepted:
             active_entries: List[Dict[str, Any]] = []
             seen_ids: set[str] = set()
+            # Create mapping of entry IDs to their warnings for provisional entries
+            provisional_by_id = {w.get("id"): w for w in provisional_warnings}
+            
             for item in evaluations:
-                if not item.passed():
+                # Skip only blocking failures - accept entries with provisional warnings
+                gates = item.evaluation.gates
+                if not gates.get("actionability", True) or not gates.get("cue", True):
                     continue
+                    
                 entry_payload = item.to_metadata()
                 entry_payload.pop("sequence", None)
                 entry_id = entry_payload.get("id") or stabilise_playbook_entry_id(entry_payload)
@@ -364,12 +401,25 @@ class LearningSynthesizer:
                     category = (prior_scope or {}).get("category") or self._schema.default_scope_category
                     scope["category"] = category
                 entry_payload["rubric"]["weights"] = self._normalised_weights_map()
+                
+                # Mark provisional entries with validation status and warnings
+                if entry_id in provisional_by_id:
+                    warning = provisional_by_id[entry_id]
+                    entry_metadata = entry_payload.setdefault("metadata", {})
+                    entry_metadata["validation_status"] = "provisional"
+                    entry_metadata["validation_warnings"] = warning.get("reasons", [])
+                    lifecycle = "provisional"
+                else:
+                    entry_metadata = entry_payload.setdefault("metadata", {})
+                    entry_metadata["validation_status"] = "validated"
+                    lifecycle = "active"
+                
                 prior_entry = baseline_entries_by_id.get(entry_id)
                 entry_payload["provenance"] = self._build_provenance(
                     entry_payload,
                     prior_entry,
                     context,
-                    lifecycle="active",
+                    lifecycle=lifecycle,
                 )
                 if isinstance(prior_entry, dict):
                     prior_impact = prior_entry.get("impact")
@@ -380,12 +430,23 @@ class LearningSynthesizer:
             for entry_id, prior in baseline_entries_by_id.items():
                 if entry_id in seen_ids:
                     continue
+                # Skip pruned entries
+                prior_provenance = prior.get("provenance", {})
+                prior_status = prior_provenance.get("status", {})
+                if prior_status.get("lifecycle") == "pruned":
+                    continue
                 stale = copy.deepcopy(prior)
                 stale["provenance"] = self._build_provenance(stale, prior, context, lifecycle="deprecated")
                 active_entries.append(stale)
             metadata["playbook_entries"] = active_entries
             metadata["playbook_summary"] = summary
             metadata["last_updated_at"] = timestamp
+            
+            # Filter out pruned entries from final active list
+            metadata["playbook_entries"] = [
+                entry for entry in active_entries
+                if entry.get("provenance", {}).get("status", {}).get("lifecycle") != "pruned"
+            ]
         else:
             metadata["playbook_summary"] = summary
             metadata.setdefault("playbook_entries", baseline_entries)
@@ -422,7 +483,7 @@ class LearningSynthesizer:
             "failures": failures,
         }
 
-    def _resolve_runtime_handles(self, context: ExecutionContext) -> Dict[str, List[str]]:
+    def _resolve_runtime_handles(self, context: ExecutionContext) -> Dict[str, Any]:
         metadata = context.metadata if isinstance(context.metadata, dict) else {}
         handles: List[str] = []
         configured = self._schema.allowed_runtime_handles or []
@@ -438,7 +499,15 @@ class LearningSynthesizer:
             if lowered not in seen:
                 seen.add(lowered)
                 unique_handles.append(handle)
-        return {"exact": unique_handles, "prefixes": prefixes}
+
+        # Auto-enable missing tool mapping when no tools available (tool-less agents)
+        has_tools = bool(unique_handles or prefixes)
+
+        return {
+            "exact": unique_handles,
+            "prefixes": prefixes,
+            "allow_missing_mapping": not has_tools,
+        }
 
     def _normalised_weights_map(self) -> Dict[str, float]:
         raw = {
@@ -449,6 +518,107 @@ class LearningSynthesizer:
         }
         total = sum(raw.values()) or 1.0
         return {key: round(value / total, 4) for key, value in raw.items()}
+
+    def _prune_ineffective_entries(
+        self,
+        entries: List[Dict[str, Any]],
+        min_sessions: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """
+        Prune entries based on empirical impact metrics.
+        
+        Pruning criteria:
+        1. Too specific: cue_hit_rate < min_cue_hit_rate AND sessions_observed >= min_sessions
+        2. Harmful: reward_delta < -min_reward_delta AND sessions_with_hits >= 5
+        3. Neutral: reward_delta < min_reward_delta AND adoption_rate > 0.5 AND sessions_with_hits >= 10
+        4. No transfer: transfer_success = False AND sessions_observed >= min_transfer_sessions
+        """
+        pruning_config = self._config.pruning_config
+        min_cue_hit_rate = pruning_config.min_cue_hit_rate
+        min_reward_delta = pruning_config.min_reward_delta
+        min_transfer_sessions = pruning_config.min_transfer_sessions
+        
+        pruned = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                pruned.append(entry)
+                continue
+                
+            impact = entry.get("impact", {})
+            if not isinstance(impact, dict):
+                pruned.append(entry)  # Keep - no impact data yet
+                continue
+                
+            sessions_observed = impact.get("sessions_observed", 0)
+            
+            # Not enough data - keep entry
+            if sessions_observed < min_sessions:
+                pruned.append(entry)
+                continue
+                
+            # Compute metrics
+            sessions_with_hits = impact.get("sessions_with_hits", 0)
+            cue_hit_rate = sessions_with_hits / sessions_observed if sessions_observed > 0 else 0.0
+            
+            total_cue_hits = impact.get("total_cue_hits", 0)
+            successful_adoptions = impact.get("successful_adoptions", 0)
+            adoption_rate = successful_adoptions / total_cue_hits if total_cue_hits > 0 else 0.0
+            
+            reward_with_sum = impact.get("reward_with_sum", 0.0)
+            reward_with_count = impact.get("reward_with_count", 0)
+            reward_without_sum = impact.get("reward_without_sum", 0.0)
+            reward_without_count = impact.get("reward_without_count", 0)
+            
+            reward_with = reward_with_sum / reward_with_count if reward_with_count > 0 else None
+            reward_without = reward_without_sum / reward_without_count if reward_without_count > 0 else None
+            reward_delta = (reward_with - reward_without) if (reward_with is not None and reward_without is not None) else None
+            
+            incident_ids = impact.get("incident_ids", [])
+            transfer_success = len(incident_ids) >= 2 if isinstance(incident_ids, list) else False
+            
+            # Pruning rules
+            prune_reason = None
+            
+            # 1. Too specific - rarely fires
+            if cue_hit_rate < min_cue_hit_rate and sessions_observed >= min_sessions:
+                prune_reason = "too_specific"
+            
+            # 2. Harmful - negative reward delta
+            elif reward_delta is not None and reward_delta < -min_reward_delta and sessions_with_hits >= 5:
+                prune_reason = "harmful"
+            
+            # 3. Neutral - no improvement despite adoption
+            elif (
+                reward_delta is not None
+                and reward_delta < min_reward_delta
+                and adoption_rate > 0.5
+                and sessions_with_hits >= 10
+            ):
+                prune_reason = "neutral"
+            
+            # 4. No transfer - only fires in one context
+            elif not transfer_success and sessions_observed >= min_transfer_sessions:
+                prune_reason = "no_transfer"
+            
+            if prune_reason:
+                # Mark as pruned but keep in list for audit trail
+                provenance = entry.get("provenance")
+                if not isinstance(provenance, dict):
+                    provenance = {}
+                    entry["provenance"] = provenance
+                status = provenance.get("status")
+                if not isinstance(status, dict):
+                    status = {}
+                    provenance["status"] = status
+                status["lifecycle"] = "pruned"
+                provenance["prune_reason"] = prune_reason
+                provenance["pruned_at"] = datetime.now(timezone.utc).isoformat()
+                # Don't add to active entries - they'll be filtered out
+                continue
+            
+            pruned.append(entry)
+        
+        return pruned
 
     def _build_provenance(
         self,

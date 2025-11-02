@@ -60,3 +60,23 @@ storage:
   min_connections: 1
   max_connections: 5
   statement_timeout_seconds: 30
+
+learning:
+  llm:
+    provider: gemini
+    model: gemini/gemini-2.5-flash
+    api_key_env: GEMINI_API_KEY
+    temperature: 0.1
+    max_output_tokens: 8192
+    timeout_seconds: 120
+  gates:
+    enforce_actionability: true
+    enforce_cue: true
+  # Optional: Tune learning behavior (all have sensible defaults)
+  # history_limit: 10          # How many recent runs to review (default: 10)
+  # apply_to_prompts: true    # Inject learning into prompts (default: true)
+  # pruning_config:            # Tune when entries are pruned based on metrics
+  #   min_sessions: 10         # Minimum sessions before pruning (default: 10)
+  #   min_cue_hit_rate: 0.05   # Minimum cue hit rate to avoid "too specific" (default: 0.05)
+  #   min_reward_delta: 0.01   # Minimum reward improvement to avoid "neutral" (default: 0.01)
+  #   min_transfer_sessions: 20 # Sessions needed to check transfer success (default: 20)

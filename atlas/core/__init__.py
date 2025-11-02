@@ -799,7 +799,21 @@ def _resolve_incident_context(triage: dict[str, Any] | None, context: ExecutionC
     incident_id: str | None = None
     incident_tags: list[str] = []
     task_identifier: str | None = None
-    if isinstance(triage, dict):
+    
+    # Check session_metadata first (highest priority)
+    session_metadata = context.metadata.get("session_metadata") if isinstance(context.metadata, dict) else None
+    if isinstance(session_metadata, dict):
+        incident_id = session_metadata.get("incident_id")
+        if isinstance(incident_id, str) and incident_id.strip():
+            incident_id = incident_id.strip()
+        else:
+            incident_id = None
+        tags = session_metadata.get("incident_tags")
+        if isinstance(tags, list):
+            incident_tags = [str(tag).strip() for tag in tags if isinstance(tag, str) and tag.strip()]
+    
+    # Fall back to triage metadata if not set in session_metadata
+    if incident_id is None and isinstance(triage, dict):
         metadata = triage.get("metadata")
         if isinstance(metadata, dict):
             for key in ("incident_id", "case_id", "ticket_id"):
@@ -814,9 +828,10 @@ def _resolve_incident_context(triage: dict[str, Any] | None, context: ExecutionC
         summary = triage.get("summary")
         if isinstance(summary, str) and summary.strip():
             task_identifier = summary.strip()
-        tags = triage.get("tags")
-        if isinstance(tags, list):
-            incident_tags = [str(tag).strip() for tag in tags if isinstance(tag, str) and tag.strip()]
+        if not incident_tags:
+            tags = triage.get("tags")
+            if isinstance(tags, list):
+                incident_tags = [str(tag).strip() for tag in tags if isinstance(tag, str) and tag.strip()]
     if task_identifier is None and isinstance(context.metadata, dict):
         task_value = context.metadata.get("task")
         if isinstance(task_value, str) and task_value.strip():
