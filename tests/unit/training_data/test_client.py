@@ -151,21 +151,18 @@ async def test_count_training_sessions_async(mock_database):
     assert count == 42
 
 
-def test_get_training_sessions_sync_wrapper():
-    """Test sync wrapper raises error in event loop."""
-    with pytest.raises(RuntimeError, match="cannot run within an existing event loop"):
-        # This will fail if run in an async context
-        try:
-            import asyncio
+def test_get_training_sessions_sync_wrapper(mock_database):
+    """Test sync wrapper works correctly."""
+    mock_database.query_training_sessions.return_value = []
 
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(
-                get_training_sessions(
-                    db_url="postgresql://test",
-                )
+    with patch("atlas.training_data.client.Database", return_value=mock_database):
+        with patch("atlas.training_data.client.StorageConfig"):
+            sessions = get_training_sessions(
+                db_url="postgresql://test",
+                limit=10,
             )
-        finally:
-            loop.close()
-            asyncio.set_event_loop(None)
 
+    assert isinstance(sessions, list)
+    assert len(sessions) == 0
+    mock_database.connect.assert_called_once()
+    mock_database.disconnect.assert_called_once()
