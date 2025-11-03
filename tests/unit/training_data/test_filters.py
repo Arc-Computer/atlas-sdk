@@ -63,7 +63,7 @@ def test_build_filters_combined():
     assert "created_at >= $" in where_clause
     assert "(metadata->>'learning_key') = $" in where_clause
     assert "status = ANY($" in where_clause
-    assert where_clause.count("AND") == 3
+    assert where_clause.count("AND") == 4
     assert len(params) == 4
 
 

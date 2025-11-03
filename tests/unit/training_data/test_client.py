@@ -21,6 +21,8 @@ def mock_database():
     db = MagicMock()
     db.connect = AsyncMock()
     db.disconnect = AsyncMock()
+    db.close = AsyncMock()
+    db.fetch_session = AsyncMock(return_value=None)
     db.fetch_session_steps = AsyncMock(return_value=[])
     db.fetch_trajectory_events = AsyncMock(return_value=[])
     db.query_training_sessions = AsyncMock(return_value=[])

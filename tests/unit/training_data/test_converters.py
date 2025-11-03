@@ -116,6 +116,7 @@ def test_step_conversion_preserves_fields():
             "runtime": {"duration": 1.5},
             "artifacts": {"file": "test.txt"},
             "deliverable": "result",
+            "attempt_history": [{"attempt": 1, "evaluation": {"reward": {"score": 0.8}}}],
         },
         "guidance_notes": ["guidance"],
     }

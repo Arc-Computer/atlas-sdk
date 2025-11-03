@@ -181,7 +181,7 @@ async def test_count_training_sessions_integration():
 async def test_get_session_by_id_integration():
     """Test get_session_by_id with real database."""
     # First get a list of sessions
-    sessions = await get_training_sessions(
+    sessions = await get_training_sessions_async(
         db_url=DEFAULT_DB_URL,
         limit=1,
     )
@@ -204,7 +204,7 @@ async def test_get_session_by_id_integration():
         session_id = all_sessions[0]["id"]
 
         # Fetch by ID
-        session = await get_session_by_id(
+        session = await get_session_by_id_async(
             db_url=DEFAULT_DB_URL,
             session_id=session_id,
         )

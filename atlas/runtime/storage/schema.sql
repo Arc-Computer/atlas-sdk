@@ -18,6 +18,17 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS sessions_learning_key_idx
     ON sessions ((metadata ->> 'learning_key'));
 
+-- Performance indexes for training data queries
+CREATE INDEX IF NOT EXISTS sessions_reward_score_idx
+    ON sessions(((reward_stats->>'score')::float))
+    WHERE reward_stats IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS sessions_created_at_idx
+    ON sessions(created_at DESC);
+
+CREATE INDEX IF NOT EXISTS sessions_metadata_gin_idx
+    ON sessions USING gin(metadata);
+
 ALTER TABLE sessions
     ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'pending';
 
