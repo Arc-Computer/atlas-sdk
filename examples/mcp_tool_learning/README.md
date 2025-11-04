@@ -11,11 +11,9 @@ This example demonstrates how Atlas SDK enables agents to learn efficient tool u
 - Tool usage optimization through reward signals
 - Learning playbook generation and visualization
 
-**Cost estimate:** $1-2 for the complete 25-run learning session using GPT-4.1-mini
-
 ## Architecture
 
-```
+```bash
 ┌─────────────────────┐
 │  learning_harness   │  25 progressive tasks
 └──────────┬──────────┘
