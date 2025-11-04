@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from statistics import fmean, median, pstdev
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
@@ -614,6 +615,79 @@ class Database:
                 limit,
             )
         return [dict(row) for row in rows]
+
+    async def query_training_sessions(
+        self,
+        *,
+        min_reward: Optional[float] = None,
+        created_after: Optional[datetime] = None,
+        learning_key: Optional[str] = None,
+        status_filters: Optional[Sequence[str]] = None,
+        review_status_filters: Optional[Sequence[str]] = None,
+        limit: Optional[int] = None,
+        offset: int = 0,
+    ) -> List[dict[str, Any]]:
+        """
+        Query sessions with reward-based filtering.
+
+        Extracts reward score from JSONB for comparison.
+        """
+        pool = self._require_pool()
+        constraints: list[str] = []
+        params: list[Any] = []
+
+        if min_reward is not None:
+            params.append(min_reward)
+            constraints.append(
+                f"(reward_stats IS NOT NULL AND (reward_stats->>'score')::float >= ${len(params)})"
+            )
+
+        if created_after is not None:
+            params.append(created_after)
+            constraints.append(f"created_at >= ${len(params)}")
+
+        if learning_key is not None:
+            params.append(learning_key)
+            constraints.append(f"(metadata->>'learning_key') = ${len(params)}")
+
+        if status_filters:
+            params.append(list(status_filters))
+            constraints.append(f"status = ANY(${len(params)})")
+
+        if review_status_filters:
+            params.append(list(review_status_filters))
+            constraints.append(f"review_status = ANY(${len(params)})")
+
+        where_clause = " AND ".join(constraints) if constraints else "TRUE"
+
+        query = (
+            "SELECT s.id, s.task, s.status, s.review_status, s.review_notes, s.metadata, "
+            "s.final_answer, s.reward, s.reward_stats, s.reward_audit, "
+            "s.student_learning, s.teacher_learning, s.created_at, s.completed_at, p.plan "
+            "FROM sessions s "
+            "LEFT JOIN plans p ON s.id = p.session_id "
+            f"WHERE {where_clause} "
+            "ORDER BY s.created_at DESC"
+        )
+
+        if limit is not None:
+            params.append(limit)
+            query += f" LIMIT ${len(params)}"
+            params.append(offset)
+            query += f" OFFSET ${len(params)}"
+        else:
+            params.append(offset)
+            query += f" OFFSET ${len(params)}"
+
+        async with pool.acquire() as connection:
+            rows = await connection.fetch(query, *params)
+
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            session_dict = dict(row)
+            results.append(session_dict)
+
+        return results
 
 
     async def update_session_metadata(self, session_id: int, metadata: Dict[str, Any]) -> None:
