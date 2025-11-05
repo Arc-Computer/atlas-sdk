@@ -1,5 +1,5 @@
 agent:
-  type: openai
+  type: litellm
   name: example-openai-agent
   system_prompt: |
     You are an OpenAI model acting as the Atlas Student. Follow instructions carefully and respond with JSON when asked.

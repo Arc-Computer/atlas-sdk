@@ -5,21 +5,21 @@ pytest.importorskip("litellm")
 
 from litellm.types.utils import Choices, ModelResponse, Usage
 
-from atlas.connectors.openai import OpenAIAdapter
-from atlas.config.models import LLMParameters, OpenAIAdapterConfig
+from atlas.connectors.litellm import LitellmAdapter
+from atlas.config.models import LLMParameters, LitellmAdapterConfig
 
 
 def build_adapter():
-    config = OpenAIAdapterConfig(
-        name="test-openai",
+    config = LitellmAdapterConfig(
+        name="test-litellm",
         system_prompt="Base system",
         tools=[],
         llm=LLMParameters(model="gpt-test"),
     )
-    return OpenAIAdapter(config)
+    return LitellmAdapter(config)
 
 
-def test_openai_adapter_builds_messages_from_metadata():
+def test_litellm_adapter_builds_messages_from_metadata():
     adapter = build_adapter()
     metadata_messages = [
         {"type": "system", "content": "Meta system"},
@@ -48,7 +48,7 @@ def test_openai_adapter_builds_messages_from_metadata():
     assert messages[5] == {"role": "user", "content": "Prompt"}
 
 
-def test_openai_adapter_trims_large_metadata_blob():
+def test_litellm_adapter_trims_large_metadata_blob():
     adapter = build_adapter()
     oversized = "payload" * 50000
     metadata = {"session_learning_audit": [oversized]}
@@ -62,7 +62,7 @@ def test_openai_adapter_trims_large_metadata_blob():
     assert "payload" * 100 not in system_message["content"]
 
 
-def test_openai_adapter_parses_usage_model_response():
+def test_litellm_adapter_parses_usage_model_response():
     adapter = build_adapter()
     usage = Usage(prompt_tokens=12, completion_tokens=8, total_tokens=20)
     choice = Choices(
@@ -80,7 +80,7 @@ def test_openai_adapter_parses_usage_model_response():
     assert getattr(parsed, "usage")["total_tokens"] == 20
 
 
-def test_openai_adapter_normalises_tool_calls():
+def test_litellm_adapter_normalises_tool_calls():
     adapter = build_adapter()
     response = {
         "choices": [

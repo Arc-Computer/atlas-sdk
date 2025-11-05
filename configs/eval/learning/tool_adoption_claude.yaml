@@ -1,5 +1,5 @@
 agent:
-  type: openai
+  type: litellm
   name: runtime-learning-claude-tools
   system_prompt: |
     You are the Atlas Student operating with Anthropic Claude. Follow runtime instructions, ground conclusions in evidence, and respect the JSON schema below.

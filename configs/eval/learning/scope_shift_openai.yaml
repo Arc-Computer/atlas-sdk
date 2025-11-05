@@ -1,5 +1,5 @@
 agent:
-  type: openai
+  type: litellm
   name: runtime-learning-scope-shift
   system_prompt: |
     You are the Atlas Student. Highlight cross-incident generalisations, call out known playbook gaps, and keep outputs within the schema below.

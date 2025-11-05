@@ -21,7 +21,7 @@ The agent adapter defines how Atlas invokes your runtime:
 
 ```yaml
 agent:
-  type: openai                # also accepts python or http_api
+  type: litellm                # also accepts python or http_api
   name: security-analyst
   system_prompt: |
     You are the Atlas student. Produce actionable, evidence-backed responses.
@@ -34,7 +34,7 @@ agent:
     timeout_seconds: 180
 ```
 
-- **OpenAI adapter** (see `atlas/config/models.py::OpenAIAdapterConfig`) works with any OpenAI-compatible endpoint while exposing response-formatting and metadata-digest controls.
+- **LiteLLM adapter** (see `atlas/config/models.py::LitellmAdapterConfig`) works with multiple providers (OpenAI, Anthropic, Gemini, Bedrock, X.AI, Azure OpenAI) via litellm while exposing response-formatting and metadata-digest controls.
 - **Python adapter** wraps a local async or sync function. The SDK passes prompt metadata (including optional `llm_config`) so your code can call downstream models directly.
 - **HTTP adapter** templates arbitrary REST endpoints and extracts responses with JSONPath sequences.
 

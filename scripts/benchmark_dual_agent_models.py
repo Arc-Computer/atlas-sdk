@@ -229,7 +229,7 @@ def build_llm_parameters(
     env_key_suffix = re.sub(r"[^A-Z0-9]+", "_", model_id.upper()).strip("_")
     override_key = f"ATLAS_MODEL_OVERRIDE_{env_key_suffix}"
     provider: LLMProvider = preset["provider"]
-    if adapter_type == AdapterType.OPENAI and role == "student":
+    if adapter_type == AdapterType.LITELLM and role == "student":
         provider = LLMProvider.OPENAI
     return LLMParameters(
         provider=provider,

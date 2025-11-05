@@ -50,7 +50,7 @@ Save the following as `atlas_quickstart.yaml` (storage disabled by default):
 
 ```yaml
 agent:
-  type: openai
+  type: litellm
   name: quickstart-openai-agent
   system_prompt: |
     You are an Agent. Follow instructions carefully and keep responses concise.
@@ -125,10 +125,10 @@ See [Quickstart Guide](../sdk/quickstart.mdx) for detailed command options and l
 ```python
 from atlas import core
 from atlas.connectors import create_adapter
-from atlas.config.models import OpenAIAdapterConfig
+from atlas.config.models import LitellmAdapterConfig
 
-adapter = create_adapter(OpenAIAdapterConfig(
-    type="openai",
+adapter = create_adapter(LitellmAdapterConfig(
+    type="litellm",
     name="my-openai-agent",
     system_prompt="You are a helpful assistant.",
     tools=[],

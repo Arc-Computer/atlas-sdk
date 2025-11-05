@@ -14,7 +14,7 @@ from atlas.config.models import (
     AdapterType,
     LLMParameters,
     LLMProvider,
-    OpenAIAdapterConfig,
+    LitellmAdapterConfig,
     StudentConfig,
     StudentPrompts,
 )
@@ -55,8 +55,8 @@ def test_student_plan_execute_and_synthesize_live():
         pytest.skip("requires OPENAI_API_KEY for live adapter test")
     async def runner() -> None:
         ExecutionContext.get().reset()
-        adapter_config = OpenAIAdapterConfig(
-            type=AdapterType.OPENAI,
+        adapter_config = LitellmAdapterConfig(
+            type=AdapterType.LITELLM,
             name="student-openai",
             system_prompt="You are the Atlas student agent generating plans, executing steps, and summarizing results.",
             tools=[],

@@ -22,7 +22,7 @@ def test_detect_llm_metadata_from_langchain_like_stack() -> None:
 def test_compose_full_config_payload_merges_discovery_targets() -> None:
     template_payload = {
         "agent": {
-            "type": "openai",
+            "type": "litellm",
             "name": "example-openai-agent",
             "system_prompt": "You are a student.",
             "tools": [],
@@ -95,7 +95,7 @@ def test_compose_full_config_payload_merges_discovery_targets() -> None:
 def test_full_config_payload_validates_against_model() -> None:
     template_payload = {
         "agent": {
-            "type": "openai",
+            "type": "litellm",
             "name": "example-openai-agent",
             "system_prompt": "You are a student.",
             "tools": [],

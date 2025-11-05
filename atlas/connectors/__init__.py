@@ -9,7 +9,7 @@ from .registry import (
 )
 
 # Import adapters to trigger registration
-from . import http, openai, python  # noqa: F401
+from . import http, litellm, openai, python  # noqa: F401
 
 __all__ = [
     "AdapterError",

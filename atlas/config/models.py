@@ -70,6 +70,7 @@ class AdapterType(str, Enum):
     HTTP = "http_api"
     PYTHON = "python"
     OPENAI = "openai"
+    LITELLM = "litellm"
 
 class AdapterConfig(BaseModel):
     """Base configuration shared by BYOA adapters."""
@@ -177,17 +178,17 @@ class LLMParameters(BaseModel):
     additional_headers: Dict[str, str] = Field(default_factory=dict)
     reasoning_effort: Literal["low", "medium", "high"] | None = None
 
-class OpenAIAdapterConfig(AdapterConfig):
-    """Adapter that proxies OpenAI compatible chat completions."""
+class LitellmAdapterConfig(AdapterConfig):
+    """Multi-provider adapter proxying chat completions via litellm."""
 
-    type: Literal[AdapterType.OPENAI] = AdapterType.OPENAI
+    type: Literal[AdapterType.LITELLM] = AdapterType.LITELLM
     llm: LLMParameters
     response_format: Dict[str, Any] | None = None
     metadata_digest: MetadataDigestConfig = Field(default_factory=MetadataDigestConfig)
 
     @field_validator("llm")
     @classmethod
-    def ensure_openai_provider(cls, value: LLMParameters):
+    def ensure_litellm_provider(cls, value: LLMParameters):
         allowed = {
             LLMProvider.OPENAI,
             LLMProvider.AZURE_OPENAI,
@@ -198,12 +199,49 @@ class OpenAIAdapterConfig(AdapterConfig):
         }
         if value.provider not in allowed:
             raise ValueError(
-                "openai adapter requires an OpenAI-compatible provider (OpenAI/Azure) or LiteLLM-supported provider "
+                "litellm adapter requires an OpenAI-compatible provider (OpenAI/Azure) or LiteLLM-supported provider "
                 f"({', '.join(provider.value for provider in allowed if provider not in {LLMProvider.OPENAI, LLMProvider.AZURE_OPENAI})})"
             )
         return value
 
-AdapterUnion = HTTPAdapterConfig | PythonAdapterConfig | OpenAIAdapterConfig
+
+class OpenAIAdapterConfig(AdapterConfig):
+    """Deprecated: Use LitellmAdapterConfig instead.
+    
+    This class is maintained for backward compatibility. New code should use
+    LitellmAdapterConfig with type: litellm.
+    """
+
+    type: Literal[AdapterType.OPENAI] = AdapterType.OPENAI
+    llm: LLMParameters
+    response_format: Dict[str, Any] | None = None
+    metadata_digest: MetadataDigestConfig = Field(default_factory=MetadataDigestConfig)
+
+    @field_validator("llm")
+    @classmethod
+    def ensure_openai_provider(cls, value: LLMParameters):
+        warnings.warn(
+            "OpenAIAdapterConfig is deprecated. Use LitellmAdapterConfig with type: litellm instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        # Duplicate validation logic (cannot call static method from another class)
+        allowed = {
+            LLMProvider.OPENAI,
+            LLMProvider.AZURE_OPENAI,
+            LLMProvider.ANTHROPIC,
+            LLMProvider.GEMINI,
+            LLMProvider.BEDROCK,
+            LLMProvider.XAI,
+        }
+        if value.provider not in allowed:
+            raise ValueError(
+                "litellm adapter requires an OpenAI-compatible provider (OpenAI/Azure) or LiteLLM-supported provider "
+                f"({', '.join(provider.value for provider in allowed if provider not in {LLMProvider.OPENAI, LLMProvider.AZURE_OPENAI})})"
+            )
+        return value
+
+AdapterUnion = HTTPAdapterConfig | PythonAdapterConfig | LitellmAdapterConfig | OpenAIAdapterConfig
 
 class StudentPrompts(BaseModel):
     """Prompt templates used when delegating to the Student."""

@@ -1,5 +1,5 @@
 agent:
-  type: openai
+  type: litellm
   name: docker-openai-agent
   system_prompt: |
     You are an OpenAI model acting as the Atlas Student. Follow instructions carefully, respond in JSON when requested, and call out the prompt you received.

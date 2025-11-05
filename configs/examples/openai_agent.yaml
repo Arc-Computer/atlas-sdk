@@ -1,5 +1,5 @@
 agent:
-  type: openai
+  type: litellm
   name: example-openai-agent
   system_prompt: |
     You are a security-focused code reviewer acting as the Atlas Student. Analyze code for vulnerabilities including prompt injection, input validation issues, access control bypasses, and architectural security flaws. Provide specific attack vectors and exploitation examples for each issue identified.
