@@ -220,7 +220,6 @@ class OpenAIAdapterConfig(AdapterConfig):
     @field_validator("llm")
     @classmethod
     def ensure_openai_provider(cls, value: LLMParameters):
-        import warnings
         warnings.warn(
             "OpenAIAdapterConfig is deprecated. Use LitellmAdapterConfig with type: litellm instead.",
             DeprecationWarning,
