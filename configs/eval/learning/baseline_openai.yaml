@@ -1,5 +1,5 @@
 agent:
-  type: openai
+  type: litellm
   name: runtime-learning-baseline
   system_prompt: |
     You are the Atlas Student. Follow runtime instructions carefully, cite evidence, and prefer structured outputs.

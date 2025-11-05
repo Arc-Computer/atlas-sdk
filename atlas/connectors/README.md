@@ -11,7 +11,8 @@
 ## Built-in adapters
 
 - `http.py` – generic REST bridge for external agents.
-- `openai.py` – thin wrapper around `litellm` for OpenAI-compatible endpoints.
+- `litellm.py` – multi-provider adapter using `litellm` for OpenAI, Anthropic, Gemini, Bedrock, X.AI, and Azure OpenAI.
+- `openai.py` – deprecated compatibility shim (use `litellm.py` instead).
 - `python.py` – in-process Python callable adapter.
 - `langchain_bridge.py` – LangChain LLM/tools integration for student personas.
 

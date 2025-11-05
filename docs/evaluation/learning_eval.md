@@ -22,7 +22,7 @@ smaller context windows while keeping the full telemetry available on disk.
 ```yaml
 agent:
   adapter:
-    type: openai
+    type: litellm
     metadata_digest:
       char_budget: 24000        # Optional hard cap for every provider
       provider_char_budgets:

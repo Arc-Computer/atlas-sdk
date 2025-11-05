@@ -18,7 +18,7 @@ def mock_config_path(tmp_path: Path) -> Path:
     config_file.write_text(
         """
 agent:
-  type: openai
+  type: litellm
   name: test-agent
   system_prompt: "You are a test agent."
   tools: []
