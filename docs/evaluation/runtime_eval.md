@@ -28,7 +28,7 @@ Use the dual-agent evaluation harness to compare student/teacher model pairings 
 | Teacher | `gemini-2.5-pro`             | Gemini              | `GEMINI_API_KEY`         |
 | Teacher | `grok-4-fast`                | xAI                 | `XAI_API_KEY`            |
 
-Populate the relevant keys in your shell or `.env` file; the script calls `load_dotenv_if_available()` before resolving model parameters. When cloning the OpenAI adapter config we coerce the student provider back to `openai` under the hood so LiteLLM can route the request while satisfying the adapter validation.
+Populate the relevant keys in your shell or `.env` file; the script calls `load_dotenv_if_available()` before resolving model parameters. When cloning the LiteLLM adapter config we coerce the student provider back to `openai` under the hood so LiteLLM can route the request while satisfying the adapter validation.
 
 ### Running the Harness
 ```bash
@@ -94,7 +94,7 @@ We executed the full 4×4 student/teacher matrix against the 25-task synthetic d
 - **Best performing default:** `claude-haiku-4-5` as the student paired with `grok-4-fast` as the teacher delivered the highest reward (≈0.996) and low latency (~18 s). This pairing is a strong candidate for the runtime default.
 - **Secondary options:** Gemini’s `2.5-pro` and Anthropic’s `claude-sonnet-4-5-20250929` teachers also performed well with the Claude and Grok students, offering provider redundancy at a small latency cost.
 - **Less effective combinations:** `gpt-5-mini` as the student consistently lagged on reward and was 3–5× slower than Claude/Grok students. Coupling any student with the `gpt-5` teacher increased latency substantially without appreciable reward gains.
-- **Reliability observations:** We saw two isolated failures across the matrix—one Anthropic overload and one LiteLLM “openai adapter request failed” error—both recovered on subsequent tasks. All other runs completed successfully.
+- **Reliability observations:** We saw two isolated failures across the matrix—one Anthropic overload and one LiteLLM adapter request failure—both recovered on subsequent tasks. All other runs completed successfully.
 - **Probe behavior:** Since the synthetic tasks had no prior learning history, the capability probe defaulted to `paired`. Seeding history or running a warm-up phase would enable evaluation of `auto`/`coach` behavior if needed.
 
 These measurements were captured on 2025‑10‑19. Re-run the harness periodically to ensure performance remains stable as model endpoints evolve.
