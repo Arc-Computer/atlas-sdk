@@ -1307,6 +1307,13 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         if key not in env_overrides and key not in {ENV_VALIDATE_FLAG}:
             env_overrides[key] = value
             loaded_env_keys.append(key)
+
+    # Apply .env variables to os.environ for LLM synthesis
+    # This ensures FactorySynthesizer's LLMClient can access API keys
+    for key, value in env_overrides.items():
+        if key not in os.environ:
+            os.environ[key] = value
+
     pythonpath_entries = _prepare_pythonpath_overrides(project_root, targets)
     existing_pythonpath = env_overrides.get("PYTHONPATH") or project_env.get("PYTHONPATH") or os.environ.get("PYTHONPATH")
     pythonpath_added: list[str] = []
