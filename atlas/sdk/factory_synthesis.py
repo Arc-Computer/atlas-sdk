@@ -26,6 +26,143 @@ ENV_FUNCTION_NAME = "create_environment"
 AGENT_FUNCTION_NAME = "create_agent"
 GENERATED_MODULE = "atlas_generated_factories"
 ENV_VALIDATE_FLAG = "ATLAS_DISCOVERY_VALIDATE"
+
+# Runtime helper code injected into generated factory files
+AGENT_RUNTIME_HELPER = textwrap.dedent(
+    """\
+    _AGENT_RUNTIME_CACHE = {}
+    _VALIDATION_MARKER = ".validated"
+    try:
+        from langchain_core.messages import BaseMessage  # type: ignore
+    except Exception:  # pragma: no cover - optional dependency
+        BaseMessage = None  # type: ignore
+    try:
+        from langchain_core.messages import HumanMessage  # type: ignore
+    except Exception:  # pragma: no cover - optional dependency
+        HumanMessage = None  # type: ignore
+    try:
+        from collections.abc import Mapping
+    except Exception:  # pragma: no cover - fallback
+        Mapping = dict  # type: ignore
+
+    def _atlas_require_validation():
+        marker = os.path.join(os.path.dirname(__file__), _VALIDATION_MARKER)
+        if os.path.exists(marker) or os.environ.get("ATLAS_SKIP_VALIDATION") == "1":
+            return
+        raise RuntimeError(
+            "Atlas generated factories have not been validated. "
+            "Run 'atlas env init' to regenerate and validate factories, "
+            "or set ATLAS_SKIP_VALIDATION=1 to bypass this check."
+        )
+
+    def _atlas_jsonable(value, depth=0):
+        if depth > 6:
+            return str(value)
+        if value is None:
+            return None
+        if isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, bytes):
+            try:
+                return value.decode("utf-8")
+            except Exception:
+                return value.decode("utf-8", "ignore")
+        if BaseMessage is not None and isinstance(value, BaseMessage):
+            payload = {"type": getattr(value, "type", None) or value.__class__.__name__.lower()}
+            payload["content"] = _atlas_jsonable(getattr(value, "content", None), depth + 1)
+            tool_calls = getattr(value, "tool_calls", None)
+            if tool_calls:
+                payload["tool_calls"] = [_atlas_jsonable(call, depth + 1) for call in tool_calls]
+            additional_kwargs = getattr(value, "additional_kwargs", None)
+            if isinstance(additional_kwargs, dict) and additional_kwargs:
+                payload["additional_kwargs"] = _atlas_jsonable(additional_kwargs, depth + 1)
+            return payload
+        if hasattr(value, "model_dump"):
+            try:
+                dumped = value.model_dump()
+                if isinstance(dumped, dict):
+                    return _atlas_jsonable(dumped, depth + 1)
+            except Exception:
+                pass
+        if hasattr(value, "dict"):
+            try:
+                dumped = value.dict()
+                if isinstance(dumped, dict):
+                    return _atlas_jsonable(dumped, depth + 1)
+            except Exception:
+                pass
+        if isinstance(value, Mapping):
+            normalised = {}
+            for key, item in value.items():
+                normalised[str(key)] = _atlas_jsonable(item, depth + 1)
+            return normalised
+        if isinstance(value, (list, tuple, set)):
+            return [_atlas_jsonable(item, depth + 1) for item in value]
+        if hasattr(value, "__dict__"):
+            return _atlas_jsonable(vars(value), depth + 1)
+        return str(value)
+
+    def _atlas_normalise_agent_output(result):
+        processed = _atlas_jsonable(result)
+        if isinstance(processed, str):
+            return processed
+        if isinstance(processed, (int, float, bool)) or processed is None:
+            return str(processed)
+        try:
+            return json.dumps(processed, ensure_ascii=False)
+        except Exception:
+            return str(processed)
+
+    def _atlas_execute_agent(agent, prompt, metadata=None):
+        call_kwargs = {}
+        payload_hints = []
+        if isinstance(metadata, dict):
+            candidate = metadata.get("payload")
+            if candidate is not None:
+                payload_hints.append(candidate)
+            extra = metadata.get("call_kwargs")
+            if isinstance(extra, dict):
+                call_kwargs = dict(extra)
+        attempts = list(payload_hints)
+        attempts.append(prompt)
+        attempts.append({"input": prompt})
+        if HumanMessage is not None:
+            attempts.append({"messages": [HumanMessage(content=prompt)]})
+        else:
+            attempts.append({"messages": [{"role": "user", "content": prompt}]})
+        last_error = None
+        if hasattr(agent, "invoke"):
+            for payload in attempts:
+                try:
+                    if call_kwargs:
+                        response = agent.invoke(payload, **call_kwargs)
+                    else:
+                        response = agent.invoke(payload)
+                    return _atlas_normalise_agent_output(response)
+                except TypeError as exc:
+                    last_error = exc
+                    continue
+                except Exception as exc:
+                    last_error = exc
+                    continue
+        if callable(agent):
+            try:
+                return _atlas_normalise_agent_output(agent(prompt))
+            except TypeError:
+                try:
+                    return _atlas_normalise_agent_output(agent(prompt, metadata=metadata))
+                except TypeError as exc:
+                    last_error = exc
+            except Exception as exc:
+                last_error = exc
+        if hasattr(agent, "run"):
+            try:
+                return _atlas_normalise_agent_output(agent.run(prompt))
+            except Exception as exc:
+                last_error = exc
+        raise RuntimeError("Atlas runtime adapter could not execute agent") from last_error
+    """
+)
 _ENTRYPOINT_KEYWORDS = (
     "create",
     "bootstrap",
@@ -73,15 +210,37 @@ class ClassContext:
 
 @dataclass(slots=True)
 class FactorySnippet:
-    """Structured response from the LLM for a single factory."""
+    """Structured response from the LLM for a single factory.
+
+    Attributes:
+        function_name: Name of the generated factory function
+        imports: List of import statements required
+        helpers: Helper functions to include in generated file
+        factory_body: Complete function definition source code
+        internal_notes: Developer-facing notes about implementation
+        prerequisites: User-actionable prerequisites (packages, env vars, etc.)
+        preflight: Legacy field for preflight checks
+        auto_skip: Whether to skip validation for this factory
+        notes: Deprecated - migrated to internal_notes on init
+    """
 
     function_name: str
     imports: list[str] = field(default_factory=list)
     helpers: list[str] = field(default_factory=list)
     factory_body: str = ""
-    notes: list[str] = field(default_factory=list)
+    internal_notes: list[str] = field(default_factory=list)
+    prerequisites: list[str] = field(default_factory=list)
     preflight: list[str] = field(default_factory=list)
     auto_skip: bool = False
+
+    # Deprecated - maintained for backward compatibility
+    notes: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Migrate legacy 'notes' field to 'internal_notes' if present."""
+        if self.notes and not self.internal_notes and not self.prerequisites:
+            # Legacy support: treat all old notes as internal notes
+            self.internal_notes = list(self.notes)
 
 
 @dataclass(slots=True)
@@ -901,3 +1060,340 @@ _SYNTHESIS_SYSTEM_PROMPT = textwrap.dedent(
     Ensure the resulting code is valid Python 3.12 and uses typing hints where reasonable.
     """
 ).strip()
+
+
+# ============================================================================
+# Factory Building Functions
+# ============================================================================
+# These functions generate FactorySnippet objects for environment and agent
+# factories discovered during autodiscovery. Extracted from atlas/cli/env.py
+# during refactoring to consolidate factory generation logic.
+
+
+def format_kwargs_literal(payload: dict[str, object]) -> str:
+    """Format a dictionary of keyword arguments as a JSON literal string.
+
+    Args:
+        payload: Dictionary to format
+
+    Returns:
+        JSON string representation with 4-space indentation, or "{}" if empty
+    """
+    if not payload:
+        return "{}"
+    return json.dumps(payload, indent=4, sort_keys=True)
+
+
+def build_basic_environment_factory_snippet(candidate: Candidate, defaults: dict[str, object]) -> FactorySnippet:
+    """Build factory snippet for a basic (non-factory) environment class.
+
+    Generates a factory function that instantiates the environment class with
+    optional default kwargs. Includes validation guard to prevent execution
+    during discovery.
+
+    Args:
+        candidate: Discovered environment candidate
+        defaults: Default keyword arguments to merge
+
+    Returns:
+        FactorySnippet ready for code generation
+    """
+    target_symbol = candidate.qualname
+    call_symbol = target_symbol
+    if target_symbol == ENV_FUNCTION_NAME:
+        call_symbol = f"_repo_{ENV_FUNCTION_NAME}"
+        import_binding = f"from {candidate.module} import {target_symbol} as {call_symbol}"
+    else:
+        import_binding = f"from {candidate.module} import {target_symbol}"
+    imports = [import_binding]
+    defaults_literal = format_kwargs_literal(defaults)
+    preamble = ""
+    lines: list[str] = []
+    if defaults:
+        preamble = f"DEFAULT_ENVIRONMENT_KWARGS = {defaults_literal}\n\n"
+        lines.append("    parameters = dict(DEFAULT_ENVIRONMENT_KWARGS)")
+        lines.append("    parameters.update(kwargs)")
+    else:
+        lines.append("    parameters = dict(kwargs)")
+    lines.append("    _atlas_require_validation()")
+    lines.append(f"    return {call_symbol}(**parameters)")
+    body_lines = [
+        f"def {ENV_FUNCTION_NAME}(**kwargs):",
+        '    """Atlas-generated environment factory."""',
+        *lines,
+    ]
+    factory_body = preamble + "\n".join(body_lines)
+    internal_notes = [f"Generated environment factory wrapping {candidate.dotted_path()}."]
+    return FactorySnippet(
+        function_name=ENV_FUNCTION_NAME,
+        imports=imports,
+        helpers=[],
+        factory_body=factory_body,
+        internal_notes=internal_notes,
+        prerequisites=[],
+        preflight=[],
+        auto_skip=False,
+    )
+
+
+def build_function_environment_factory_snippet(candidate: Candidate) -> FactorySnippet:
+    """Build factory snippet for a factory function/attribute environment.
+
+    Handles both module-level callables and attributes. For attributes, uses
+    importlib for dynamic loading.
+
+    Args:
+        candidate: Discovered environment factory candidate
+
+    Returns:
+        FactorySnippet ready for code generation
+    """
+    if candidate.factory_kind == "attribute":
+        imports = ["import importlib", "import os"]
+        body_lines = [
+            f"def {ENV_FUNCTION_NAME}(**kwargs):",
+            '    """Atlas-generated environment factory wrapping repository attribute."""',
+            "    _atlas_require_validation()",
+            f"    module = importlib.import_module('{candidate.module}')",
+            f"    target = getattr(module, '{candidate.qualname}')",
+            "    if callable(target):",
+            "        return target(**kwargs)",
+            "    if kwargs:",
+            "        raise TypeError('Environment factory does not accept keyword arguments.')",
+            "    return target",
+        ]
+    else:
+        target_symbol = candidate.qualname
+        call_symbol = target_symbol
+        if target_symbol == ENV_FUNCTION_NAME:
+            call_symbol = f"_repo_{ENV_FUNCTION_NAME}"
+            import_binding = f"from {candidate.module} import {target_symbol} as {call_symbol}"
+        else:
+            import_binding = f"from {candidate.module} import {target_symbol}"
+        imports = ["import os", import_binding]
+        body_lines = [
+            f"def {ENV_FUNCTION_NAME}(**kwargs):",
+            '    """Atlas-generated environment factory wrapping repository callable."""',
+            "    _atlas_require_validation()",
+            f"    return {call_symbol}(**kwargs)",
+        ]
+    factory_body = "\n".join(body_lines)
+    internal_notes = [f"Delegates to {candidate.module}:{candidate.qualname}."]
+    return FactorySnippet(
+        function_name=ENV_FUNCTION_NAME,
+        imports=imports,
+        helpers=[],
+        factory_body=factory_body,
+        internal_notes=internal_notes,
+        prerequisites=[],
+        preflight=[],
+        auto_skip=False,
+    )
+
+
+def build_basic_agent_factory_snippet(candidate: Candidate, defaults: dict[str, object]) -> FactorySnippet:
+    """Build factory snippet for a basic (non-factory) agent class.
+
+    Generates a factory function that supports both:
+    - Discovery mode: Instantiates and wraps in StepwiseAgentAdapter
+    - Runtime mode: Caches instance and executes via _atlas_execute_agent helper
+
+    Args:
+        candidate: Discovered agent candidate
+        defaults: Default keyword arguments to merge
+
+    Returns:
+        FactorySnippet with AGENT_RUNTIME_HELPER included
+    """
+    target_symbol = candidate.qualname
+    call_symbol = target_symbol
+    if target_symbol == AGENT_FUNCTION_NAME:
+        call_symbol = f"_repo_{AGENT_FUNCTION_NAME}"
+        import_binding = f"from {candidate.module} import {target_symbol} as {call_symbol}"
+    else:
+        import_binding = f"from {candidate.module} import {target_symbol}"
+    imports = [
+        "import json",
+        "import os",
+        import_binding,
+        "from atlas.sdk.wrappers import StepwiseAgentAdapter",
+    ]
+    defaults_literal = format_kwargs_literal(defaults)
+    preamble = ""
+    lines: list[str] = [
+        "    has_prompt = 'prompt' in kwargs",
+        "    has_metadata = 'metadata' in kwargs",
+        "    prompt = kwargs.pop('prompt', None)",
+        "    metadata = kwargs.pop('metadata', None)",
+        "    runtime_invocation = has_prompt or has_metadata",
+    ]
+    if defaults:
+        preamble = f"DEFAULT_AGENT_KWARGS = {defaults_literal}\n\n"
+        lines.append("    parameters = dict(DEFAULT_AGENT_KWARGS)")
+        lines.append("    parameters.update(kwargs)")
+    else:
+        lines.append("    parameters = dict(kwargs)")
+    lines.extend(
+        [
+            f"    cache_key = ('agent', '{candidate.module}', '{candidate.qualname}')",
+            "    if runtime_invocation:",
+            "        agent_instance = _AGENT_RUNTIME_CACHE.get(cache_key)",
+            "        if agent_instance is None:",
+            f"            agent_instance = {call_symbol}(**parameters)",
+            "            _AGENT_RUNTIME_CACHE[cache_key] = agent_instance",
+            "        prompt_text = prompt if isinstance(prompt, str) else ''",
+            "        return _atlas_execute_agent(agent_instance, prompt_text, metadata)",
+            "    _atlas_require_validation()",
+            f"    instance = {call_symbol}(**parameters)",
+            "    return StepwiseAgentAdapter(instance)",
+        ]
+    )
+    body_lines = [
+        f"def {AGENT_FUNCTION_NAME}(**kwargs):",
+        '    """Atlas-generated agent factory."""',
+        *lines,
+    ]
+    factory_body = preamble + "\n".join(body_lines)
+    internal_notes = [
+        f"Generated agent factory wrapping {candidate.dotted_path()}.",
+        "Bridges runtime calls to the repository agent while keeping discovery stepwise-safe.",
+    ]
+    return FactorySnippet(
+        function_name=AGENT_FUNCTION_NAME,
+        imports=imports,
+        helpers=[AGENT_RUNTIME_HELPER],
+        factory_body=factory_body,
+        internal_notes=internal_notes,
+        prerequisites=[],
+        preflight=[],
+        auto_skip=False,
+    )
+
+
+def build_function_agent_factory_snippet(candidate: Candidate) -> FactorySnippet:
+    """Build factory snippet for a factory function/attribute agent.
+
+    Handles both module-level callables and attributes. Supports dual-mode
+    execution (discovery vs runtime) with agent caching.
+
+    Args:
+        candidate: Discovered agent factory candidate
+
+    Returns:
+        FactorySnippet with AGENT_RUNTIME_HELPER included
+    """
+    imports = ["import json", "import os", "from atlas.sdk.wrappers import StepwiseAgentAdapter"]
+    if candidate.factory_kind == "attribute":
+        imports.append("import importlib")
+        body_lines = [
+            f"def {AGENT_FUNCTION_NAME}(**kwargs):",
+            '    """Atlas-generated agent factory wrapping repository attribute."""',
+            "    has_prompt = 'prompt' in kwargs",
+            "    has_metadata = 'metadata' in kwargs",
+            "    prompt = kwargs.pop('prompt', None)",
+            "    metadata = kwargs.pop('metadata', None)",
+            "    runtime_invocation = has_prompt or has_metadata",
+            "    parameters = dict(kwargs)",
+            f"    module = importlib.import_module('{candidate.module}')",
+            f"    target = getattr(module, '{candidate.qualname}')",
+            "    if runtime_invocation:",
+            f"        cache_key = ('agent', '{candidate.module}', '{candidate.qualname}')",
+            "        agent_instance = _AGENT_RUNTIME_CACHE.get(cache_key)",
+            "        if agent_instance is None:",
+            "            if callable(target):",
+            "                agent_instance = target(**parameters)",
+            "            else:",
+            "                if parameters:",
+            "                    raise TypeError('Agent factory does not accept keyword arguments.')",
+            "                agent_instance = target",
+            "            _AGENT_RUNTIME_CACHE[cache_key] = agent_instance",
+            "        prompt_text = prompt if isinstance(prompt, str) else ''",
+            "        return _atlas_execute_agent(agent_instance, prompt_text, metadata)",
+            "    _atlas_require_validation()",
+            "    if callable(target):",
+            "        instance = target(**parameters)",
+            "    else:",
+            "        if parameters:",
+            "            raise TypeError('Agent factory does not accept keyword arguments.')",
+            "        instance = target",
+            "    return StepwiseAgentAdapter(instance)",
+        ]
+    else:
+        target_symbol = candidate.qualname
+        call_symbol = target_symbol
+        if target_symbol == AGENT_FUNCTION_NAME:
+            call_symbol = f"_repo_{AGENT_FUNCTION_NAME}"
+            import_binding = f"from {candidate.module} import {target_symbol} as {call_symbol}"
+        else:
+            import_binding = f"from {candidate.module} import {target_symbol}"
+        imports.append(import_binding)
+        body_lines = [
+            f"def {AGENT_FUNCTION_NAME}(**kwargs):",
+            '    """Atlas-generated agent factory wrapping repository callable."""',
+            "    has_prompt = 'prompt' in kwargs",
+            "    has_metadata = 'metadata' in kwargs",
+            "    prompt = kwargs.pop('prompt', None)",
+            "    metadata = kwargs.pop('metadata', None)",
+            "    runtime_invocation = has_prompt or has_metadata",
+            "    parameters = dict(kwargs)",
+            f"    cache_key = ('agent', '{candidate.module}', '{candidate.qualname}')",
+            "    if runtime_invocation:",
+            "        agent_instance = _AGENT_RUNTIME_CACHE.get(cache_key)",
+            "        if agent_instance is None:",
+            f"            agent_instance = {call_symbol}(**parameters)",
+            "            _AGENT_RUNTIME_CACHE[cache_key] = agent_instance",
+            "        prompt_text = prompt if isinstance(prompt, str) else ''",
+            "        return _atlas_execute_agent(agent_instance, prompt_text, metadata)",
+            "    _atlas_require_validation()",
+            f"    instance = {call_symbol}(**parameters)",
+            "    return StepwiseAgentAdapter(instance)",
+        ]
+    factory_body = "\n".join(body_lines)
+    internal_notes = [
+        f"Delegates to {candidate.module}:{candidate.qualname}.",
+        "Bridges runtime calls to the repository agent while keeping discovery stepwise-safe.",
+    ]
+    return FactorySnippet(
+        function_name=AGENT_FUNCTION_NAME,
+        imports=imports,
+        helpers=[AGENT_RUNTIME_HELPER],
+        factory_body=factory_body,
+        internal_notes=internal_notes,
+        prerequisites=[],
+        preflight=[],
+        auto_skip=False,
+    )
+
+
+def build_environment_factory_snippet(candidate: Candidate, defaults: dict[str, object]) -> FactorySnippet:
+    """Build factory snippet for an environment (dispatcher function).
+
+    Selects appropriate builder based on whether candidate is a factory function.
+
+    Args:
+        candidate: Discovered environment candidate
+        defaults: Default keyword arguments (unused for factory functions)
+
+    Returns:
+        FactorySnippet from appropriate builder
+    """
+    if candidate.is_factory:
+        return build_function_environment_factory_snippet(candidate)
+    return build_basic_environment_factory_snippet(candidate, defaults)
+
+
+def build_agent_factory_snippet(candidate: Candidate, defaults: dict[str, object]) -> FactorySnippet:
+    """Build factory snippet for an agent (dispatcher function).
+
+    Selects appropriate builder based on whether candidate is a factory function.
+
+    Args:
+        candidate: Discovered agent candidate
+        defaults: Default keyword arguments (unused for factory functions)
+
+    Returns:
+        FactorySnippet from appropriate builder
+    """
+    if candidate.is_factory:
+        return build_function_agent_factory_snippet(candidate)
+    return build_basic_agent_factory_snippet(candidate, defaults)
