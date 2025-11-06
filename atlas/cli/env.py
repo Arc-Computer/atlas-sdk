@@ -40,6 +40,13 @@ from atlas.sdk.discovery import (
     split_candidates,
     write_discovery_payload,
 )
+from atlas.cli.env_types import (
+    DISCOVERY_FILENAME,
+    GENERATED_CONFIG_FILENAME,
+    VALIDATION_MARKER_FILENAME,
+    SelectedTargets,
+    TargetSpec,
+)
 from atlas.sdk.factory_synthesis import (
     AGENT_FUNCTION_NAME,
     ENV_FUNCTION_NAME,
@@ -48,11 +55,6 @@ from atlas.sdk.factory_synthesis import (
     FactorySnippet,
     FactorySynthesizer,
 )
-
-
-DISCOVERY_FILENAME = "discover.json"
-GENERATED_CONFIG_FILENAME = "generated_config.yaml"
-VALIDATION_MARKER_FILENAME = ".validated"
 SCAFFOLD_TEMPLATES = {
     "langgraph": {
         "filename": "langgraph_adapter.py",
@@ -770,23 +772,6 @@ def _build_agent_factory_snippet(candidate: Candidate, defaults: dict[str, objec
     return _build_basic_agent_factory_snippet(candidate, defaults)
 
 
-@dataclass(slots=True)
-class TargetSpec:
-    candidate: Candidate | None = None
-    factory: tuple[str, str] | None = None
-    kwargs: Dict[str, object] = field(default_factory=dict)
-    config: dict[str, object] | None = None
-    auto_wrapped: bool = False
-    metadata: dict[str, object] | None = None
-
-    def dotted_path(self) -> str:
-        if self.candidate is not None:
-            return self.candidate.dotted_path()
-        if self.factory is not None:
-            return f"{self.factory[0]}:{self.factory[1]}"
-        return "<unspecified>"
-
-
 def _validate_discovered_artifacts(
     project_root: Path,
     atlas_dir: Path,
@@ -1085,12 +1070,6 @@ def _print_factory_hint(role: str) -> None:
     print(f"  atlas env init --{role_flag}-fn your.module:name", file=sys.stderr)
     print(file=sys.stderr)
     print("Documentation: https://docs.arc.computer/sdk/agent-patterns", file=sys.stderr)
-
-
-@dataclass(slots=True)
-class SelectedTargets:
-    environment: TargetSpec
-    agent: TargetSpec
 
 
 def _cmd_env_scaffold(args: argparse.Namespace) -> int:
