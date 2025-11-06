@@ -1036,12 +1036,55 @@ def _summarise_failure_hints(exc: DiscoveryWorkerError) -> list[str]:
     return hints
 
 
+def _filter_actionable_prerequisites(skip_reasons: list[str]) -> list[str]:
+    """Extract only actionable prerequisites, filtering out internal notes.
+
+    TODO: This is a band-aid. The proper fix is to separate internal_notes from
+    prerequisites at the source (FactorySnippet, synthesis). See refactoring issue.
+    """
+    actionable = []
+
+    # Internal phrases to filter out
+    internal_phrases = [
+        "instantiated via factory only",
+        "skipping automatic run",
+        "review generated factory",
+        "synthesized automatically",
+        "validation is required",
+        "deferred until",
+        "atlas_discovery_validate",
+        "enable environment validation",
+        "enable validation",
+        "module is importable in the",
+        "discovery environment",
+    ]
+
+    for reason in skip_reasons:
+        reason_lower = reason.lower()
+
+        # Skip internal implementation notes
+        if any(phrase in reason_lower for phrase in internal_phrases):
+            continue
+
+        # Keep actionable items (install, config, etc)
+        if any(keyword in reason_lower for keyword in [
+            "install", "pip install", "dependencies",
+            "ensure", "set ", "configure", "api key",
+            "missing", "required"
+        ]):
+            actionable.append(reason.strip())
+
+    return actionable
+
+
 def _print_factory_hint(role: str) -> None:
-    print(
-        f"No {role} candidates detected. "
-        "Add @atlas decorators or scaffold factories via `atlas env scaffold --template langgraph`.",
-        file=sys.stderr,
-    )
+    print(f"\u2717 No {role} found", file=sys.stderr)
+    print(file=sys.stderr)
+    print(f"To specify {role} manually:", file=sys.stderr)
+    role_flag = "env" if role == "environment" else "agent"
+    print(f"  atlas env init --{role_flag}-fn your.module:name", file=sys.stderr)
+    print(file=sys.stderr)
+    print("Documentation: https://docs.arc.computer/sdk/agent-patterns", file=sys.stderr)
 
 
 @dataclass(slots=True)
@@ -1540,6 +1583,8 @@ def _compose_metadata(
 
 def _cmd_env_init(args: argparse.Namespace) -> int:
     project_root = Path(args.path or ".").resolve()
+    print("Scanning repository...")
+    print()
     candidates = discover_candidates(project_root)
     env_candidates, agent_candidates = split_candidates(candidates)
 
@@ -1628,7 +1673,9 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
                 print(exc, file=sys.stderr)
                 return 1
         else:
-            _print_factory_hint("environment")
+            # Suppress hint in non-verbose mode - synthesis will auto-generate
+            if getattr(args, 'verbose', False):
+                _print_factory_hint("environment")
             env_wrapper_required = True
     else:
         env_candidates = []
@@ -1646,7 +1693,9 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
                 print(exc, file=sys.stderr)
                 return 1
         else:
-            _print_factory_hint("agent")
+            # Suppress hint in non-verbose mode - synthesis will auto-generate
+            if getattr(args, 'verbose', False):
+                _print_factory_hint("agent")
             agent_wrapper_required = True
     else:
         agent_candidates = []
@@ -1962,23 +2011,28 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
             "kwargs": targets.agent.kwargs,
         }
 
-    print("Discovery summary:")
-    print(f"  {_summarise_target(targets.environment, 'Environment')}")
-    print(f"  {_summarise_target(targets.agent, 'Agent')}")
-    for note in auto_messages:
-        print(f"  {note}")
-    for note in bootstrap_notes:
-        print(f"  {note}")
-    if synthesis_notes:
-        print("  Synthesis notes:")
-        for note in synthesis_notes:
-            print(f"    - {note}")
-    if skip_reasons:
-        print("  Preflight notes:")
-        for reason in skip_reasons:
-            print(f"    - {reason}")
-        if auto_skip:
-            print("  Auto-skip enabled: runtime execution deferred until prerequisites are satisfied.")
+    # Clean output by default, verbose details with --verbose flag
+    verbose = getattr(args, 'verbose', False)
+
+    if verbose:
+        print("Discovery summary:")
+        print(f"  {_summarise_target(targets.environment, 'Environment')}")
+        print(f"  {_summarise_target(targets.agent, 'Agent')}")
+        for note in auto_messages:
+            print(f"  {note}")
+        for note in bootstrap_notes:
+            print(f"  {note}")
+        if synthesis_notes:
+            print("  Synthesis notes:")
+            for note in synthesis_notes:
+                print(f"    - {note}")
+        if skip_reasons:
+            print("  Preflight notes:")
+            for reason in skip_reasons:
+                print(f"    - {reason}")
+            if auto_skip:
+                print("  Auto-skip enabled: runtime execution deferred until prerequisites are satisfied.")
+        print()
 
     if auto_skip:
         spec["run_discovery"] = False
@@ -2046,38 +2100,40 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     except FileExistsError as exc:
         print(exc, file=sys.stderr)
         return 1
-    print(f"Discovery metadata written to {discovery_path}")
-    if scaffold_info.get("mode") == "full":
-        print(f"Generated runnable config written to {config_path}")
-        template_path = scaffold_info.get("template_path")
-        if template_path:
-            print(f"  Template source: {template_path}")
-        if scaffold_info.get("llm_inferred"):
-            provider = scaffold_info.get("llm_provider") or scaffold_info.get("llm", {}).get("provider")
-            model_name = scaffold_info.get("llm_model") or scaffold_info.get("llm", {}).get("model")
-            print(
-                "  Inferred LLM metadata: provider={provider} model={model}".format(
-                    provider=provider or "unknown",
-                    model=model_name or "unknown",
+    if verbose:
+        print(f"Discovery metadata written to {discovery_path}")
+        if scaffold_info.get("mode") == "full":
+            print(f"Generated runnable config written to {config_path}")
+            template_path = scaffold_info.get("template_path")
+            if template_path:
+                print(f"  Template source: {template_path}")
+            if scaffold_info.get("llm_inferred"):
+                provider = scaffold_info.get("llm_provider") or scaffold_info.get("llm", {}).get("provider")
+                model_name = scaffold_info.get("llm_model") or scaffold_info.get("llm", {}).get("model")
+                print(
+                    "  Inferred LLM metadata: provider={provider} model={model}".format(
+                        provider=provider or "unknown",
+                        model=model_name or "unknown",
+                    )
                 )
-            )
+            else:
+                if want_full_config:
+                    print("  LLM provider/model not inferred; template defaults retained.")
         else:
+            print(f"Generated config stub written to {config_path}")
             if want_full_config:
-                print("  LLM provider/model not inferred; template defaults retained.")
-    else:
-        print(f"Generated config stub written to {config_path}")
-        if want_full_config:
-            reason = scaffold_info.get("reason")
-            if reason:
-                print(f"  Unable to scaffold full config ({reason}); wrote discovery stub instead.")
-    telemetry_status = "enabled" if capabilities.get("telemetry_agent_emitted") else "missing"
-    print(
-        "Detected handshake: control_loop={control} supports_stepwise={stepwise} telemetry={telemetry}".format(
-            control=capabilities.get("control_loop", "unknown"),
-            stepwise=capabilities.get("supports_stepwise", False),
-            telemetry=telemetry_status,
+                reason = scaffold_info.get("reason")
+                if reason:
+                    print(f"  Unable to scaffold full config ({reason}); wrote discovery stub instead.")
+        telemetry_status = "enabled" if capabilities.get("telemetry_agent_emitted") else "missing"
+        print(
+            "Detected handshake: control_loop={control} supports_stepwise={stepwise} telemetry={telemetry}".format(
+                control=capabilities.get("control_loop", "unknown"),
+                stepwise=capabilities.get("supports_stepwise", False),
+                telemetry=telemetry_status,
+            )
         )
-    )
+        print()
 
     validation_success, validation_errors = _validate_discovered_artifacts(
         project_root,
@@ -2086,17 +2142,46 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
         targets.agent,
     )
 
-    if validation_success:
-        print("Validation succeeded for generated factories.")
-        if auto_skip:
-            print("  Note: Sample run was skipped due to missing prerequisites.")
-            print("  Run atlas again once dependencies are ready.")
-    else:
-        print("Validation failed; generated factories may not execute correctly:", file=sys.stderr)
-        for message in validation_errors:
-            print(f"  - {message}", file=sys.stderr)
-        if auto_skip:
-            print("  Note: This may be due to missing prerequisites noted above.", file=sys.stderr)
+    # Clean success output
+    if not verbose:
+        # Show agent/environment that was discovered
+        agent_display = targets.agent.candidate.dotted_path() if targets.agent.candidate else (
+            f"{targets.agent.factory[0]}:{targets.agent.factory[1]}" if targets.agent.factory else "unknown"
+        )
+
+        try:
+            config_display_short = config_path.relative_to(project_root)
+        except ValueError:
+            config_display_short = config_path
+
+        print(f"\u2713 Agent: {agent_display}")
+        print(f"\u2713 Config: {config_display_short}")
+        print()
+
+        # Show prerequisites if auto_skip is enabled
+        if auto_skip and skip_reasons:
+            actionable = _filter_actionable_prerequisites(skip_reasons)
+            if actionable:
+                print("Prerequisites:")
+                for reason in actionable[:3]:  # Limit to first 3 for readability
+                    print(f"  - {reason}")
+                if len(actionable) > 3:
+                    print(f"  ... and {len(actionable) - 3} more (use --verbose for full list)")
+                print()
+
+    if verbose:
+        if validation_success:
+            print("Validation succeeded for generated factories.")
+            if auto_skip:
+                print("  Note: Sample run was skipped due to missing prerequisites.")
+                print("  Run atlas again once dependencies are ready.")
+        else:
+            print("Validation failed; generated factories may not execute correctly:", file=sys.stderr)
+            for message in validation_errors:
+                print(f"  - {message}", file=sys.stderr)
+            if auto_skip:
+                print("  Note: This may be due to missing prerequisites noted above.", file=sys.stderr)
+        print()
 
     marker_path.write_text(
         json.dumps({"validated_at": datetime.now(timezone.utc).isoformat()}, ensure_ascii=False),
@@ -2114,12 +2199,12 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
     if args.task:
         next_command.extend(["--task", args.task])
     quoted_command = " ".join(shlex.quote(part) for part in next_command)
-    print("Next step:")
+
+    # Prominent "Next:" section
+    print("Next:")
     if project_root != cwd:
         print(f"  cd {shlex.quote(str(project_root))}")
     print(f"  {quoted_command}")
-    if auto_skip:
-        print("  (Wait for the prerequisites noted above before running this command.)")
     return 0
 
 
@@ -2199,6 +2284,11 @@ def register_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPars
         type=int,
         default=240,
         help="Timeout (seconds) for the discovery worker (default: %(default)s).",
+    )
+    init_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show detailed discovery information (synthesis notes, capabilities, validation details).",
     )
     init_parser.set_defaults(handler=_cmd_env_init)
 

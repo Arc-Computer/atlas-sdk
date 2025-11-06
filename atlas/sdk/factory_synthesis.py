@@ -435,7 +435,7 @@ class FactorySynthesizer:
             try:
                 response = client.complete(
                     messages,
-                    overrides={"temperature": 0.2, "max_tokens": 2048},
+                    overrides={"temperature": 0.2, "max_tokens": 8192},
                 )
             except Exception as exc:  # pragma: no cover - network/backoff handled upstream
                 last_error = exc
@@ -857,7 +857,7 @@ class FactorySynthesizer:
                 api_key_env="ANTHROPIC_API_KEY",
                 temperature=0.1,
                 max_output_tokens=16000,
-                timeout_seconds=60.0,
+                timeout_seconds=120.0,
             ),
             LLMParameters(
                 provider=LLMProvider.GEMINI,
@@ -865,7 +865,7 @@ class FactorySynthesizer:
                 api_key_env="GEMINI_API_KEY",
                 temperature=0.1,
                 max_output_tokens=16000,
-                timeout_seconds=60.0,
+                timeout_seconds=120.0,
             ),
         ]
 
