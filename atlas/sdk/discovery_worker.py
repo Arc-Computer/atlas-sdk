@@ -495,6 +495,21 @@ def _import_and_build(role: str, module: str, qualname: str, *, kwargs: dict[str
         return attr(**kwargs)
     if callable(attr):
         return attr(**kwargs)
+
+    # Check if it's already an instance that can be used directly
+    # This handles module-level assignments like: agent = create_deep_agent(...)
+    if hasattr(attr, '__dict__') and not isinstance(attr, type):
+        # It's an instance - check if kwargs were provided
+        if kwargs:
+            raise TypeError(
+                f"Module-level instance '{module}:{qualname}' cannot accept runtime kwargs. "
+                f"Wrap it in a factory function to support configuration:\n"
+                f"  def create_{qualname}(**kwargs):\n"
+                f"      return {qualname}  # or pass kwargs to your agent constructor"
+            )
+        # No kwargs requested, return the instance directly
+        return attr
+
     raise TypeError(f"Unsupported {role} target '{module}:{qualname}' – expected class or factory callable.")
 
 
