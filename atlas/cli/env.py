@@ -40,6 +40,13 @@ from atlas.sdk.discovery import (
     split_candidates,
     write_discovery_payload,
 )
+from atlas.sdk.llm_inference import (
+    LLM_PROVIDER_DEFAULT_ENV,
+    collect_llm_candidate_entries,
+    merge_llm_block,
+    normalise_provider_name,
+    select_llm_candidate,
+)
 from atlas.cli.env_types import (
     DISCOVERY_FILENAME,
     GENERATED_CONFIG_FILENAME,
@@ -292,240 +299,7 @@ AGENT_RUNTIME_HELPER = textwrap.dedent(
 )
 
 
-_LLM_PROVIDER_DEFAULT_ENV: dict[str, str] = {
-    "openai": "OPENAI_API_KEY",
-    "azure-openai": "AZURE_OPENAI_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "gemini": "GEMINI_API_KEY",
-    "google": "GOOGLE_API_KEY",
-    "groq": "GROQ_API_KEY",
-    "mistral": "MISTRAL_API_KEY",
-    "bedrock": "AWS_ACCESS_KEY_ID",
-    "fireworks": "FIREWORKS_API_KEY",
-    "cohere": "COHERE_API_KEY",
-    "ai21": "AI21_API_KEY",
-    "xai": "XAI_API_KEY",
-}
-
-
-def _normalise_provider_name(provider: object) -> str | None:
-    if not isinstance(provider, str):
-        return None
-    normalised = provider.strip().lower().replace("_", "-")
-    if not normalised:
-        return None
-    if normalised == "azureopenai":
-        normalised = "azure-openai"
-    if normalised in {"google-generativeai", "vertex-ai", "vertex"}:
-        normalised = "google"
-    return normalised
-
-
-def _infer_provider_from_model(model: object) -> str | None:
-    if not isinstance(model, str):
-        return None
-    value = model.strip().lower()
-    if not value:
-        return None
-    if "claude" in value or "anthropic" in value or value.startswith("sonnet"):
-        return "anthropic"
-    if value.startswith("gpt") or "openai" in value or value.startswith("o4") or value.startswith("chatgpt"):
-        return "openai"
-    if value.startswith("gemini") or "google" in value:
-        return "gemini"
-    if "groq" in value:
-        return "groq"
-    if "mistral" in value:
-        return "mistral"
-    if "cohere" in value:
-        return "cohere"
-    if "grok" in value or "xai" in value:
-        return "xai"
-    if "bedrock" in value or value.startswith("anthropic:"):
-        return "bedrock"
-    return None
-
-
-def _normalise_llm_candidate_entry(raw: dict[str, Any]) -> dict[str, Any] | None:
-    provider = _normalise_provider_name(raw.get("provider") or raw.get("api_type"))
-    model = raw.get("model") or raw.get("model_name")
-    if isinstance(model, (list, tuple)):
-        model = next((item for item in model if isinstance(item, str) and item.strip()), None)
-    if not provider and isinstance(model, str):
-        provider = _infer_provider_from_model(model)
-    candidate: dict[str, Any] = {}
-    if provider:
-        candidate["provider"] = provider
-    if isinstance(model, str) and model.strip():
-        candidate["model"] = model.strip()
-    api_key_env = raw.get("api_key_env") or raw.get("api_key")
-    if isinstance(api_key_env, str) and api_key_env.strip():
-        candidate["api_key_env"] = api_key_env.strip()
-    temperature = raw.get("temperature")
-    if isinstance(temperature, (int, float)):
-        candidate["temperature"] = float(temperature)
-    max_tokens = raw.get("max_output_tokens")
-    if not isinstance(max_tokens, (int, float)):
-        max_tokens = raw.get("max_tokens")
-    if isinstance(max_tokens, (int, float)):
-        candidate["max_output_tokens"] = int(max_tokens)
-    timeout = raw.get("timeout_seconds")
-    if isinstance(timeout, (int, float)):
-        candidate["timeout_seconds"] = float(timeout)
-    source = raw.get("source")
-    if isinstance(source, str) and source.strip():
-        candidate["source"] = source
-    return candidate or None
-
-
-def _dedupe_candidate_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    seen: set[tuple[str | None, str | None]] = set()
-    unique: list[dict[str, Any]] = []
-    for entry in entries:
-        provider = entry.get("provider")
-        model = entry.get("model")
-        key = (
-            provider if isinstance(provider, str) else None,
-            model if isinstance(model, str) else None,
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(entry)
-    return unique
-
-
-def _collect_llm_candidate_entries(agent_runtime_meta: dict[str, object] | None) -> list[dict[str, Any]]:
-    if not isinstance(agent_runtime_meta, dict):
-        return []
-    collected: list[dict[str, Any]] = []
-
-    def _add_candidate(entry: dict[str, Any], source: str) -> None:
-        payload = dict(entry)
-        if source and "source" not in payload:
-            payload["source"] = source
-        normalised = _normalise_llm_candidate_entry(payload)
-        if normalised:
-            if source and "source" not in normalised:
-                normalised["source"] = source
-            collected.append(normalised)
-
-    overrides = agent_runtime_meta.get("llm_overrides")
-    if isinstance(overrides, dict) and overrides:
-        _add_candidate(overrides, "factory_kwargs")
-
-    config_literals = agent_runtime_meta.get("config_literals")
-    if isinstance(config_literals, list):
-        for literal in config_literals:
-            if isinstance(literal, dict):
-                _add_candidate(literal, "config_literals")
-            elif isinstance(literal, list):
-                for item in literal:
-                    if isinstance(item, dict):
-                        _add_candidate(item, "config_literals")
-
-    config_data = agent_runtime_meta.get("config_data")
-    if isinstance(config_data, list):
-        for entry in config_data:
-            if not isinstance(entry, dict):
-                continue
-            content = entry.get("content")
-            if isinstance(content, dict):
-                raw_path = entry.get("path")
-                if isinstance(raw_path, Path):
-                    source = str(raw_path)
-                elif isinstance(raw_path, str):
-                    source = raw_path
-                else:
-                    source = "config_file"
-                payload = dict(content)
-                payload.setdefault("source", source)
-                _add_candidate(payload, source)
-
-    llm_candidates_meta = agent_runtime_meta.get("llm_candidates")
-    if isinstance(llm_candidates_meta, list):
-        for entry in llm_candidates_meta:
-            if isinstance(entry, dict):
-                _add_candidate(entry, entry.get("source") or "metadata")
-
-    factory_kwargs = agent_runtime_meta.get("factory_kwargs")
-    if isinstance(factory_kwargs, dict):
-        maybe_model = factory_kwargs.get("model")
-        if isinstance(maybe_model, str):
-            _add_candidate({"model": maybe_model}, "factory_kwargs")
-        config_list = factory_kwargs.get("config_list")
-        if isinstance(config_list, list):
-            for item in config_list:
-                if isinstance(item, dict):
-                    _add_candidate(item, "config_list")
-
-    return _dedupe_candidate_entries(collected)
-
-
-def _select_llm_candidate(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
-    if not candidates:
-        return None
-
-    def _score(entry: dict[str, Any]) -> tuple[int, int, float]:
-        provider_present = int(bool(entry.get("provider")))
-        model_present = int(bool(entry.get("model")))
-        richness = provider_present * 2 + model_present * 3 + int(bool(entry.get("api_key_env")))
-        nuance = 0.0
-        if entry.get("temperature") is not None:
-            nuance += 0.1
-        if entry.get("max_output_tokens") is not None:
-            nuance += 0.1
-        return (richness, provider_present * model_present, nuance)
-
-    candidates_sorted = sorted(
-        candidates,
-        key=_score,
-        reverse=True,
-    )
-    return candidates_sorted[0]
-
-
-def _merge_llm_block(existing: dict[str, Any] | None, candidate: dict[str, Any]) -> dict[str, Any]:
-    block = copy.deepcopy(existing) if existing else {}
-    previous_provider = block.get("provider") if isinstance(block.get("provider"), str) else None
-    candidate_api_env = candidate.get("api_key_env") if isinstance(candidate.get("api_key_env"), str) else None
-    for key in ("provider", "model", "api_key_env", "temperature", "max_output_tokens", "timeout_seconds"):
-        if key in candidate and candidate[key] is not None:
-            block[key] = candidate[key]
-    provider_value = block.get("provider")
-    if isinstance(provider_value, str):
-        normalised = _normalise_provider_name(provider_value)
-        if normalised:
-            block["provider"] = normalised
-            if candidate_api_env:
-                block["api_key_env"] = candidate_api_env
-            api_env = block.get("api_key_env")
-            provider_changed = (previous_provider or "").lower() != normalised
-            if (provider_changed or not api_env) and not candidate_api_env:
-                default_env = _LLM_PROVIDER_DEFAULT_ENV.get(normalised)
-                if default_env:
-                    block["api_key_env"] = default_env
-        else:
-            block.pop("provider", None)
-    return block
-
-
 FULL_CONFIG_TEMPLATE = "openai_agent.yaml"
-
-_LLM_API_ENV_DEFAULTS: dict[str, str] = {
-    "openai": "OPENAI_API_KEY",
-    "azure-openai": "AZURE_OPENAI_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
-    "gemini": "GEMINI_API_KEY",
-    "google": "GOOGLE_API_KEY",
-    "bedrock": "AWS_ACCESS_KEY_ID",
-    "groq": "GROQ_API_KEY",
-    "mistral": "MISTRAL_API_KEY",
-    "cohere": "COHERE_API_KEY",
-    "ai21": "AI21_API_KEY",
-    "fireworks": "FIREWORKS_API_KEY",
-    "xai": "XAI_API_KEY",
-}
 
 
 def _format_kwargs_literal(payload: dict[str, object]) -> str:
@@ -1202,9 +976,9 @@ def _build_llm_block(template_block: dict[str, Any] | None, provider: str | None
     if model:
         block["model"] = model
     if provider:
-        default_env = _LLM_API_ENV_DEFAULTS.get(provider)
+        default_env = LLM_PROVIDER_DEFAULT_ENV.get(provider)
         api_env = block.get("api_key_env")
-        if default_env and (not api_env or original_provider != provider or api_env == _LLM_API_ENV_DEFAULTS.get(original_provider or "")):
+        if default_env and (not api_env or original_provider != provider or api_env == LLM_PROVIDER_DEFAULT_ENV.get(original_provider or "")):
             block["api_key_env"] = default_env
     return block
 
@@ -1313,10 +1087,10 @@ def _compose_full_config_payload(
     llm_source = llm_capabilities.get("source") if isinstance(llm_capabilities, dict) else None
     llm_template = agent_template.get("llm") if isinstance(agent_template, dict) else None
     llm_block = _build_llm_block(llm_template, llm_provider, llm_model)
-    llm_candidates = _collect_llm_candidate_entries(agent_runtime_meta if isinstance(agent_runtime_meta, dict) else None)
-    selected_llm_candidate = _select_llm_candidate(llm_candidates)
+    llm_candidates = collect_llm_candidate_entries(agent_runtime_meta if isinstance(agent_runtime_meta, dict) else None)
+    selected_llm_candidate = select_llm_candidate(llm_candidates)
     if selected_llm_candidate:
-        llm_block = _merge_llm_block(llm_block, selected_llm_candidate)
+        llm_block = merge_llm_block(llm_block, selected_llm_candidate)
         provider_override = selected_llm_candidate.get("provider")
         model_override = selected_llm_candidate.get("model")
         if isinstance(provider_override, str) and provider_override:
