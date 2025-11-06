@@ -44,7 +44,6 @@ from atlas.sdk.llm_inference import (
     LLM_PROVIDER_DEFAULT_ENV,
     collect_llm_candidate_entries,
     merge_llm_block,
-    normalise_provider_name,
     select_llm_candidate,
 )
 from atlas.cli.env_types import (
