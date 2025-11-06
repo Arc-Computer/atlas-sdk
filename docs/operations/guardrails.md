@@ -104,3 +104,21 @@ runtime_safety:
 When `require_approval` is set to `false`, Atlas automatically marks sessions as `approved` once they finish (drift alerts still return them to `pending`). Pass `--config` to `arc-atlas` so the exporter loads these defaults, and use `ATLAS_REVIEW_REQUIRE_APPROVAL=0` or `ATLAS_REVIEW_DEFAULT_EXPORT_STATUSES="approved,pending"` for quick one-off overrides.
 
 Set `ATLAS_DRIFT_WINDOW`, `ATLAS_DRIFT_Z_THRESHOLD`, or `ATLAS_DRIFT_MIN_BASELINE` to experiment without editing config. `ATLAS_REVIEW_DEFAULT_EXPORT_STATUSES="approved,pending"` relaxes the default export gate for developer workflows, and `ATLAS_REVIEW_REQUIRE_APPROVAL=0` disables the auto-approval requirement entirely (use with care in production).
+
+---
+
+## Next Steps: Training
+
+Approved sessions feed the offline training pipeline in [Atlas Core](https://github.com/Arc-Computer/ATLAS):
+
+- [Complete Training Pipeline](https://docs.arc.computer/training/offline/grpo-training) - Step-by-step SFT → GRPO workflow
+- [Training Configuration](https://docs.arc.computer/training/configuration) - Hydra parameters reference
+- [Training Data Pipeline](https://docs.arc.computer/training/offline/training-data-pipeline) - Direct database access API
+- [GKD Training](https://docs.arc.computer/training/offline/gkd-training) - Fast distillation (9-30x faster than GRPO)
+
+**Typical workflow:**
+1. Collect traces with SDK runtime
+2. Review/approve sessions (`arc-atlas review`)
+3. Train updated model in Core (GRPO/GKD/SFT)
+4. Deploy checkpoint back to SDK agents
+5. Repeat
