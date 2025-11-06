@@ -1,6 +1,6 @@
-# Quarantine & Drift Workflow
+# Export Guardrails
 
-Atlas now enforces a human-in-the-loop review step before session traces reach downstream training loops. Every persisted session carries an explicit `review_status`:
+Atlas enforces a human-in-the-loop review step before session traces reach downstream training loops. Every persisted session carries an explicit `review_status`:
 
 - `pending` – default for freshly captured sessions.
 - `approved` – ready for export and training.
