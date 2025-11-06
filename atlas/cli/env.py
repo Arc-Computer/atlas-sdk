@@ -1546,19 +1546,19 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
                     print(f"  ... and {len(actionable) - 3} more (use --verbose for full list)")
                 print()
 
-    if verbose:
-        if validation_success:
-            print("Validation succeeded for generated factories.")
-            if auto_skip:
-                print("  Note: Sample run was skipped due to missing prerequisites.")
-                print("  Run atlas again once dependencies are ready.")
-        else:
-            print("Validation failed; generated factories may not execute correctly:", file=sys.stderr)
+    if validation_success:
+        print("Validation succeeded for generated factories.")
+        if auto_skip:
+            print("  Note: Sample run was skipped due to missing prerequisites.")
+            print("  Run atlas again once dependencies are ready.")
+    else:
+        print("Validation failed; generated factories may not execute correctly:", file=sys.stderr)
+        if verbose:
             for message in validation_errors:
                 print(f"  - {message}", file=sys.stderr)
-            if auto_skip:
-                print("  Note: This may be due to missing prerequisites noted above.", file=sys.stderr)
-        print()
+        if auto_skip:
+            print("  Note: This may be due to missing prerequisites noted above.", file=sys.stderr)
+    print()
 
     marker_path.write_text(
         json.dumps({"validated_at": datetime.now(timezone.utc).isoformat()}, ensure_ascii=False),
