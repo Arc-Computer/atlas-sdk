@@ -77,7 +77,21 @@ The generated files (`.atlas/generated_config.yaml`, `.atlas/generated_factories
 
 - Python 3.10+ (3.13 recommended)
 - LLM credentials exported (`OPENAI_API_KEY`, `GEMINI_API_KEY`, etc.) or present in a `.env` file
-- For persistence: Run `atlas init` to start the bundled Docker + Postgres stack (optional)
+
+**Storage (required for rewards and learning):**
+
+The SDK works without persistent storage but requires PostgreSQL to store reward signals and learning playbooks. Choose one:
+
+```bash
+# Option 1: Local Postgres via Docker (recommended for getting started)
+atlas init
+
+# Option 2: Add Postgres connection to your config.yaml
+storage:
+  database_url: postgresql://user:pass@host:port/database
+```
+
+Without storage, the SDK runs but rewards and learning history are not persisted.
 
 ### Try the Quickstart Demo
 
@@ -160,15 +174,20 @@ See the [Configuration Guide](docs/configs/configuration.md) for detailed tuning
 
 ## Training Data Access
 
-The runtime stores execution traces in Postgres. Atlas Core reads training data directly from that database via `atlas/training_data/`
+Training workflows require persistent storage to capture reward signals and execution traces. The runtime uses PostgreSQL for persistence.
 
 **Setup:**
 
 ```bash
+# Option 1: Local Postgres via Docker
 atlas init  # Starts bundled Docker + Postgres on localhost:5433
+
+# Option 2: Use your own Postgres instance (add to config.yaml)
+storage:
+  database_url: postgresql://user:pass@host:port/database
 ```
 
-Once Postgres is running, runtime sessions stream to the database automatically. Atlas Core accesses this data directly:
+Once storage is configured, runtime sessions stream to the database automatically. Atlas Core accesses this data directly:
 
 ```python
 from atlas.training_data import get_training_sessions
