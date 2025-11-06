@@ -5,6 +5,7 @@
 [![Downloads](https://static.pepy.tech/badge/arc-atlas)](https://pepy.tech/project/arc-atlas)
 [![Python Versions](https://img.shields.io/pypi/pyversions/arc-atlas.svg)](https://pypi.org/project/arc-atlas/)
 [![arXiv](https://img.shields.io/badge/arXiv-2511.01093-b31b1b.svg)](https://arxiv.org/abs/2511.01093)
+[![Docs](https://img.shields.io/badge/Docs-latest-green)](https://docs.arc.computer)
 
 Atlas is a system for continual learning from agent workflows. This repository is the runtime component—it wraps existing agents, captures execution traces with reward signals, and exports structured data for training. [Atlas Core](https://github.com/Arc-Computer/ATLAS) is the training component—it runs GRPO, GKD, and SFT on those exports to produce improved teacher checkpoints. Together they form a closed loop: the runtime generates training data from agent execution, Core trains better models from that data, you deploy updated checkpoints back into the runtime.
 
@@ -242,6 +243,27 @@ For evaluation harnesses (runtime, reward, learning, probe), see the [Evaluation
 - Development extras (`pip install -e .[dev]`) install pytest tooling for local validation; core telemetry streams rely solely on the standard library.
 - Reactive stream helpers live under `atlas/utils/reactive/`; SPDX headers are retained and must remain intact.
 - Aim for descriptive naming and concise docstrings so the intent is evident without extra commentary.
+
+---
+
+## Development
+
+```bash
+# Install with dev dependencies
+pip install -e .[dev]
+
+# Run tests
+PYTHONPATH=. pytest tests --disable-warnings
+
+# Format and lint
+ruff check .
+ruff format .
+
+# Type checking (if pyright is installed)
+pyright
+```
+
+For evaluation harnesses (runtime, reward, learning, probe), see the [Evaluation documentation](#documentation) above.
 
 ---
 
