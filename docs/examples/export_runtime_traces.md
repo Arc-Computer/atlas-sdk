@@ -61,6 +61,24 @@ The exported file slots directly into the Atlas core training stack:
 1. Run `atlas.core.run(...)` to generate sessions and persist them to PostgreSQL.
 2. Review new sessions with `arc-atlas review sessions --database-url ...`, then approve them with `arc-atlas review approve <id>`.
 3. Execute `arc-atlas --database-url ... --output traces.jsonl` (or `python -m atlas.cli.export ...`).
-3. In the core repository, call `load_runtime_traces("traces.jsonl")` or `flatten_traces_for_training(...)` from `trainers/runtime_dataset.py`.
+4. In the core repository, call `load_runtime_traces("traces.jsonl")` or `flatten_traces_for_training(...)` from `trainers/runtime_dataset.py`.
 
 This workflow keeps runtime telemetry decoupled from training data generation while reusing the shared schema consumed by the core trainers.
+
+---
+
+## Next Steps: Training
+
+Runtime traces feed the offline training pipeline in [Atlas Core](https://github.com/Arc-Computer/ATLAS):
+
+- [Complete Training Pipeline](https://docs.arc.computer/training/offline/grpo-training) - Step-by-step SFT → GRPO workflow
+- [Training Configuration](https://docs.arc.computer/training/configuration) - Hydra parameters reference
+- [Training Data Pipeline](https://docs.arc.computer/training/offline/training-data-pipeline) - Direct database access API (recommended over JSONL export)
+- [GKD Training](https://docs.arc.computer/training/offline/gkd-training) - Fast distillation (9-30x faster than GRPO)
+
+**Training methods:**
+- **GRPO** - Reinforcement learning from reward signals
+- **GKD** - Fast distillation for production models
+- **SFT** - Supervised fine-tuning on approved traces
+
+Trained checkpoints deploy back into SDK agents by updating your runtime config's `teacher.model_name_or_path`.

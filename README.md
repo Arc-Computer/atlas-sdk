@@ -197,31 +197,64 @@ Each line is an `AtlasSessionTrace` with plans, steps, rewards, and metadata. Se
 
 ---
 
-## Runtime → Training
+## Training Your Model
 
-The `atlas train` command launches Atlas Core training directly from your Postgres database. No manual export needed.
+Once you've collected runtime traces, use [Atlas Core](https://github.com/Arc-Computer/ATLAS) to train updated teacher models.
 
-**Prerequisites**
-- Clone [Arc-Computer/ATLAS](https://github.com/Arc-Computer/ATLAS) and set `ATLAS_CORE_PATH` (or pass `--atlas-core-path`).
-- Provide a Postgres URL via `STORAGE__DATABASE_URL` or `DATABASE_URL` when exporting live data.
-- Ensure your Python environment has the dependencies required by Atlas Core (see its README).
+**Training Methods:**
+- **GRPO** - Reinforcement learning from reward signals ([Guide](https://docs.arc.computer/training/offline/grpo-training))
+- **GKD** - 9-30x faster distillation for production models ([Guide](https://docs.arc.computer/training/offline/gkd-training))
+- **SFT** - Supervised fine-tuning on approved traces
 
-With those in place you can launch a training run end-to-end:
+**Quick Start:**
 
 ```bash
+# Option 1: Direct database access (recommended)
 export STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas
 export ATLAS_CORE_PATH=~/src/ATLAS
 
 atlas train \
   --config-name offline/base \
-  --trainer-config trainer/openai \
+  --trainer-config grpo \
   --wandb-project atlas-runtime \
   --override trainer.max_steps=250
+
+# Option 2: Export to JSONL first
+arc-atlas --database-url postgresql://... --output traces.jsonl
+cd $ATLAS_CORE_PATH
+python scripts/run_offline_pipeline.py --export-path traces.jsonl
 ```
 
-The command writes a timestamped export to `<ATLAS_CORE_PATH>/exports/`, then executes Atlas Core from within that directory. Pass `--output` to control the JSONL location, `--output-dir` to steer Hydra’s checkpoint directory, or repeatable `--override` flags for custom Hydra overrides. Use `--dry-run` to preview the exact invocation without running training, or `--use-sample-dataset` to copy the bundled sample dataset when you just want to validate wiring.
+**Deploying Trained Models:**
 
-On success you will see the export path echoed back along with a reminder that Atlas Core checkpoints land under `<atlas-core-path>/outputs` unless overridden.
+After training, update your SDK config to use the improved teacher:
+
+```yaml
+# config.yaml - HuggingFace Inference Endpoint
+teacher:
+  llm:
+    provider: openai  # HF inference is OpenAI-compatible
+    model: your-org/atlas-teacher-v1
+    api_base: https://api-inference.huggingface.co/models/your-org/atlas-teacher-v1
+    api_key_env: HUGGING_FACE_HUB_TOKEN
+    temperature: 0.05
+
+# config.yaml - Local inference server (vLLM/TGI)
+teacher:
+  llm:
+    provider: openai  # Most local servers are OpenAI-compatible
+    model: your-org/atlas-teacher-v1
+    api_base: http://localhost:8000/v1
+    api_key_env: VLLM_API_KEY  # Dummy key if server doesn't require auth
+    temperature: 0.05
+```
+
+Run agents with the improved teacher to collect better training data, creating a continual learning loop.
+
+**Comprehensive Guides:**
+- [Complete Training Pipeline](https://docs.arc.computer/training/offline/grpo-training) - Step-by-step SFT → GRPO workflow
+- [Training Configuration](https://docs.arc.computer/training/configuration) - Hydra parameters reference
+- [Training Data Pipeline](https://docs.arc.computer/training/offline/training-data-pipeline) - Direct database access API
 
 ---
 
