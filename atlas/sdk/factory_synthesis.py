@@ -73,15 +73,37 @@ class ClassContext:
 
 @dataclass(slots=True)
 class FactorySnippet:
-    """Structured response from the LLM for a single factory."""
+    """Structured response from the LLM for a single factory.
+
+    Attributes:
+        function_name: Name of the generated factory function
+        imports: List of import statements required
+        helpers: Helper functions to include in generated file
+        factory_body: Complete function definition source code
+        internal_notes: Developer-facing notes about implementation
+        prerequisites: User-actionable prerequisites (packages, env vars, etc.)
+        preflight: Legacy field for preflight checks
+        auto_skip: Whether to skip validation for this factory
+        notes: Deprecated - migrated to internal_notes on init
+    """
 
     function_name: str
     imports: list[str] = field(default_factory=list)
     helpers: list[str] = field(default_factory=list)
     factory_body: str = ""
-    notes: list[str] = field(default_factory=list)
+    internal_notes: list[str] = field(default_factory=list)
+    prerequisites: list[str] = field(default_factory=list)
     preflight: list[str] = field(default_factory=list)
     auto_skip: bool = False
+
+    # Deprecated - maintained for backward compatibility
+    notes: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        """Migrate legacy 'notes' field to 'internal_notes' if present."""
+        if self.notes and not self.internal_notes and not self.prerequisites:
+            # Legacy support: treat all old notes as internal notes
+            self.internal_notes = list(self.notes)
 
 
 @dataclass(slots=True)
