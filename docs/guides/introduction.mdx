@@ -8,7 +8,7 @@ atlas env init
 atlas run --task "Investigate the incident summary"
 ```
 
-Before you run the CLI, make sure your project’s own dependencies (DeepAgents, SecRL, database drivers, API keys, etc.) are installed alongside `arc-atlas`. Discovery is side-effect safe, but the follow-up validation step needs those services online.
+Before you run the CLI, make sure your project's own dependencies (database drivers, API keys, etc.) are installed alongside `arc-atlas`. Discovery is side-effect safe, but the follow-up validation step needs those services online.
 
 What `atlas env init` does:
 
@@ -23,13 +23,13 @@ Once discovery succeeds, `atlas run` reuses the cached metadata, verifies that t
 
 The generated files include:
 
-- `.atlas/generated_factories.py` – auto-generated factories for constructor arguments that are discovered via the LLM synthesiser
+- `.atlas/generated_factories.py` – auto-generated factories for constructor arguments that are discovered via the LLM synthesizer
 - `.atlas/discover.json` – module hashes, inferred handshake, schema hints, telemetry samples, and reward observations from discovery
 - `.atlas/runs/` – JSON artefacts storing telemetry and reward traces for each `atlas run` execution
 
 If you change your environment or agent implementation, re-run `atlas env init` to refresh the cached metadata before calling `atlas run` again. The [Agent Quickstart](docs/sdk/quickstart.mdx) walks through the full onboarding flow and highlights how to validate the generated factories.
 
-Once telemetry is flowing into Postgres, use the new `scripts/report_learning.py` helper (documented in `docs/learning_eval.md`) to compare learning trajectories—even without experience hints in the loop. It stitches together `sessions`, `trajectory_events`, and `discovery_runs` via `learning_key` so you can track reward deltas and adaptive mode shifts over time.
+Once telemetry is flowing into Postgres, use the `scripts/report_learning.py` helper (documented in [Learning Evaluation](docs/evaluation/learning_eval.md)) to compare learning trajectories. It stitches together `sessions`, `trajectory_events`, and `discovery_runs` via `learning_key` so you can track reward deltas and adaptive mode shifts over time.
 
 ## Leaner paired-mode validation
 

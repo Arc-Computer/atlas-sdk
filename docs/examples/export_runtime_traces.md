@@ -29,7 +29,7 @@ The command connects to the configured database, loads every stored session (or 
 - `--limit 200 --offset 100` – page through large datasets.
 - `--batch-size 250` – tune the paging size for the `sessions` table.
 - `--trajectory-limit 2000` – override the number of intermediate telemetry events captured per session.
-- `--include-status pending` – include the quarantine queue alongside approved runs (repeat to add `quarantined`).
+- `--include-status pending` – include pending sessions alongside approved runs (repeat to add `quarantined`).
 - `--include-all-statuses` – bypass the review filter entirely (use with caution).
 - Environment shortcuts: `ATLAS_REVIEW_DEFAULT_EXPORT_STATUSES="approved,pending"` adjusts the default filter; `ATLAS_REVIEW_REQUIRE_APPROVAL=0` makes `pending` runs exportable without passing extra flags.
 

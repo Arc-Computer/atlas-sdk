@@ -1,16 +1,10 @@
-# Learning Evaluation Without Experience Hints
+# Transfer Learning Evaluation
 
-Atlas already captures the signals needed to explain what changed, how it changed, and why—even before hint
-distillation ships. This guide documents the end-to-end workflow for analysing learning progress using the telemetry
-persisted by the runtime today.
+This guide documents the end-to-end workflow for measuring how agents improve from execution experience. Atlas captures execution traces with reward signals, distills successful patterns into playbook entries, and measures transfer learning across tasks.
 
-> **Terminology update (2025-10-29):** Former "policy nugget" references have been renamed to **playbook entries**. Regenerate any stored telemetry created before 2025-10-29 to align with the new schema.
+## Context Window Management
 
-## Prompt Digest For Provider Limits
-
-Learning evaluations now route execution metadata through a **provider-aware prompt digest** before the adapter sends
-requests to the LLM. This prevents 200k+ token system messages from blocking Claude and other providers with
-smaller context windows while keeping the full telemetry available on disk.
+The runtime automatically summarizes execution metadata to fit within model context limits. This prevents oversized prompts from failing with providers that have smaller context windows while preserving full telemetry on disk.
 
 - The OpenAI-compatible adapter exposes a new `metadata_digest` block. Defaults trim large sections (reward audits,
   session trajectories, validation blobs) to a high-signal summary capped at roughly 10% of each provider's context
@@ -55,7 +49,7 @@ Three rubric gates run on every synthesis:
 2. **Cue presence** – cues must be machine-detectable (valid regex/keyword/predicate).
 3. **Generality** – no incident IDs/dates or overfit proper nouns; playbook entries must respect a length budget.
 
-Scores for actionability, generality, hookability, and concision (weights: 0.4 / 0.3 / 0.2 / 0.1) are computed even when gates fail. If any gate fails the existing pamphlet is preserved and the rejection is recorded for auditing.
+Scores for actionability, generality, hookability, and concision (weights: 0.4 / 0.3 / 0.2 / 0.1) are computed even when gates fail. If any gate fails, the entry is rejected and recorded for auditing.
 
 #### Understanding Rubric Weights
 
@@ -114,15 +108,13 @@ All other `learning` options (`llm`, `prompts`, `history_limit`, `session_note_e
    - `sessions.metadata.learning_key` identifying the learning thread.
    - `sessions.metadata.adaptive_summary` detailing execution mode decisions.
    - `sessions.reward_stats`, `sessions.reward_audit`, and `trajectory_events` capturing reward and behavioural traces.
-3. **Learning registry** – `learning_registry` keeps the latest pamphlet per `learning_key` when the synthesiser is
-   enabled.
+3. **Learning registry** – `learning_registry` keeps the latest playbook per `learning_key` when the learning synthesizer is enabled.
 
 > Tip: Set `STORAGE__DATABASE_URL` before running Atlas so the runtime connects to Postgres automatically.
 
 ## 2. Export JSONL Traces (Optional)
 
-When you need portable traces—for example to inspect raw sessions or feed downstream training—the existing exporter
-already includes the signals required for hint-less evaluation:
+When you need portable traces for offline analysis or external training pipelines:
 
 ```bash
 python -m atlas.cli.export \
@@ -154,8 +146,7 @@ and failure summaries per entry. The evaluation harness aggregates these into th
   the entry may be stale or misleading.
 - **Token delta** – average tokens with the entry firing minus tokens without it. Negative numbers imply efficiency
   gains (doing the job in fewer tokens); positive spikes highlight regressions in runtime cost.
-- **Transfer success** – marked true when the entry triggers across at least two distinct incident/task identifiers.
-  This is the lightweight proxy for cross-incident reuse described in the *Continual Learning Online Adaptation* memo.
+- **Transfer success** – marked true when the entry triggers across at least two distinct task identifiers, demonstrating cross-task reuse.
 - **Failure avoidance stats** – rolling average retries and recorded failure events when the entry fires. Falling retry
   counts or zero failure events indicate the entry is preventing repeat mistakes.
 - **Impact score** – `adoption_rate × reward_delta`. This composite favors entries that are both frequently adopted and
@@ -181,12 +172,7 @@ python scripts/report_learning.py \
   --pamphlet-injection toggle
 ```
 
-> **Pamphlet verification**: leave `learning.apply_to_prompts` at its default
-> (`true`) when running the script so the generated summaries reflect the same
-> guidance injected into runtime prompts. The resulting
-> `results/learning/*_summary.json` entries include the most recent
-> `teacher_playbook` payload when the pamphlet is present, making it easy to
-> confirm the runtime wiring without hitting the live APIs.
+> **Playbook verification**: Leave `learning.apply_to_prompts` enabled (default: `true`) when running the script so generated summaries reflect the same guidance injected into runtime prompts. The resulting `results/learning/*_summary.json` entries include the current `teacher_playbook` payload for verification.
 
 ### Key options
 
@@ -253,9 +239,9 @@ The new manifest includes `comparisons` and aggregate leaderboards (best/worst d
 To stress-test the learning synthesizer and meta-prompt variants, run targeted sweeps with the configs under
 `configs/eval/learning/`:
 
-- `baseline_openai.yaml` — baseline Gemini 2.5 Flash synthesiser and reinforcement-focused prompt.
+- `baseline_openai.yaml` — baseline Gemini 2.5 Flash synthesizer and reinforcement-focused prompt.
 - `scope_shift_openai.yaml` — emphasises differentiation and transfer hypotheses; default scope category set to `differentiation`.
-- `baseline_claude.yaml` — Claude Haiku/Sonnet stack for student/teacher/synthesiser evaluation.
+- `baseline_claude.yaml` — Claude Haiku/Sonnet stack for student/teacher/synthesizer evaluation.
 
 Generate fresh telemetry for each config (same dataset, different `learning_key`s), then compare `playbook_impact`
 sections across runs. Prioritise variants that increase adoption rate without regressing token deltas, and flag any
@@ -269,5 +255,4 @@ entries with negative impact scores for remediation.
   pipeline once fresh telemetry lands.
 - When experimenting with prompt variants or different synthesis models, record the configuration via the new CLI flags so the manifest preserves the experimental context.
 
-With these pieces in place we can meaningfully answer “what changed, how it changed, and why” today, deferring the
-hint-specific analytics until the hint pipeline arrives.
+This evaluation workflow lets you measure learning progress, identify high-impact playbook entries, and validate transfer learning across tasks.
