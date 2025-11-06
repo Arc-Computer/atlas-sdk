@@ -56,6 +56,7 @@ from atlas.cli.env_types import (
 )
 from atlas.sdk.factory_synthesis import (
     AGENT_FUNCTION_NAME,
+    AGENT_RUNTIME_HELPER,
     ENV_FUNCTION_NAME,
     ENV_VALIDATE_FLAG,
     GENERATED_MODULE,
@@ -164,141 +165,6 @@ SCAFFOLD_TEMPLATES = {
     }
 }
 
-AGENT_RUNTIME_HELPER = textwrap.dedent(
-    """\
-    _AGENT_RUNTIME_CACHE = {}
-    _VALIDATION_MARKER = ".validated"
-    try:
-        from langchain_core.messages import BaseMessage  # type: ignore
-    except Exception:  # pragma: no cover - optional dependency
-        BaseMessage = None  # type: ignore
-    try:
-        from langchain_core.messages import HumanMessage  # type: ignore
-    except Exception:  # pragma: no cover - optional dependency
-        HumanMessage = None  # type: ignore
-    try:
-        from collections.abc import Mapping
-    except Exception:  # pragma: no cover - fallback
-        Mapping = dict  # type: ignore
-
-    def _atlas_require_validation():
-        marker = os.path.join(os.path.dirname(__file__), _VALIDATION_MARKER)
-        if os.path.exists(marker) or os.environ.get("ATLAS_SKIP_VALIDATION") == "1":
-            return
-        raise RuntimeError(
-            "Atlas generated factories have not been validated. "
-            "Run 'atlas env init' to regenerate and validate factories, "
-            "or set ATLAS_SKIP_VALIDATION=1 to bypass this check."
-        )
-
-    def _atlas_jsonable(value, depth=0):
-        if depth > 6:
-            return str(value)
-        if value is None:
-            return None
-        if isinstance(value, (str, int, float, bool)):
-            return value
-        if isinstance(value, bytes):
-            try:
-                return value.decode("utf-8")
-            except Exception:
-                return value.decode("utf-8", "ignore")
-        if BaseMessage is not None and isinstance(value, BaseMessage):
-            payload = {"type": getattr(value, "type", None) or value.__class__.__name__.lower()}
-            payload["content"] = _atlas_jsonable(getattr(value, "content", None), depth + 1)
-            tool_calls = getattr(value, "tool_calls", None)
-            if tool_calls:
-                payload["tool_calls"] = [_atlas_jsonable(call, depth + 1) for call in tool_calls]
-            additional_kwargs = getattr(value, "additional_kwargs", None)
-            if isinstance(additional_kwargs, dict) and additional_kwargs:
-                payload["additional_kwargs"] = _atlas_jsonable(additional_kwargs, depth + 1)
-            return payload
-        if hasattr(value, "model_dump"):
-            try:
-                dumped = value.model_dump()
-                if isinstance(dumped, dict):
-                    return _atlas_jsonable(dumped, depth + 1)
-            except Exception:
-                pass
-        if hasattr(value, "dict"):
-            try:
-                dumped = value.dict()
-                if isinstance(dumped, dict):
-                    return _atlas_jsonable(dumped, depth + 1)
-            except Exception:
-                pass
-        if isinstance(value, Mapping):
-            normalised = {}
-            for key, item in value.items():
-                normalised[str(key)] = _atlas_jsonable(item, depth + 1)
-            return normalised
-        if isinstance(value, (list, tuple, set)):
-            return [_atlas_jsonable(item, depth + 1) for item in value]
-        if hasattr(value, "__dict__"):
-            return _atlas_jsonable(vars(value), depth + 1)
-        return str(value)
-
-    def _atlas_normalise_agent_output(result):
-        processed = _atlas_jsonable(result)
-        if isinstance(processed, str):
-            return processed
-        if isinstance(processed, (int, float, bool)) or processed is None:
-            return str(processed)
-        try:
-            return json.dumps(processed, ensure_ascii=False)
-        except Exception:
-            return str(processed)
-
-    def _atlas_execute_agent(agent, prompt, metadata=None):
-        call_kwargs = {}
-        payload_hints = []
-        if isinstance(metadata, dict):
-            candidate = metadata.get("payload")
-            if candidate is not None:
-                payload_hints.append(candidate)
-            extra = metadata.get("call_kwargs")
-            if isinstance(extra, dict):
-                call_kwargs = dict(extra)
-        attempts = list(payload_hints)
-        attempts.append(prompt)
-        attempts.append({"input": prompt})
-        if HumanMessage is not None:
-            attempts.append({"messages": [HumanMessage(content=prompt)]})
-        else:
-            attempts.append({"messages": [{"role": "user", "content": prompt}]})
-        last_error = None
-        if hasattr(agent, "invoke"):
-            for payload in attempts:
-                try:
-                    if call_kwargs:
-                        response = agent.invoke(payload, **call_kwargs)
-                    else:
-                        response = agent.invoke(payload)
-                    return _atlas_normalise_agent_output(response)
-                except TypeError as exc:
-                    last_error = exc
-                    continue
-                except Exception as exc:
-                    last_error = exc
-                    continue
-        if callable(agent):
-            try:
-                return _atlas_normalise_agent_output(agent(prompt))
-            except TypeError:
-                try:
-                    return _atlas_normalise_agent_output(agent(prompt, metadata=metadata))
-                except TypeError as exc:
-                    last_error = exc
-            except Exception as exc:
-                last_error = exc
-        if hasattr(agent, "run"):
-            try:
-                return _atlas_normalise_agent_output(agent.run(prompt))
-            except Exception as exc:
-                last_error = exc
-        raise RuntimeError("Atlas runtime adapter could not execute agent") from last_error
-    """
-)
 
 
 FULL_CONFIG_TEMPLATE = "openai_agent.yaml"
