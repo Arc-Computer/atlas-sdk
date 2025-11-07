@@ -70,36 +70,36 @@ class CRMHarnessAdapter(AgentAdapter):
     async def ainvoke(self, prompt: str, metadata: Dict[str, Any] | None = None) -> str:
         metadata = metadata or {}
 
-    task = metadata.get("task_payload")
-    step = metadata.get("step_payload")
+        task = metadata.get("task_payload")
+        step = metadata.get("step_payload")
 
-    if metadata.get("mode") == "planning":
-        # Load test scenario from dataset using task
-        conversation = load_conversation_from_dataset(task)
-        return json.dumps({
-            "steps": [
-                {"id": turn.turn_id, "description": turn.user_utterance, "depends_on": []}
-                for turn in conversation.turns
-            ]
-        })
+        if metadata.get("mode") == "planning":
+            # Load test scenario from dataset using task
+            conversation = load_conversation_from_dataset(task)
+            return json.dumps({
+                "steps": [
+                    {"id": turn.turn_id, "description": turn.user_utterance, "depends_on": []}
+                    for turn in conversation.turns
+                ]
+            })
 
-    if step:
-        # Reconstruct turn context from step payload
-        turn_id = step["step_id"]
-        conversation = load_conversation_from_dataset(task)
-        turn = conversation.turns[turn_id - 1]
+        if step:
+            # Reconstruct turn context from step payload
+            turn_id = step["step_id"]
+            conversation = load_conversation_from_dataset(task)
+            turn = conversation.turns[turn_id - 1]
 
-        # Execute ground truth tool call
-        context = AgentTurnContext(
-            conversation=conversation,
-            turn=turn,
-            prior_turns=conversation.turns[:turn_id-1],
-            previous_results={},
-            expected_arguments=turn.expected_args
-        )
+            # Execute ground truth tool call
+            context = AgentTurnContext(
+                conversation=conversation,
+                turn=turn,
+                prior_turns=conversation.turns[:turn_id-1],
+                previous_results={},
+                expected_arguments=turn.expected_args
+            )
 
-        result = harness.execute_turn(context)
-        return json.dumps(result)
+            result = harness.execute_turn(context)
+            return json.dumps(result)
 ```
 
 ### 2. Simulation Environments
