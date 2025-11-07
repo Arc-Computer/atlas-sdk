@@ -214,6 +214,13 @@ class BYOABridgeLLM(BaseChatModel):
         run_manager: AsyncCallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
+        # Extract step_payload from run config if available (passed via LangGraph config metadata)
+        config_metadata = {}
+        if run_manager and hasattr(run_manager, 'metadata'):
+            config_metadata = run_manager.metadata or {}
+        elif 'run_manager' in kwargs and hasattr(kwargs['run_manager'], 'metadata'):
+            config_metadata = kwargs['run_manager'].metadata or {}
+
         del run_manager, kwargs
         prompt = self._render_prompt(messages)
         # Convert tool_metadata to OpenAI function calling format and pass via metadata
@@ -235,6 +242,27 @@ class BYOABridgeLLM(BaseChatModel):
             metadata["tools"] = tools
         if self._tool_choice:
             metadata["tool_choice"] = self._tool_choice
+
+        # Opportunistically add execution context for BYOA adapters only
+        # Gated by supports_structured_payloads to prevent leaking structured data
+        # to LLM providers (which digest all metadata into prompts)
+        if getattr(self._adapter, 'supports_structured_payloads', False):
+            try:
+                from atlas.runtime.orchestration.execution_context import ExecutionContext
+                ctx = ExecutionContext.get()
+                # Add task payload if available
+                task = ctx.metadata.get("task")
+                if task:
+                    metadata["task_payload"] = task
+                # Add step payload from LangGraph config (per-step, avoids race conditions)
+                step_payload = config_metadata.get("step_payload")
+                if step_payload:
+                    metadata["step_payload"] = step_payload
+            except Exception:
+                # ExecutionContext not available or not needed - continue normally
+                # This is expected for standalone adapter usage outside Atlas runtime
+                pass
+
         response = await self._adapter.ainvoke(prompt, metadata=metadata if metadata else None)
         content, tool_calls, usage = self._parse_response(response)
         return self._to_chat_result(content, tool_calls, usage)

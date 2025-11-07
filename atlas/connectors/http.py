@@ -20,6 +20,9 @@ from atlas.config.models import HTTPAdapterConfig
 class HTTPAdapter(AgentAdapter):
     """Adapter that exchanges JSON payloads over HTTP."""
 
+    # Remote BYOA services expect structured metadata just like local adapters
+    supports_structured_payloads = True
+
     def __init__(self, config: HTTPAdapterConfig):
         self._config = config
 
