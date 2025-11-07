@@ -15,7 +15,15 @@ class AdapterError(RuntimeError):
 
 
 class AgentAdapter:
-    """Abstract adapter providing synchronous and asynchronous entrypoints."""
+    """Abstract adapter providing synchronous and asynchronous entrypoints.
+
+    Attributes:
+        supports_structured_payloads: If True, adapter receives task_payload and step_payload
+            in metadata. LLM-based adapters should keep this False to avoid leaking
+            structured data to external providers. BYOA/deterministic adapters should set True.
+    """
+
+    supports_structured_payloads: bool = False
 
     async def ainvoke(self, prompt: str, metadata: Dict[str, Any] | None = None) -> str:
         raise NotImplementedError

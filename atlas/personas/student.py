@@ -180,7 +180,12 @@ class Student:
         context.metadata["active_actor"] = "student"
         prompt = self._compose_planner_prompt(task)
         try:
-            response = await self._adapter.ainvoke(prompt, metadata={"mode": "planning"})
+            # Pass structured task payload to adapters for BYOA integrations
+            adapter_metadata = {
+                "mode": "planning",
+                "task_payload": task,  # Original task before prompt composition
+            }
+            response = await self._adapter.ainvoke(prompt, metadata=adapter_metadata)
             self._apply_usage_payload(getattr(response, "usage", None))
             response = self._unwrap_adapter_payload(response)
             if isinstance(response, (dict, list)):
@@ -234,12 +239,25 @@ class Student:
         execution_context = ExecutionContext.get()
         execution_context.metadata["active_actor"] = "student"
         execution_context.metadata["_reasoning_origin"] = ("student", "execution")
+
+        # Pass step payload via LangGraph config to avoid race conditions in concurrent execution
+        # Each step gets its own config, preventing the last-writer-wins issue with shared metadata
+        step_payload = {
+            "step_id": step.id,
+            "description": step.description,
+            "depends_on": step.depends_on,
+        }
+
         state = ToolCallAgentGraphState(messages=messages)
         final_messages: Sequence[BaseMessage] | None = None
         step_manager = execution_context.intermediate_step_manager
         llm_snapshots: List[Any] = []
         llm_text_chunks: List[str] = []
-        async for event in graph.astream_events(state, config={"recursion_limit": recursion_limit}, version="v2"):
+        run_config = {
+            "recursion_limit": recursion_limit,
+            "metadata": {"step_payload": step_payload},
+        }
+        async for event in graph.astream_events(state, config=run_config, version="v2"):
             self._handle_stream_event(step, event, step_manager)
             chunk_messages = self._extract_messages_from_graph_payload(event.get("data", {}).get("chunk"))
             if chunk_messages:

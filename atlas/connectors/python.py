@@ -18,7 +18,13 @@ from atlas.config.models import AdapterUnion
 from atlas.config.models import PythonAdapterConfig
 
 class PythonAdapter(AgentAdapter):
-    """Adapter that calls a user supplied Python function."""
+    """Adapter that calls a user supplied Python function.
+
+    Python adapters support structured payloads by default, enabling BYOA
+    integrations like test harnesses and simulation environments.
+    """
+
+    supports_structured_payloads = True
 
     def __init__(self, config: PythonAdapterConfig):
         self._config = config
