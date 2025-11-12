@@ -95,7 +95,15 @@ class ExecutionContext:
 
     @property
     def metadata(self) -> dict[str, typing.Any]:
-        return self._state.metadata.get()
+        # Ensure metadata dict is initialized by accessing the property first
+        # This triggers ExecutionContextState.metadata property which initializes if None
+        _ = self._state.metadata
+        result = self._state.metadata.get()
+        # Defensive check: ensure we always return a dict
+        if result is None:
+            self._state.metadata.set({})
+            return {}
+        return result
 
     @property
     def active_function(self) -> InvocationNode:

@@ -24,6 +24,7 @@ from atlas.learning.playbook_entries import (
     stabilise_playbook_entry_id,
 )
 from atlas.learning.prompts import LEARNING_SYNTHESIS_PROMPT
+from atlas.learning.schema import build_playbook_entry_schema
 from atlas.runtime.orchestration.execution_context import ExecutionContext
 from atlas.utils.llm_client import LLMClient
 
@@ -105,10 +106,21 @@ class LearningSynthesizer:
         if client is None:
             logger.debug("Learning synthesizer client unavailable; skipping update for %s", learning_key)
             return None
+        
+        # Build JSON schema for structured outputs (Gemini models)
+        json_schema = build_playbook_entry_schema()
+        overrides: Dict[str, Any] = {}
+        if self._is_gemini_model(client.model):
+            # Pass JSON schema via extra_body for Gemini structured outputs
+            overrides["extra_body"] = {
+                "response_json_schema": json_schema
+            }
+        
         try:
             response = await client.acomplete(
                 messages,
                 response_format={"type": "json_object"},
+                overrides=overrides,
             )
             audit_entry = {
                 "model": client.model,
@@ -116,6 +128,7 @@ class LearningSynthesizer:
                 "response": response.content,
                 "reasoning": response.reasoning or {},
                 "raw_response": response.raw,
+                "structured_output": self._is_gemini_model(client.model),
             }
         except Exception as exc:
             logger.warning("Learning synthesis call failed for %s: %s", learning_key, exc)
@@ -123,7 +136,13 @@ class LearningSynthesizer:
 
         parsed = self._try_parse_json(response.content)
         if parsed is None:
-            logger.warning("Learning synthesis returned non-JSON payload for %s", learning_key)
+            logger.error(
+                "Learning synthesis returned non-JSON payload for %s (model: %s). "
+                "Response preview: %s",
+                learning_key,
+                client.model,
+                response.content[:200] if response.content else "empty",
+            )
             return None
 
         result = self._build_result(parsed, learning_state or {})
@@ -678,6 +697,17 @@ class LearningSynthesizer:
             return None
         serialized = "\n".join(sorted(set(notes)))
         return hashlib.sha256(serialized.encode("utf-8")).hexdigest()[:16]
+
+    def _is_gemini_model(self, model: str) -> bool:
+        """Check if model is a Gemini model.
+        
+        Args:
+            model: Model identifier string
+            
+        Returns:
+            True if model is a Gemini model, False otherwise
+        """
+        return model.startswith("gemini/") or model.startswith("google/")
 
     @staticmethod
     def _clean_str(value: Any) -> str | None:
