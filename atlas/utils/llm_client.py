@@ -62,6 +62,17 @@ class LLMClient:
         content, reasoning = self._extract_content(result)
         return LLMResponse(content=content, reasoning=reasoning, raw=result)
 
+    def _is_gemini_model(self, model: str) -> bool:
+        """Check if model is a Gemini model.
+        
+        Args:
+            model: Model identifier string
+            
+        Returns:
+            True if model is a Gemini model, False otherwise
+        """
+        return model.startswith("gemini/") or model.startswith("google/")
+
     def _prepare_kwargs(
         self,
         messages: Sequence[dict[str, Any]],
@@ -87,8 +98,6 @@ class LLMClient:
         if params.max_output_tokens is not None:
             kwargs["max_tokens"] = params.max_output_tokens
         kwargs["timeout"] = params.timeout_seconds
-        if response_format:
-            kwargs["response_format"] = response_format
 
         extra_headers = dict(params.additional_headers)
         override_headers = overrides.pop("extra_headers", None)
@@ -104,6 +113,17 @@ class LLMClient:
                 supports_reasoning = False
         if supports_reasoning and params.reasoning_effort:
             extra_body.setdefault("reasoning_effort", params.reasoning_effort)
+
+        # Handle Gemini structured outputs
+        if response_format and response_format.get("type") == "json_object":
+            if self._is_gemini_model(params.model):
+                # Use Gemini structured outputs via extra_body
+                # response_json_schema should be provided via overrides["extra_body"]
+                extra_body.setdefault("response_mime_type", "application/json")
+                # Don't set response_format for Gemini - it's not supported
+            else:
+                # Use OpenAI-style response_format for non-Gemini models
+                kwargs["response_format"] = response_format
 
         if extra_headers:
             kwargs["extra_headers"] = extra_headers
@@ -179,7 +199,19 @@ class LLMClient:
             if isinstance(last_message, dict):
                 user_content = str(last_message.get("content", ""))
         if response_format and response_format.get("type") == "json_object":
-            if "plan" in user_content:
+            # Check if this looks like a learning synthesis request
+            if "playbook_entry" in user_content or "learning" in user_content.lower():
+                # Return mock playbook_entry.v1 structure
+                payload = {
+                    "version": "playbook_entry.v1",
+                    "student_pamphlet": None,
+                    "teacher_pamphlet": None,
+                    "playbook_entries": [],
+                    "session_student_learning": None,
+                    "session_teacher_learning": None,
+                    "metadata": None
+                }
+            elif "plan" in user_content:
                 payload = {
                     "steps": [
                         {

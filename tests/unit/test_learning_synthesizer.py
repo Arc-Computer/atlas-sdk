@@ -5,6 +5,7 @@ import json
 import pytest
 
 from atlas.config.models import LearningConfig, PlaybookEntrySchemaConfig
+from atlas.learning.schema import build_playbook_entry_schema
 from atlas.learning.synthesizer import LearningSynthesizer
 
 
@@ -16,15 +17,19 @@ class _StubResponse:
 
 
 class _StubLLMClient:
-    def __init__(self, payload: str) -> None:
-        self.model = "stub-learning-model"
+    def __init__(self, payload: str, model: str = "stub-learning-model") -> None:
+        self.model = model
         self._payload = payload
         self.calls = 0
         self.messages = None
+        self.response_format = None
+        self.overrides = None
 
     async def acomplete(self, messages, response_format=None, overrides=None):
         self.calls += 1
         self.messages = messages
+        self.response_format = response_format
+        self.overrides = overrides
         return _StubResponse(self._payload)
 
 
@@ -195,3 +200,117 @@ async def test_learning_synthesizer_rejects_on_gate_failure():
     assert metadata["last_failure"]["rejected_candidates"]
     assert result.playbook_entries[0]["provenance"]["status"]["lifecycle"] == "active"
     assert result.rubric_summary["accepted"] is False
+
+
+def test_build_playbook_entry_schema():
+    """Test that JSON schema is correctly generated."""
+    schema = build_playbook_entry_schema()
+    
+    assert schema["type"] == "object"
+    assert "version" in schema["properties"]
+    assert schema["properties"]["version"]["const"] == "playbook_entry.v1"
+    assert "playbook_entries" in schema["properties"]
+    assert schema["properties"]["playbook_entries"]["type"] == "array"
+    
+    # Check playbook entry structure
+    entry_schema = schema["properties"]["playbook_entries"]["items"]
+    assert "audience" in entry_schema["properties"]
+    assert entry_schema["properties"]["audience"]["enum"] == ["student", "teacher"]
+    assert "cue" in entry_schema["properties"]
+    assert "action" in entry_schema["properties"]
+    assert "scope" in entry_schema["properties"]
+    assert entry_schema["properties"]["scope"]["properties"]["category"]["enum"] == ["reinforcement", "differentiation"]
+
+
+@pytest.mark.asyncio
+async def test_learning_synthesizer_uses_structured_outputs_for_gemini():
+    """Test that Gemini models use structured outputs with JSON schema."""
+    cfg = LearningConfig(
+        enabled=True,
+        update_enabled=True,
+        llm=None,
+        schema=PlaybookEntrySchemaConfig(allowed_runtime_handles=["test_handle"]),
+    )
+    response_payload = json.dumps({
+        "version": "playbook_entry.v1",
+        "student_pamphlet": None,
+        "teacher_pamphlet": None,
+        "playbook_entries": [],
+        "session_student_learning": None,
+        "session_teacher_learning": None,
+        "metadata": None
+    })
+    
+    # Test with Gemini model
+    client = _StubLLMClient(response_payload, model="gemini/gemini-2.5-flash")
+    synthesizer = LearningSynthesizer(cfg, client=client)
+    result = await synthesizer.asynthesize(
+        learning_key="test::agent",
+        task="Test task",
+        reward={"score": 0.8},
+        trajectory=None,
+        learning_state={},
+        history=None,
+    )
+    
+    assert client.calls == 1
+    assert client.response_format == {"type": "json_object"}
+    assert client.overrides is not None
+    assert "extra_body" in client.overrides
+    assert "response_json_schema" in client.overrides["extra_body"]
+    assert client.overrides["extra_body"]["response_json_schema"]["type"] == "object"
+    assert result is not None
+    assert result.audit is not None
+    assert result.audit.get("structured_output") is True
+
+
+@pytest.mark.asyncio
+async def test_learning_synthesizer_backward_compatible_non_gemini():
+    """Test that non-Gemini models still work without structured outputs."""
+    cfg = LearningConfig(
+        enabled=True,
+        update_enabled=True,
+        llm=None,
+        schema=PlaybookEntrySchemaConfig(allowed_runtime_handles=["test_handle"]),
+    )
+    response_payload = json.dumps({
+        "version": "playbook_entry.v1",
+        "student_pamphlet": None,
+        "teacher_pamphlet": None,
+        "playbook_entries": [],
+        "session_student_learning": None,
+        "session_teacher_learning": None,
+        "metadata": None
+    })
+    
+    # Test with OpenAI model
+    client = _StubLLMClient(response_payload, model="gpt-4")
+    synthesizer = LearningSynthesizer(cfg, client=client)
+    result = await synthesizer.asynthesize(
+        learning_key="test::agent",
+        task="Test task",
+        reward={"score": 0.8},
+        trajectory=None,
+        learning_state={},
+        history=None,
+    )
+    
+    assert client.calls == 1
+    assert client.response_format == {"type": "json_object"}
+    # Non-Gemini models should not have structured outputs
+    assert client.overrides is None or "extra_body" not in client.overrides or "response_json_schema" not in client.overrides.get("extra_body", {})
+    assert result is not None
+    assert result.audit is not None
+    assert result.audit.get("structured_output") is False
+
+
+def test_is_gemini_model_detection():
+    """Test Gemini model detection."""
+    synthesizer = LearningSynthesizer(LearningConfig(enabled=False))
+    
+    assert synthesizer._is_gemini_model("gemini/gemini-2.5-flash") is True
+    assert synthesizer._is_gemini_model("gemini/gemini-2.5-pro") is True
+    assert synthesizer._is_gemini_model("google/gemini-pro") is True
+    assert synthesizer._is_gemini_model("gpt-4") is False
+    assert synthesizer._is_gemini_model("claude-3-opus") is False
+    assert synthesizer._is_gemini_model("") is False
