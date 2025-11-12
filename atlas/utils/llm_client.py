@@ -115,7 +115,7 @@ class LLMClient:
             extra_body.setdefault("reasoning_effort", params.reasoning_effort)
 
         # Handle Gemini structured outputs
-        if response_format and response_format.get("type") == "json_object":
+        if response_format and isinstance(response_format, dict) and response_format.get("type") == "json_object":
             if self._is_gemini_model(params.model):
                 # Use Gemini structured outputs via extra_body
                 # response_json_schema should be provided via overrides["extra_body"]

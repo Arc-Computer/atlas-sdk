@@ -298,7 +298,7 @@ async def test_learning_synthesizer_backward_compatible_non_gemini():
     assert client.calls == 1
     assert client.response_format == {"type": "json_object"}
     # Non-Gemini models should not have structured outputs
-    assert client.overrides is None or "extra_body" not in client.overrides or "response_json_schema" not in client.overrides.get("extra_body", {})
+    assert client.overrides is None or client.overrides.get("extra_body", {}).get("response_json_schema") is None
     assert result is not None
     assert result.audit is not None
     assert result.audit.get("structured_output") is False
