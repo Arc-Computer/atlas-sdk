@@ -216,17 +216,20 @@ async def arun(
             capability_probe=capability_probe_client,
         )
         result = await orchestrator.arun(task)
+        # Get current context after orchestrator completes to ensure we access the same
+        # context instance that the orchestrator used (they share the same ExecutionContextState)
+        current_context = ExecutionContext.get()
         if (
             database
             and learning_synthesizer
             and learning_synthesizer.enabled
             and learning_cfg.update_enabled
-            and execution_context.metadata.get("session_reward") is not None
+            and current_context.metadata.get("session_reward") is not None
         ):
-            reward_payload = execution_context.metadata.get("session_reward")
-            trajectory_payload = execution_context.metadata.get("session_trajectory")
-            history_payload = execution_context.metadata.get("learning_history")
-            current_learning_state = execution_context.metadata.get("learning_state") or {}
+            reward_payload = current_context.metadata.get("session_reward")
+            trajectory_payload = current_context.metadata.get("session_trajectory")
+            history_payload = current_context.metadata.get("learning_history")
+            current_learning_state = current_context.metadata.get("learning_state") or {}
             synthesis = await learning_synthesizer.asynthesize(
                 learning_key=learning_key,
                 task=task,
