@@ -53,14 +53,13 @@ The SDK implements that infrastructure so you can focus on training experiments.
 
 ---
 
-## Quick Start
+## Quickstart
 
 > **Note**: Use Python 3.10 or newer before installing. Pip on older interpreters (e.g., 3.9) resolves `arc-atlas` 0.1.0 and the runtime crashes at import time.
 
-**Install and onboard in three commands:**
-
 ```bash
 pip install arc-atlas
+export ANTHROPIC_API_KEY=sk-ant-...  # Or your preferred provider
 atlas env init
 atlas run --config .atlas/generated_config.yaml --task "Your task here"
 ```
@@ -68,30 +67,26 @@ atlas run --config .atlas/generated_config.yaml --task "Your task here"
 **What happens:**
 
 1. **Install** – Install the SDK from PyPI
-2. **Autodiscovery** – `atlas env init` scans your codebase for environment and agent classes, analyzes their structure, and generates a runtime configuration. If no Atlas-ready classes are found, it synthesizes lightweight wrapper factories using LLM-assisted code analysis.
-3. **Run** – `atlas run` executes your agent with the generated config, streams adaptive telemetry, and saves traces to `.atlas/runs/`.
+2. **Autodiscovery** – `atlas env init` intelligently discovers your agent, configures Anthropic models (Claude 4.5 Haiku + Sonnet), enables learning features (few-shot + playbook), and optionally sets up PostgreSQL storage via Docker—all automatically with LLM-driven inference.
+3. **Run** – `atlas run` executes your agent in the dual-agent loop (Student/Teacher), tracks rewards, generates learning playbooks, and saves traces to PostgreSQL.
 
-The generated files (`.atlas/generated_config.yaml`, `.atlas/generated_factories.py`, `.atlas/discover.json`) are repo-aware and mirror your project's prompts, tools, and LLM choices. See [Autodiscovery Guide](docs/guides/introduction.mdx) for details.
+The generated config (`.atlas/generated_config.yaml`) uses production-ready defaults based on runtime evaluation benchmarks:
+- **Student**: Claude Haiku 4.5 (claude-haiku-4-5-20251001) - fast, cost-effective
+- **Teacher**: Claude Sonnet 4.5 (claude-sonnet-4-5-20250929) - powerful, accurate
+- **Learning**: Few-shot prompting + playbook injection enabled by default
+- **Performance**: 0.989 reward score, 20.08s average latency
+
+See [Autodiscovery Guide](docs/guides/introduction.mdx) and [Configuration Guide](docs/configs/configuration.md) for customization.
 
 ### Prerequisites
 
 - Python 3.10+ (3.13 recommended)
-- LLM credentials exported (`OPENAI_API_KEY`, `GEMINI_API_KEY`, etc.) or present in a `.env` file
+- `ANTHROPIC_API_KEY` exported or in `.env` (for default config)
+- Docker installed (optional, for automated PostgreSQL setup)
 
-**Storage (required for rewards and learning):**
+**Custom Providers:**
 
-The SDK works without persistent storage but requires PostgreSQL to store reward signals and learning playbooks. Choose one:
-
-```bash
-# Option 1: Local Postgres via Docker (recommended for getting started)
-atlas init
-
-# Option 2: Add Postgres connection to your config.yaml
-storage:
-  database_url: postgresql://user:pass@host:port/database
-```
-
-Without storage, the SDK runs but rewards and learning history are not persisted.
+While the default configuration uses Anthropic models for optimal performance, you can customize to use any supported provider (OpenAI, Google, Gemini, xAI, Bedrock) by editing `.atlas/generated_config.yaml` after initialization.
 
 ### Try the Quickstart Demo
 

@@ -485,7 +485,7 @@ class LearningConfig(BaseModel):
         description="Where to inject learning playbooks relative to system prompts (prefix=before, suffix=after)",
     )
     inject_few_shot_examples: bool = Field(
-        default=False,
+        default=True,
         description="Whether to append captured cue/adoption examples as few-shot guidance",
     )
     max_few_shot_token_budget: int = Field(
