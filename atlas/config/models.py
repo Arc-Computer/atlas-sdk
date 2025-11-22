@@ -494,6 +494,24 @@ class LearningConfig(BaseModel):
         le=2000,
         description="Approximate token budget for few-shot examples appended to playbooks",
     )
+    token_budget_chars_per_token: float = Field(
+        default=3.5,
+        ge=1.0,
+        le=10.0,
+        description="Conservative multiplier for converting token budget to character budget (default 3.5 chars/token)",
+    )
+    max_entries_to_process: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="Maximum number of learning entries to process when extracting few-shot examples",
+    )
+    max_examples_per_block: int = Field(
+        default=2,
+        ge=1,
+        le=10,
+        description="Maximum number of examples to show per cue/adoption block in few-shot formatting",
+    )
     schema: PlaybookEntrySchemaConfig = Field(default_factory=PlaybookEntrySchemaConfig)
     rubric_weights: PlaybookEntryRubricWeights = Field(default_factory=PlaybookEntryRubricWeights)
     gates: PlaybookEntryGateRules = Field(default_factory=PlaybookEntryGateRules)

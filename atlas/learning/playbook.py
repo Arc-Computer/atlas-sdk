@@ -109,8 +109,33 @@ def extract_few_shot_examples(
     *,
     max_tokens: int = 500,
     redaction_patterns: List[str] | None = None,
+    chars_per_token: float = 3.5,
+    max_entries: int = 10,
+    max_examples_per_block: int = 2,
 ) -> str | None:
-    """Extract and format few-shot examples from learning_usage."""
+    """Extract and format few-shot examples from learning_usage.
+
+    Args:
+        metadata: Playbook metadata dictionary (not currently used for example extraction)
+        role: Either "student" or "teacher" to select which examples to extract
+        max_tokens: Approximate token budget for few-shot examples
+        redaction_patterns: List of regex patterns for redacting sensitive data
+        chars_per_token: Conservative multiplier for token-to-char conversion (default 3.5)
+        max_entries: Maximum number of learning entries to process (default 10)
+        max_examples_per_block: Maximum examples per cue/adoption block (default 2)
+
+    Returns:
+        Formatted few-shot examples string, or None if no examples available
+
+    Example output:
+        >>> Few-Shot Examples >>>
+        Entry abc123:
+          Cue examples:
+            1. investigating latency issues
+          Action examples:
+            1. metrics.query -> success
+        >>> End Few-Shot Examples >>>
+    """
 
     if not isinstance(metadata, dict):
         return None
@@ -131,10 +156,14 @@ def extract_few_shot_examples(
         return None
 
     examples_blocks: List[str] = []
-    char_budget = max_tokens * 4  # Rough estimate: 4 chars ≈ 1 token
+    char_budget = int(max_tokens * chars_per_token)  # Conservative estimate with safety margin
     char_used = 0
+    entries_processed = 0
 
     for entry_id, entry_data in role_usage.items():
+        if entries_processed >= max_entries:
+            break
+
         if not isinstance(entry_data, dict):
             continue
 
@@ -147,13 +176,13 @@ def extract_few_shot_examples(
 
         if cue_examples:
             block_lines.append("  Cue examples:")
-            for idx, example in enumerate(cue_examples[:2], start=1):
+            for idx, example in enumerate(cue_examples[:max_examples_per_block], start=1):
                 redacted = _redact_sensitive_data(str(example), redaction_patterns)
                 block_lines.append(f"    {idx}. {redacted}")
 
         if adoption_examples:
             block_lines.append("  Action examples:")
-            for idx, example in enumerate(adoption_examples[:2], start=1):
+            for idx, example in enumerate(adoption_examples[:max_examples_per_block], start=1):
                 if isinstance(example, dict):
                     tool = example.get("tool_name") or example.get("runtime_handle") or "unknown"
                     status = example.get("status") or ("success" if example.get("success") else "unknown")
@@ -169,14 +198,18 @@ def extract_few_shot_examples(
 
         examples_blocks.append(block_text)
         char_used += block_chars
+        entries_processed += 1
 
     if not examples_blocks:
         return None
 
-    header = ">>> Few-Shot Examples >>>"
-    footer = ">>> End Few-Shot Examples >>>"
-    content = "\n\n".join(examples_blocks)
-    return f"{header}\n{content}\n{footer}"
+    # Use list + join pattern for better performance
+    parts = [
+        ">>> Few-Shot Examples >>>",
+        "\n\n".join(examples_blocks),
+        ">>> End Few-Shot Examples >>>",
+    ]
+    return "\n".join(parts)
 
 
 def _redact_sensitive_data(text: str, patterns: List[str] | None) -> str:

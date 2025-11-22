@@ -1,7 +1,7 @@
 """Unit tests for playbook injection modes and few-shot examples."""
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from atlas.learning.playbook import extract_few_shot_examples, _redact_sensitive_data
 from atlas.runtime.orchestration.execution_context import ExecutionContext
@@ -13,20 +13,32 @@ class TestPlaybookInjectionModes:
     def test_prefix_injection_student(self):
         """Verify that prefix mode places playbook before base prompt in Student."""
         from atlas.personas.student import Student
-        from atlas.config.models import AtlasConfig, AdapterConfig, StudentConfig
-
-        # Create minimal config
-        config = AtlasConfig(
-            agent=AdapterConfig(
-                type="openai",
-                name="test",
-                system_prompt="Base prompt",
-            ),
-            student=StudentConfig(),
+        from atlas.config.models import (
+            AdapterType,
+            LLMParameters,
+            LLMProvider,
+            LitellmAdapterConfig,
+            StudentConfig,
         )
+        from atlas.prompts import build_student_prompts
+
+        # Create proper config
+        adapter_config = LitellmAdapterConfig(
+            type=AdapterType.LITELLM,
+            name="test",
+            system_prompt="Base prompt",
+            tools=[],
+            llm=LLMParameters(
+                provider=LLMProvider.OPENAI,
+                model="gpt-4",
+                api_key_env="OPENAI_API_KEY",
+            ),
+        )
+        student_config = StudentConfig()
+        student_prompts = build_student_prompts("Base prompt", student_config)
 
         # Mock ExecutionContext with prefix mode
-        with patch.object(ExecutionContext, 'get') as mock_ctx:
+        with patch.object(ExecutionContext, "get") as mock_ctx:
             mock_instance = MagicMock()
             mock_instance.metadata = {
                 "learning_injection_mode": "prefix",
@@ -37,30 +49,46 @@ class TestPlaybookInjectionModes:
             }
             mock_ctx.return_value = mock_instance
 
-            student = Student(config)
-            result = student._compose_system_prompt("Base prompt", "Student Playbook")
+            # Mock adapter
+            mock_adapter = AsyncMock()
 
-            # Playbook should come BEFORE base prompt
-            assert "Student Playbook" in result
-            assert "Base prompt" in result
-            assert result.index("Student playbook content") < result.index("Base prompt")
+            with patch("atlas.connectors.langchain_bridge.build_bridge", return_value=(AsyncMock(), [])):
+                student = Student(mock_adapter, adapter_config, student_config, student_prompts)
+                result = student._compose_system_prompt("Base prompt", "Student Playbook")
+
+                # Playbook should come BEFORE base prompt
+                assert "Student Playbook" in result
+                assert "Base prompt" in result
+                assert result.index("Student playbook content") < result.index("Base prompt")
 
     def test_suffix_injection_student(self):
         """Verify that suffix mode places playbook after base prompt in Student."""
         from atlas.personas.student import Student
-        from atlas.config.models import AtlasConfig, AdapterConfig, StudentConfig
-
-        config = AtlasConfig(
-            agent=AdapterConfig(
-                type="openai",
-                name="test",
-                system_prompt="Base prompt",
-            ),
-            student=StudentConfig(),
+        from atlas.config.models import (
+            AdapterType,
+            LLMParameters,
+            LLMProvider,
+            LitellmAdapterConfig,
+            StudentConfig,
         )
+        from atlas.prompts import build_student_prompts
+
+        adapter_config = LitellmAdapterConfig(
+            type=AdapterType.LITELLM,
+            name="test",
+            system_prompt="Base prompt",
+            tools=[],
+            llm=LLMParameters(
+                provider=LLMProvider.OPENAI,
+                model="gpt-4",
+                api_key_env="OPENAI_API_KEY",
+            ),
+        )
+        student_config = StudentConfig()
+        student_prompts = build_student_prompts("Base prompt", student_config)
 
         # Mock ExecutionContext with suffix mode
-        with patch.object(ExecutionContext, 'get') as mock_ctx:
+        with patch.object(ExecutionContext, "get") as mock_ctx:
             mock_instance = MagicMock()
             mock_instance.metadata = {
                 "learning_injection_mode": "suffix",
@@ -71,25 +99,38 @@ class TestPlaybookInjectionModes:
             }
             mock_ctx.return_value = mock_instance
 
-            student = Student(config)
-            result = student._compose_system_prompt("Base prompt", "Student Playbook")
+            mock_adapter = AsyncMock()
 
-            # Playbook should come AFTER base prompt
-            assert "Student Playbook" in result
-            assert "Base prompt" in result
-            assert result.index("Base prompt") < result.index("Student playbook content")
+            with patch("atlas.connectors.langchain_bridge.build_bridge", return_value=(AsyncMock(), [])):
+                student = Student(mock_adapter, adapter_config, student_config, student_prompts)
+                result = student._compose_system_prompt("Base prompt", "Student Playbook")
+
+                # Playbook should come AFTER base prompt
+                assert "Student Playbook" in result
+                assert "Base prompt" in result
+                assert result.index("Base prompt") < result.index("Student playbook content")
 
     def test_prefix_injection_teacher(self):
         """Verify that prefix mode places playbook before base prompt in Teacher."""
         from atlas.personas.teacher import Teacher
-        from atlas.config.models import AtlasConfig, TeacherConfig
+        from atlas.config.models import LLMParameters, LLMProvider, TeacherConfig
+        from atlas.prompts import RewrittenTeacherPrompts
 
-        config = AtlasConfig(
-            teacher=TeacherConfig(),
+        config = TeacherConfig(
+            llm=LLMParameters(
+                provider=LLMProvider.OPENAI,
+                model="gpt-4",
+                api_key_env="OPENAI_API_KEY",
+            ),
+        )
+        prompts = RewrittenTeacherPrompts(
+            plan_review="Review plans",
+            validation="Validate output",
+            guidance="Provide guidance",
         )
 
         # Mock ExecutionContext with prefix mode
-        with patch.object(ExecutionContext, 'get') as mock_ctx:
+        with patch.object(ExecutionContext, "get") as mock_ctx:
             mock_instance = MagicMock()
             mock_instance.metadata = {
                 "learning_injection_mode": "prefix",
@@ -100,7 +141,7 @@ class TestPlaybookInjectionModes:
             }
             mock_ctx.return_value = mock_instance
 
-            teacher = Teacher(config)
+            teacher = Teacher(config, prompts)
             result = teacher._decorate_prompt("Base prompt", "Teacher playbook content", {})
 
             # Playbook should come BEFORE base prompt
@@ -111,14 +152,24 @@ class TestPlaybookInjectionModes:
     def test_suffix_injection_teacher(self):
         """Verify that suffix mode places playbook after base prompt in Teacher."""
         from atlas.personas.teacher import Teacher
-        from atlas.config.models import AtlasConfig, TeacherConfig
+        from atlas.config.models import LLMParameters, LLMProvider, TeacherConfig
+        from atlas.prompts import RewrittenTeacherPrompts
 
-        config = AtlasConfig(
-            teacher=TeacherConfig(),
+        config = TeacherConfig(
+            llm=LLMParameters(
+                provider=LLMProvider.OPENAI,
+                model="gpt-4",
+                api_key_env="OPENAI_API_KEY",
+            ),
+        )
+        prompts = RewrittenTeacherPrompts(
+            plan_review="Review plans",
+            validation="Validate output",
+            guidance="Provide guidance",
         )
 
         # Mock ExecutionContext with suffix mode
-        with patch.object(ExecutionContext, 'get') as mock_ctx:
+        with patch.object(ExecutionContext, "get") as mock_ctx:
             mock_instance = MagicMock()
             mock_instance.metadata = {
                 "learning_injection_mode": "suffix",
@@ -129,7 +180,7 @@ class TestPlaybookInjectionModes:
             }
             mock_ctx.return_value = mock_instance
 
-            teacher = Teacher(config)
+            teacher = Teacher(config, prompts)
             result = teacher._decorate_prompt("Base prompt", "Teacher playbook content", {})
 
             # Playbook should come AFTER base prompt
@@ -144,7 +195,7 @@ class TestFewShotExamples:
     def test_few_shot_budget_enforcement(self):
         """Verify that token budget is enforced for few-shot examples."""
         # Mock ExecutionContext with learning_usage containing examples
-        with patch.object(ExecutionContext, 'get') as mock_ctx:
+        with patch.object(ExecutionContext, "get") as mock_ctx:
             mock_instance = MagicMock()
             mock_instance.metadata = {
                 "learning_usage": {
@@ -174,22 +225,15 @@ class TestFewShotExamples:
                 redaction_patterns=[],
             )
 
-            # Should limit content based on budget
+            # Should limit content based on budget (3.5 chars per token = 175 chars max)
             if result:
-                # Rough estimate: 4 chars per token, so 50 tokens = 200 chars max
                 assert len(result) < 300  # Allow some overhead for formatting
 
     def test_few_shot_no_examples(self):
         """Verify that None is returned when no examples available."""
-        with patch.object(ExecutionContext, 'get') as mock_ctx:
+        with patch.object(ExecutionContext, "get") as mock_ctx:
             mock_instance = MagicMock()
-            mock_instance.metadata = {
-                "learning_usage": {
-                    "roles": {
-                        "student": {}
-                    }
-                }
-            }
+            mock_instance.metadata = {"learning_usage": {"roles": {"student": {}}}}
             mock_ctx.return_value = mock_instance
 
             result = extract_few_shot_examples(
@@ -203,7 +247,7 @@ class TestFewShotExamples:
 
     def test_few_shot_example_formatting(self):
         """Verify that few-shot examples are properly formatted."""
-        with patch.object(ExecutionContext, 'get') as mock_ctx:
+        with patch.object(ExecutionContext, "get") as mock_ctx:
             mock_instance = MagicMock()
             mock_instance.metadata = {
                 "learning_usage": {

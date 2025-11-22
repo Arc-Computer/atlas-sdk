@@ -341,11 +341,17 @@ class Teacher:
             inject_examples = bool(context.metadata.get("learning_inject_few_shot", False))
             token_budget = int(context.metadata.get("learning_few_shot_token_budget", 0) or 0)
             redaction_patterns = context.metadata.get("learning_redaction_patterns") or []
+            chars_per_token = float(context.metadata.get("learning_chars_per_token", 3.5))
+            max_entries = int(context.metadata.get("learning_max_entries", 10))
+            max_examples_per_block = int(context.metadata.get("learning_max_examples_per_block", 2))
         except Exception:
             inject_mode = "prefix"
             inject_examples = False
             token_budget = 0
             redaction_patterns = []
+            chars_per_token = 3.5
+            max_entries = 10
+            max_examples_per_block = 2
 
         if inject_examples and playbook:
             examples_block = extract_few_shot_examples(
@@ -353,6 +359,9 @@ class Teacher:
                 "teacher",
                 max_tokens=token_budget,
                 redaction_patterns=redaction_patterns,
+                chars_per_token=chars_per_token,
+                max_entries=max_entries,
+                max_examples_per_block=max_examples_per_block,
             )
             if examples_block:
                 playbook = f"{playbook}\n\n{examples_block}"
