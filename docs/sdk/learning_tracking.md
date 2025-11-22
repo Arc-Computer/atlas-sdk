@@ -56,7 +56,7 @@ def my_adapter(prompt: str, metadata: Dict[str, Any] | None = None) -> str:
     return result
 ```
 
-That's it. These five calls enable full learning tracking.
+That's it. These five steps (get_tracker plus four tracking calls) enable full learning tracking.
 
 ## Core Concepts
 

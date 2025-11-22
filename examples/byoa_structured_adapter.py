@@ -76,7 +76,6 @@ def structured_adapter(prompt: str, metadata: Dict[str, Any] | None = None) -> s
                 }
             ]
         }
-        import json
         return json.dumps(plan)
 
     elif mode == "execution" or step_payload:
@@ -102,7 +101,6 @@ def structured_adapter(prompt: str, metadata: Dict[str, Any] | None = None) -> s
 
         # Example: Return structured output with tool call
         # For harness integrations, this would be the ground-truth tool call
-        import json
         output = {
             "tool_name": "example_tool",
             "arguments": {"task": task_payload},
@@ -141,7 +139,6 @@ def harness_adapter_example(prompt: str, metadata: Dict[str, Any] | None = None)
     if mode == "planning":
         # Load test scenario steps from dataset
         # For this example, we'll use a simple hardcoded plan
-        import json
         return json.dumps({
             "steps": [
                 {"id": 1, "description": "Setup test environment", "depends_on": []},
@@ -167,7 +164,6 @@ def harness_adapter_example(prompt: str, metadata: Dict[str, Any] | None = None)
         step_id = step.get("step_id", 0)
 
         # Simulated harness execution
-        import json
         result = {
             "turn_id": step_id,
             "tool_call": {
@@ -193,10 +189,11 @@ def learning_enabled_adapter(prompt: str, metadata: Dict[str, Any] | None = None
     - Session outcome recording
 
     This example shows the five core learning tracking calls:
-    1. resolve_playbook() - Retrieves and auto-registers playbook entries
-    2. detect_and_record() - Detects cue hits from text
-    3. record_action_adoption() - Tracks when tools are adopted
-    4. record_session_outcome() - Records final metrics
+    1. get_tracker() - Accesses the tracker from ExecutionContext
+    2. resolve_playbook() - Retrieves and auto-registers playbook entries
+    3. detect_and_record() - Detects cue hits from text
+    4. record_action_adoption() - Tracks when tools are adopted
+    5. record_session_outcome() - Records final metrics
 
     See docs/sdk/learning_tracking.md for detailed guide.
 
