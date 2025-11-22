@@ -573,6 +573,35 @@ def _summarise_capabilities(candidate: Candidate) -> str:
     return f"(caps:{flags})"
 
 
+def _validate_database_connection(url: str, timeout_seconds: float = 5.0) -> bool:
+    """Validate that database connection is accessible and functional.
+
+    Args:
+        url: PostgreSQL connection URL
+        timeout_seconds: Connection timeout in seconds
+
+    Returns:
+        True if connection successful, False otherwise
+    """
+    try:
+        import asyncio
+        import asyncpg
+
+        async def test_connection():
+            try:
+                conn = await asyncpg.connect(url, timeout=timeout_seconds)
+                # Test that we can actually query
+                await conn.fetchval("SELECT 1")
+                await conn.close()
+                return True
+            except Exception:
+                return False
+
+        return asyncio.run(test_connection())
+    except Exception:
+        return False
+
+
 def _setup_storage_if_needed(interactive: bool = True) -> str | None:
     """Set up PostgreSQL storage via Docker if needed.
 
@@ -580,10 +609,12 @@ def _setup_storage_if_needed(interactive: bool = True) -> str | None:
         interactive: Whether to prompt user for confirmation
 
     Returns:
-        Database URL if setup succeeded, None otherwise
+        Database URL if setup succeeded and connection validated, None otherwise
     """
     # Check if storage is already configured
     import subprocess
+
+    database_url = "postgresql://atlas:atlas@localhost:5433/atlas"
 
     try:
         result = subprocess.run(
@@ -593,8 +624,19 @@ def _setup_storage_if_needed(interactive: bool = True) -> str | None:
             timeout=5,
         )
         if "atlas-postgres" in result.stdout:
-            # Already running
-            return "postgresql://atlas:atlas@localhost:5433/atlas"
+            # Container is running - validate actual connection
+            if _validate_database_connection(database_url):
+                return database_url
+            else:
+                # Container running but connection failed
+                print("\n✗ Database connection failed")
+                print("   The PostgreSQL container is running but not accepting connections.")
+                print("   This usually means the schema needs initialization.")
+                print()
+                print("   Fix: Run `atlas init` to reinitialize the database")
+                print("   Debug: Use `docker logs atlas-postgres` to see container logs")
+                print("   Learn more: https://docs.arc.computer/sdk/quickstart\n")
+                return None
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
 
@@ -604,10 +646,18 @@ def _setup_storage_if_needed(interactive: bool = True) -> str | None:
             from atlas.cli.progress import print_storage_setup_prompt
 
             if not print_storage_setup_prompt():
+                print("\nℹ  Running without persistent storage")
+                print("   Your agent will execute tasks normally, but session data won't be saved.")
+                print("   To enable learning and training data collection, run: atlas init")
+                print("   Learn more: https://docs.arc.computer/sdk/quickstart\n")
                 return None
         except ImportError:
             response = input("\nSet up PostgreSQL storage? [Y/n]: ").strip().lower()
             if response not in ("", "y", "yes"):
+                print("\nℹ  Running without persistent storage")
+                print("   Your agent will execute tasks normally, but session data won't be saved.")
+                print("   To enable learning and training data collection, run: atlas init")
+                print("   Learn more: https://docs.arc.computer/sdk/quickstart\n")
                 return None
 
     # Run atlas init equivalent
@@ -628,16 +678,37 @@ def _setup_storage_if_needed(interactive: bool = True) -> str | None:
             timeout=60,
         )
 
-        database_url = "postgresql://atlas:atlas@localhost:5433/atlas"
+        # Wait for PostgreSQL to be ready (container may take a few seconds to initialize)
+        import time
 
-        try:
-            from atlas.cli.progress import print_storage_setup_success
+        max_wait_seconds = 30
+        wait_interval = 2
+        elapsed = 0
 
-            print_storage_setup_success(database_url)
-        except ImportError:
-            print(f"✓ Storage ready: {database_url}")
+        while elapsed < max_wait_seconds:
+            if _validate_database_connection(database_url, timeout_seconds=2.0):
+                # Connection successful
+                try:
+                    from atlas.cli.progress import print_storage_setup_success
 
-        return database_url
+                    print_storage_setup_success(database_url)
+                except ImportError:
+                    print(f"✓ Storage ready: {database_url}")
+
+                return database_url
+
+            time.sleep(wait_interval)
+            elapsed += wait_interval
+
+        # Timeout waiting for database to be ready
+        print("\n✗ Database initialization timeout")
+        print("   The PostgreSQL container started but didn't respond within 30 seconds.")
+        print("   This usually happens on first launch when Docker is pulling the image.")
+        print()
+        print("   Fix: Wait 30 seconds, then run `atlas init` again")
+        print("   Debug: Use `docker logs atlas-postgres` to check initialization progress")
+        print("   Learn more: https://docs.arc.computer/sdk/quickstart\n")
+        return None
 
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
         try:
