@@ -20,7 +20,7 @@ from atlas.types import Plan
 from atlas.types import Step
 from atlas.utils.digest import json_digest, normalise_json
 from atlas.utils.llm_client import LLMClient
-from atlas.learning.playbook import resolve_playbook
+from atlas.learning.playbook import extract_few_shot_examples, resolve_playbook
 
 logger = logging.getLogger(__name__)
 
@@ -335,9 +335,38 @@ class Teacher:
         playbook: str | None,
         metadata: Dict[str, Any] | None,
     ) -> str:
+        try:
+            context = ExecutionContext.get()
+            inject_mode = context.metadata.get("learning_injection_mode", "prefix")
+            inject_examples = bool(context.metadata.get("learning_inject_few_shot", False))
+            token_budget = int(context.metadata.get("learning_few_shot_token_budget", 0) or 0)
+            redaction_patterns = context.metadata.get("learning_redaction_patterns") or []
+        except Exception:
+            inject_mode = "prefix"
+            inject_examples = False
+            token_budget = 0
+            redaction_patterns = []
+
+        if inject_examples and playbook:
+            examples_block = extract_few_shot_examples(
+                metadata,
+                "teacher",
+                max_tokens=token_budget,
+                redaction_patterns=redaction_patterns,
+            )
+            if examples_block:
+                playbook = f"{playbook}\n\n{examples_block}"
+
         base = base_prompt.strip()
         block = self._format_playbook_block(playbook, metadata)
-        segments = [segment for segment in (block, base) if segment]
+
+        # Injection mode: prefix (playbook first) or suffix (playbook after base prompt for KV cache)
+        if inject_mode == "suffix":
+            segments = [base, block]
+        else:  # prefix (default)
+            segments = [block, base]
+
+        segments = [segment for segment in segments if segment]
         return "\n\n".join(segments) if segments else ""
 
     def _record_teacher_cue_hits(self, step: Step, payload: Dict[str, Any], playbook: str | None) -> None:

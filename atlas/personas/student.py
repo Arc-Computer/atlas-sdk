@@ -31,7 +31,7 @@ from atlas.runtime.agent_loop.tool_loop import ToolCallAgentGraphState
 from atlas.prompts import RewrittenStudentPrompts
 from atlas.types import Plan
 from atlas.types import Step
-from atlas.learning.playbook import resolve_playbook
+from atlas.learning.playbook import extract_few_shot_examples, resolve_playbook
 from atlas.learning.usage import get_tracker
 
 logger = logging.getLogger(__name__)
@@ -491,9 +491,38 @@ class Student:
 
     def _compose_system_prompt(self, base_prompt: str, label: str) -> str:
         playbook, _, metadata = resolve_playbook("student", apply=self._apply_learning_prompts)
+        try:
+            context = ExecutionContext.get()
+            inject_mode = context.metadata.get("learning_injection_mode", "prefix")
+            inject_examples = bool(context.metadata.get("learning_inject_few_shot", False))
+            token_budget = int(context.metadata.get("learning_few_shot_token_budget", 0) or 0)
+            redaction_patterns = context.metadata.get("learning_redaction_patterns") or []
+        except Exception:
+            inject_mode = "prefix"
+            inject_examples = False
+            token_budget = 0
+            redaction_patterns = []
+
+        if inject_examples and playbook:
+            examples_block = extract_few_shot_examples(
+                metadata,
+                "student",
+                max_tokens=token_budget,
+                redaction_patterns=redaction_patterns,
+            )
+            if examples_block:
+                playbook = f"{playbook}\n\n{examples_block}"
+
         block = self._format_playbook_block(label, playbook, metadata, role="student")
         base = base_prompt.strip()
-        segments = [segment for segment in (block, base) if segment]
+
+        # Injection mode: prefix (playbook first) or suffix (playbook after base prompt for KV cache)
+        if inject_mode == "suffix":
+            segments = [base, block]
+        else:  # prefix (default)
+            segments = [block, base]
+
+        segments = [segment for segment in segments if segment]
         return "\n\n".join(segments) if segments else ""
 
     def _record_student_cue_hits(self, text: str, step_id: int) -> None:

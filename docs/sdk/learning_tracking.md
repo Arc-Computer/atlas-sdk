@@ -350,6 +350,25 @@ This ensures all sessions share the same learning state across restarts.
 - **A/B testing:** Use different keys for control vs experimental groups
 - **Evaluation runs:** Use fixed key with date/version identifier
 
+## Few-Shot Examples and Injection Modes
+
+Atlas can optionally append captured examples as demonstrations to improve adoption and transfer while keeping the base prompt cacheable:
+
+```yaml
+learning:
+  playbook_injection_mode: suffix      # prefix | suffix (default: prefix)
+  inject_few_shot_examples: true
+  max_few_shot_token_budget: 500       # Rough budget for examples
+  usage_tracking:
+    capture_examples: true
+    max_examples_per_entry: 3
+    redaction_patterns:
+      - "\\b\\d{4}-\\d{2}-\\d{2}\\b"
+      - "\\b[A-Z]{2,}-\\d+\\b"
+```
+
+- **Suffix injection** keeps the static system prompt first, improving KV cache reuse while still applying learning guidance; **few-shot examples** are drawn from `cue_examples` and `adoption_examples`, redacted via `redaction_patterns`, and capped by `max_few_shot_token_budget`.
+
 ## Troubleshooting
 
 ### Adoptions Show 0 Despite Tool Execution

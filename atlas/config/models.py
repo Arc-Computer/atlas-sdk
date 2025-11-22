@@ -447,6 +447,15 @@ class LearningUsageConfig(BaseModel):
     enabled: bool = True
     capture_examples: bool = False
     max_examples_per_entry: int = Field(default=2, ge=0, le=20)
+    redaction_patterns: List[str] = Field(
+        default_factory=lambda: [
+            r"\\b\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}",
+            r"\\b\\d{4}-\\d{2}-\\d{2}\\b",
+            r"\\b[A-Z]{2,}-\\d+\\b",
+            r"\\b(?:incident|ticket|case)[-_\\s]?\\d+\\b",
+        ],
+        description="Regex patterns used to redact sensitive data from captured examples",
+    )
 
 
 class LearningConfig(BaseModel):
@@ -471,6 +480,20 @@ class LearningConfig(BaseModel):
     history_limit: int = Field(default=10, ge=1, le=200)
     session_note_enabled: bool = True
     apply_to_prompts: bool = True
+    playbook_injection_mode: Literal["prefix", "suffix"] = Field(
+        default="prefix",
+        description="Where to inject learning playbooks relative to system prompts (prefix=before, suffix=after)",
+    )
+    inject_few_shot_examples: bool = Field(
+        default=False,
+        description="Whether to append captured cue/adoption examples as few-shot guidance",
+    )
+    max_few_shot_token_budget: int = Field(
+        default=500,
+        ge=0,
+        le=2000,
+        description="Approximate token budget for few-shot examples appended to playbooks",
+    )
     schema: PlaybookEntrySchemaConfig = Field(default_factory=PlaybookEntrySchemaConfig)
     rubric_weights: PlaybookEntryRubricWeights = Field(default_factory=PlaybookEntryRubricWeights)
     gates: PlaybookEntryGateRules = Field(default_factory=PlaybookEntryGateRules)

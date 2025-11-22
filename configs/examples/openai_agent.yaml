@@ -62,7 +62,12 @@ learning:
     enforce_cue: true
   # Optional: Tune learning behavior (all have sensible defaults)
   # history_limit: 10          # How many recent runs to review (default: 10)
-  # apply_to_prompts: true    # Inject learning into prompts (default: true)
+  # apply_to_prompts: true     # Inject learning into prompts (default: true)
+  # playbook_injection_mode: suffix  # KV cache optimization: "prefix" (default) or "suffix"
+  #                            # Use "suffix" for LiteLLM/OpenAI adapters to preserve static
+  #                            # prompt prefix and enable KV cache reuse. See docs/sdk/learning_tracking.md
+  # inject_few_shot_examples: true   # Append captured examples to playbooks (default: false)
+  # max_few_shot_token_budget: 500   # Token budget for few-shot examples (default: 500)
   # pruning_config:            # Tune when entries are pruned based on metrics
   #   min_sessions: 10         # Minimum sessions before pruning (default: 10)
   #   min_cue_hit_rate: 0.05   # Minimum cue hit rate to avoid "too specific" (default: 0.05)
