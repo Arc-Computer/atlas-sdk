@@ -54,3 +54,4 @@ atlas-postgres.yaml
 results/
 .atlas/
 .DS_Store
+CLAUDE.md
