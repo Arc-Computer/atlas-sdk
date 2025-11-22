@@ -1,35 +1,55 @@
-# Atlas SDK Autodiscovery
+# Getting Started with Atlas SDK
 
-Atlas now supports an onboarding flow for self-managed, stateful agents. You can go from installation to a working `atlas run` session in three commands:
+Atlas wraps your existing agent with a dual-agent learning system. The onboarding flow takes you from installation to collecting training data in under 5 minutes:
 
 ```bash
 pip install arc-atlas
+export ANTHROPIC_API_KEY=sk-ant-...
 atlas env init
-atlas run --task "Investigate the incident summary"
+atlas run --task "Your task here"
 ```
 
-Before you run the CLI, make sure your project's own dependencies (database drivers, API keys, etc.) are installed alongside `arc-atlas`. Discovery is side-effect safe, but the follow-up validation step needs those services online.
+## What `atlas env init` Does
 
-What `atlas env init` does:
+The initialization command discovers your agent and generates production-ready configuration:
 
-- scans for `@atlas.environment` / `@atlas.agent` classes and analyses how they interact
-- if no Atlas-ready classes are found, harvests README snippets, dependency metadata, and entry points, then asks the LLM to synthesise lightweight wrapper classes plus their factories
-- writes the resulting factories to `.atlas/generated_factories.py`, notes the selected runtime mode (`capabilities.preferred_mode` + `orchestration.forced_mode`), and records preflight guidance in `.atlas/discover.json`
-- sets `ATLAS_DISCOVERY_VALIDATE=0` and auto-skips the sample run when prerequisites are missing; rerun `atlas env init` once dependencies are satisfied to regenerate and validate factories and capture the baseline trajectory
+1. **Scans your codebase** for agent classes (decorated with `@agent` or matching agent patterns)
+2. **Selects the best candidate** using LLM-based analysis of your code structure
+3. **Generates Atlas configuration** using Anthropic defaults:
+   - Student: Claude Haiku 4.5 (fast, cost-effective)
+   - Teacher: Claude Sonnet 4.5 (powerful, accurate)
+   - Learning: Few-shot prompting + playbook injection enabled
+4. **Sets up PostgreSQL storage** (optional, via Docker) for training data persistence
 
-Wrapper synthesised by the LLM are tagged as `auto_wrapped` in `discover.json` and live alongside the other factories. They default to auto-skip until you explicitly validate them.
+The entire process requires zero manual intervention. The generated configuration is saved to `.atlas/generated_config.yaml` and uses defaults optimized from runtime evaluation benchmarks (0.989 reward score, 20.08s average latency).
 
-Once discovery succeeds, `atlas run` reuses the cached metadata, verifies that the source files still match the recorded hashes, and executes the agent loop while streaming telemetry into `.atlas/runs/`.
+## Generated Files
 
-The generated files include:
+After running `atlas env init`, you'll have:
 
-- `.atlas/generated_factories.py` – auto-generated factories for constructor arguments that are discovered via the LLM synthesizer
-- `.atlas/discover.json` – module hashes, inferred handshake, schema hints, telemetry samples, and reward observations from discovery
-- `.atlas/runs/` – JSON artefacts storing telemetry and reward traces for each `atlas run` execution
+- `.atlas/generated_config.yaml` – Atlas runtime configuration with Anthropic defaults
+- `.atlas/generated_factories.py` – Adapter factories for your agent (if needed)
 
-If you change your environment or agent implementation, re-run `atlas env init` to refresh the cached metadata before calling `atlas run` again. The [Agent Quickstart](docs/sdk/quickstart.mdx) walks through the full onboarding flow and highlights how to validate the generated factories.
+## Custom Providers
 
-Once telemetry is flowing into Postgres, use the `scripts/report_learning.py` helper (documented in [Learning Evaluation](docs/evaluation/learning_eval.md)) to compare learning trajectories. It stitches together `sessions`, `trajectory_events`, and `discovery_runs` via `learning_key` so you can track reward deltas and adaptive mode shifts over time.
+While the default uses Anthropic models for optimal performance, you can edit `.atlas/generated_config.yaml` to use any supported provider (OpenAI, Google, Gemini, xAI, Bedrock).
+
+## Training Data Access
+
+Once storage is configured, runtime sessions stream to PostgreSQL automatically. Use the training data API to access sessions for model training:
+
+```python
+from atlas.training_data import get_training_sessions
+
+sessions = get_training_sessions(
+    db_url="postgresql://atlas:atlas@localhost:5433/atlas",
+    min_reward=0.7,
+    review_status_filters=["approved"],
+    limit=100
+)
+```
+
+See the [Learning Evaluation](docs/evaluation/learning_eval.md) guide for details on using learning reports to track reward deltas and adaptive mode shifts over time.
 
 ## Leaner paired-mode validation
 

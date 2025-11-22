@@ -8,12 +8,17 @@ The `atlas quickstart` command demonstrates Atlas learning capabilities with a s
 # Install Atlas SDK
 pip install arc-atlas
 
-# Set your API key
-export OPENAI_API_KEY=sk-...
+# Set your API key (Anthropic recommended)
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# Initialize your environment
+atlas env init
 
 # Run the quickstart demonstration
 atlas quickstart
 ```
+
+The default configuration uses Claude Haiku 4.5 (student) and Claude Sonnet 4.5 (teacher) with few-shot prompting and playbook learning enabled.
 
 ## What You'll See
 

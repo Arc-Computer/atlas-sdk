@@ -53,11 +53,9 @@ The SDK implements that infrastructure so you can focus on training experiments.
 
 ---
 
-## Quick Start
+## Quickstart
 
 > **Note**: Use Python 3.10 or newer before installing. Pip on older interpreters (e.g., 3.9) resolves `arc-atlas` 0.1.0 and the runtime crashes at import time.
-
-**From agent to training data in under 5 minutes:**
 
 ```bash
 pip install arc-atlas
