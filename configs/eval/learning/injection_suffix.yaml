@@ -1,0 +1,174 @@
+# Playbook Injection Mode Experiment: SUFFIX (KV Cache Optimization)
+#
+# This config uses suffix mode where learning playbooks are injected AFTER
+# the base system prompt. This preserves the static prompt prefix across
+# sessions, enabling KV cache reuse.
+#
+# Expected behavior: Base prompt stays constant at the start, playbook varies
+# at the end. LLM providers (OpenAI, Anthropic, etc.) can cache the static
+# prefix, improving latency and reducing token costs.
+#
+# Compare with injection_prefix.yaml to measure:
+# - Latency improvements (faster response times)
+# - Token usage reduction (cached prefix not reprocessed)
+# - Reward score changes (does injection order affect performance?)
+
+agent:
+  type: litellm
+  name: injection-mode-suffix-experiment
+  system_prompt: |
+    You are the Atlas Student incident responder. Investigate incidents methodically using available tools.
+    For each incident:
+    1. Use logs.search and metrics.query to gather evidence
+    2. Identify root causes and contributing factors
+    3. Recommend specific mitigation steps
+    4. Provide clear communication for stakeholders
+
+    Be concise, actionable, and evidence-based in your analysis.
+  tools: []
+  llm:
+    provider: openai
+    model: gpt-5-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.2
+    max_output_tokens: 4096
+    timeout_seconds: 240
+  response_format: null
+
+student:
+  max_plan_tokens: 4096
+  max_step_tokens: 4096
+  max_synthesis_tokens: 2048
+  tool_choice: auto
+
+teacher:
+  llm:
+    provider: openai
+    model: gpt-5-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.1
+    max_output_tokens: 4096
+    timeout_seconds: 240
+
+orchestration:
+  max_retries: 1
+  step_timeout_seconds: 900
+
+rim:
+  small_model:
+    provider: openai
+    model: gpt-5-mini
+    api_key_env: OPENAI_API_KEY
+    max_output_tokens: 8096
+  large_model:
+    provider: openai
+    model: gpt-5-mini
+    api_key_env: OPENAI_API_KEY
+    max_output_tokens: 8096
+  judge_prompt: 'reward the agent for attending the issues mentioned in the task'
+  variance_threshold: 0.15
+  uncertainty_threshold: 0.3
+
+storage:
+  database_url: postgresql://atlas:atlas@localhost:5433/atlas
+  min_connections: 1
+  max_connections: 5
+  statement_timeout_seconds: 30
+
+learning:
+  enabled: true
+  update_enabled: true
+
+  # EXPERIMENT: SUFFIX MODE (KV cache optimization)
+  # Playbook injected AFTER system prompt to preserve static prefix
+  playbook_injection_mode: suffix
+
+  # EXPERIMENT: Few-shot examples enabled
+  # Append captured cue/adoption examples to playbook for improved performance
+  inject_few_shot_examples: true
+  max_few_shot_token_budget: 500
+
+  llm:
+    provider: openai
+    model: gpt-5-mini
+    api_key_env: OPENAI_API_KEY
+    temperature: 0.2
+    max_output_tokens: 8192
+    timeout_seconds: 120
+
+  history_limit: 10
+  apply_to_prompts: true
+
+  schema:
+    allowed_runtime_handles:
+      - logs.search
+      - logs.tail
+      - logs.filter
+      - metrics.query
+      - metrics.compare
+      - metrics.alert_ack
+      - data.query.run
+      - data.query.sql
+      - data.query.vector
+      - alerts.notify
+      - alerts.page
+      - tickets.escalate
+      - tickets.create
+      - tickets.update
+      - workflows.retry
+      - workflows.rollback
+      - workflows.trigger
+      - incidents.open
+      - incidents.update
+      - incidents.close
+      - runbooks.fetch
+      - runbooks.update
+      - security.rotate_credentials
+      - security.patch.apply
+      - diagnostics.trace.inspect
+    runtime_handle_prefixes:
+      - logs.
+      - metrics.
+      - data.
+      - alerts.
+      - tickets.
+      - workflows.
+      - incidents.
+      - runbooks.
+      - security.
+      - diagnostics.
+      - automation.
+      - playbooks.
+    default_scope_category: reinforcement
+
+  usage_tracking:
+    enabled: true
+    capture_examples: true
+    max_examples_per_entry: 3
+    redaction_patterns:
+      - "\\b\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"  # ISO timestamps
+      - "\\b\\d{4}-\\d{2}-\\d{2}\\b"                     # Dates
+      - "\\b[A-Z]{2,}-\\d+\\b"                           # IDs like INC-123
+
+  gates:
+    enforce_actionability: false  # Allow cognitive learnings without tools
+    enforce_cue: true
+    max_text_length: 420
+    allowed_proper_nouns:
+      - SQL
+      - HTTP
+      - JSON
+      - Atlas
+      - API
+      - Reward
+      - Include
+    banned_incident_tokens:
+      - postmortem
+    allow_length_overflow_margin: 40
+
+metadata:
+  experiment:
+    name: 20251122_injection_mode_suffix_with_examples
+    learning_key: runtime.injection_experiment.suffix
+    seed: 20251122
+    description: "Suffix mode with few-shot examples - playbook after system prompt for KV cache reuse"

@@ -111,6 +111,14 @@ async def arun(
     base_teacher_prompts = build_teacher_prompts(base_prompt, config.teacher)
     learning_cfg = getattr(config, "learning", LearningConfig())
     apply_learning_prompts = getattr(learning_cfg, "apply_to_prompts", True)
+    injection_mode = getattr(learning_cfg, "playbook_injection_mode", "prefix")
+    inject_examples = bool(getattr(learning_cfg, "inject_few_shot_examples", False))
+    few_shot_budget = int(getattr(learning_cfg, "max_few_shot_token_budget", 0) or 0)
+    redaction_patterns: list[str] = []
+    if getattr(learning_cfg, "usage_tracking", None):
+        patterns = getattr(learning_cfg.usage_tracking, "redaction_patterns", [])
+        if isinstance(patterns, list):
+            redaction_patterns = [str(p) for p in patterns if isinstance(p, str)]
     adaptive_teaching_cfg = getattr(config, "adaptive_teaching", AdaptiveTeachingConfig())
     execution_context.metadata["prompt_rewrite"] = {
         "student": {
@@ -125,6 +133,10 @@ async def arun(
         },
     }
     execution_context.metadata["learning_apply_to_prompts"] = apply_learning_prompts
+    execution_context.metadata["learning_injection_mode"] = injection_mode
+    execution_context.metadata["learning_inject_few_shot"] = inject_examples
+    execution_context.metadata["learning_few_shot_token_budget"] = few_shot_budget
+    execution_context.metadata["learning_redaction_patterns"] = redaction_patterns
     
     # Build learning_key and load learning_state BEFORE Student/Teacher creation
     # so resolve_playbook() can access playbook entries during initialization
@@ -257,7 +269,8 @@ async def arun(
                 )
             if learning_cfg.enabled and learning_cfg.update_enabled:
                 updated_state = execution_context.metadata.get("learning_state")
-                if isinstance(updated_state, dict) and updated_state:
+                # Allow empty dicts - they may have nested metadata or None values to persist
+                if isinstance(updated_state, dict):
                     await database.upsert_learning_state(
                         learning_key,
                         updated_state.get("student_learning"),
