@@ -357,8 +357,50 @@ See `examples/byoa_structured_adapter.py` for complete working examples includin
 - Test harness integration pattern
 - Hybrid LLM/structured approach
 
+## Learning Tracking Integration
+
+BYOA adapters can integrate with Atlas learning tracking to measure which playbook entries are used and which actions are adopted during execution.
+
+**Key Benefits:**
+- Measure learning effectiveness across sessions
+- Track which tools are adopted based on learning recommendations
+- Compute impact metrics for playbook entries
+- Enable research/evaluation scenarios with learning accumulation
+
+**See:** [Learning Tracking for BYOA Adapters](learning_tracking.md) for complete integration guide.
+
+**Quick Example:**
+```python
+from atlas.learning.playbook import resolve_playbook
+from atlas.learning.usage import get_tracker
+
+def my_adapter(prompt: str, metadata: Dict[str, Any] | None = None) -> str:
+    # 1. Retrieve playbook (auto-registers entries)
+    playbook, digest, meta = resolve_playbook("student", apply=True)
+
+    # 2. Get tracker
+    tracker = get_tracker()
+
+    # 3. Detect cue hits from user input
+    tracker.detect_and_record("student", user_input, step_id=1)
+
+    # 4. Execute your logic...
+    result = execute(prompt, metadata)
+
+    # 5. Track tool adoptions
+    tracker.record_action_adoption("student", tool_name, success=True, step_id=1)
+
+    # 6. Record session outcome
+    tracker.record_session_outcome(reward_score=0.85)
+
+    return result
+```
+
+---
+
 ## Further Reading
 
+- **[Learning Tracking for BYOA Adapters](learning_tracking.md)** - Complete learning integration guide
 - [BYOA Configuration Guide](../configs/configuration.md)
 - [Agent Patterns](agent_patterns.md)
 - [Arc CRM Integration Example](../../examples/arc_crm_integration/) (coming soon)
