@@ -431,6 +431,29 @@ print(f"Matched {len(matches)} cues: {matches}")
 
 ---
 
+### Learning Tracking Disabled
+
+**Problem:** Cue hits and adoptions remain at 0 even though code is called correctly.
+
+**Cause:** Learning usage tracking may be disabled in ExecutionContext metadata.
+
+**Solution:**
+Check if tracking is enabled:
+```python
+tracker = get_tracker()
+if not tracker.enabled:
+    print("Learning tracking is DISABLED")
+    # Check config in context
+    context = ExecutionContext.get()
+    config = context.metadata.get("learning_usage_config", {})
+    print(f"Config: {config}")
+```
+
+By default, tracking is enabled (`enabled: True`). Only explicitly setting it to `False` disables tracking.
+If disabled, all calls to `detect_and_record()`, `record_action_adoption()`, etc. will silently do nothing.
+
+---
+
 ## Integration Checklist
 
 Use this checklist when adding learning tracking to a BYOA adapter:
