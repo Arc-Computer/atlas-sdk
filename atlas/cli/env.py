@@ -491,10 +491,55 @@ def _cmd_env_scaffold(args: argparse.Namespace) -> int:
 
 
 def _prompt_selection(candidates: List[Candidate], role: str) -> Candidate:
+    """Select the best candidate using LLM-based inference or heuristic fallback.
+
+    This function uses Anthropic Claude Haiku to intelligently select the best
+    candidate from multiple options. Falls back to heuristic ranking if LLM is unavailable.
+
+    Args:
+        candidates: List of discovered candidates
+        role: Role type ("agent" or "environment")
+
+    Returns:
+        Selected candidate
+
+    Raises:
+        ValueError: If no candidates provided
+    """
     if not candidates:
         raise ValueError(f"No candidates detected for role '{role}'.")
     if len(candidates) == 1:
         return candidates[0]
+
+    # Import LLM-based candidate selection
+    try:
+        from atlas.cli.candidate_selection import llm_select_candidate
+
+        # Try LLM-based selection
+        selection = llm_select_candidate(candidates)
+
+        # Show selection result
+        if selection.confidence >= 0.85:
+            # High confidence - auto-select
+            print(f"  Selected {role}: {selection.candidate.dotted_path()}")
+            if selection.confidence < 1.0:
+                print(f"    Confidence: {selection.confidence:.2f}")
+        else:
+            # Medium/low confidence - show reasoning
+            print(f"  Selected {role}: {selection.candidate.dotted_path()}")
+            print(f"    Confidence: {selection.confidence:.2f}")
+            print(f"    Reasoning: {selection.reasoning}")
+
+        return selection.candidate
+
+    except ImportError:
+        # Fallback to heuristic selection if import fails
+        pass
+    except Exception as e:
+        # Fallback to heuristic if LLM selection fails
+        print(f"  LLM selection unavailable: {e}")
+
+    # Fallback: heuristic selection (original behavior for backward compatibility)
     print(f"Multiple {role} candidates detected:")
     for index, candidate in enumerate(candidates, start=1):
         marker = "[decorator]" if candidate.via_decorator else "[heuristic]"
@@ -528,6 +573,84 @@ def _summarise_capabilities(candidate: Candidate) -> str:
     return f"(caps:{flags})"
 
 
+def _setup_storage_if_needed(interactive: bool = True) -> str | None:
+    """Set up PostgreSQL storage via Docker if needed.
+
+    Args:
+        interactive: Whether to prompt user for confirmation
+
+    Returns:
+        Database URL if setup succeeded, None otherwise
+    """
+    # Check if storage is already configured
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "--filter", "name=atlas-postgres", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if "atlas-postgres" in result.stdout:
+            # Already running
+            return "postgresql://atlas:atlas@localhost:5433/atlas"
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    # Prompt user if interactive
+    if interactive:
+        try:
+            from atlas.cli.progress import print_storage_setup_prompt
+
+            if not print_storage_setup_prompt():
+                return None
+        except ImportError:
+            response = input("\nSet up PostgreSQL storage? [Y/n]: ").strip().lower()
+            if response not in ("", "y", "yes"):
+                return None
+
+    # Run atlas init equivalent
+    try:
+        from atlas.cli.progress import print_storage_setup_progress, print_storage_setup_success
+
+        print_storage_setup_progress()
+    except ImportError:
+        print("\nSetting up PostgreSQL storage...")
+
+    try:
+        # Run docker compose up
+        subprocess.run(
+            ["docker", "compose", "up", "-d", "postgres"],
+            cwd=Path(__file__).parent.parent.parent,  # Atlas SDK root
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+
+        database_url = "postgresql://atlas:atlas@localhost:5433/atlas"
+
+        try:
+            from atlas.cli.progress import print_storage_setup_success
+
+            print_storage_setup_success(database_url)
+        except ImportError:
+            print(f"✓ Storage ready: {database_url}")
+
+        return database_url
+
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+        try:
+            from atlas.cli.progress import print_storage_setup_error
+
+            print_storage_setup_error(str(e))
+        except ImportError:
+            print(f"\n✗ Storage setup failed: {e}")
+            print("\nYou can set up storage later with: atlas init")
+
+        return None
+
+
 def _ensure_write(path: Path, *, force: bool) -> None:
     if path.exists() and not force:
         raise FileExistsError(f"{path} already exists. Use --force to overwrite.")
@@ -559,7 +682,7 @@ def _infer_skip_reasons(targets: SelectedTargets) -> list[str]:
     if targets.environment.factory and not targets.environment.candidate:
         reasons.append("Environment instantiated via factory only; skipping automatic run until validated.")
     if targets.agent.candidate and not targets.agent.candidate.capabilities.get("summarize"):
-        reasons.append("Agent missing summarize(); Atlas wrapper will auto-generate final answers. Validate behaviour manually before running discovery.")
+        reasons.append("Note: Agent doesn't implement summarize() - Atlas will auto-generate final answers (this is fine)")
     return reasons
 
 
@@ -1552,24 +1675,34 @@ def _cmd_env_init(args: argparse.Namespace) -> int:
                     print(f"  ... and {len(actionable) - 3} more (use --verbose for full list)")
                 print()
 
-    if validation_success:
-        print("Validation succeeded for generated factories.")
-        if auto_skip:
-            print("  Note: Sample run was skipped due to missing prerequisites.")
-            print("  Run atlas again once dependencies are ready.")
-    else:
-        print("Validation failed; generated factories may not execute correctly:", file=sys.stderr)
-        if verbose:
+    # Only show validation details in verbose mode
+    if verbose:
+        if validation_success:
+            print("✓ Validation: Generated factories are executable")
+            if auto_skip:
+                print("  Note: Sample run was skipped due to missing prerequisites")
+        else:
+            print("⚠ Validation: Generated factories may have issues")
             for message in validation_errors:
-                print(f"  - {message}", file=sys.stderr)
-        if auto_skip:
-            print("  Note: This may be due to missing prerequisites noted above.", file=sys.stderr)
-    print()
+                print(f"  - {message}")
+            if auto_skip:
+                print("  This may be due to missing prerequisites listed below")
+        print()
+
+    # In non-verbose mode, validation warnings are suppressed for clean output
+    # Users can run with --verbose to see factory validation details
 
     marker_path.write_text(
         json.dumps({"validated_at": datetime.now(timezone.utc).isoformat()}, ensure_ascii=False),
         encoding="utf-8",
     )
+
+    # Storage setup integration (fold atlas init into env init)
+    database_url = _setup_storage_if_needed(interactive=not getattr(args, "no_storage_prompt", False))
+    if database_url and not verbose:
+        print(f"✓ Storage:   PostgreSQL (localhost:5433)")
+        print()
+
     try:
         config_display = config_path.relative_to(project_root)
     except ValueError:
