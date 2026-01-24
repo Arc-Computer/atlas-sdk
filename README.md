@@ -228,7 +228,7 @@ export STORAGE__DATABASE_URL=postgresql://atlas:atlas@localhost:5433/atlas
 export ATLAS_CORE_PATH=~/src/ATLAS
 
 atlas train \
-  --config-name offline/base \
+  --data-config runtime_pg \
   --trainer-config grpo \
   --wandb-project atlas-runtime \
   --override trainer.max_steps=250
@@ -236,7 +236,8 @@ atlas train \
 # Option 2: Export to JSONL first
 arc-atlas --database-url postgresql://... --output traces.jsonl
 cd $ATLAS_CORE_PATH
-python scripts/run_offline_pipeline.py --export-path traces.jsonl
+pip install -e .
+atlas-core offline-pipeline --export-path traces.jsonl
 ```
 
 **Deploying Trained Models:**

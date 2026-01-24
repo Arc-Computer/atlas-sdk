@@ -136,15 +136,15 @@ These options are frequently adjusted but have sensible defaults:
 ```yaml
 learning:
   # ... llm and gates ...
-  
+
   # Learning update frequency
   history_limit: 10          # How many recent runs to review (default: 10)
                              # Lower = faster convergence, Higher = deeper patterns
-  
+
   # Learning injection control
   apply_to_prompts: true     # Inject learning into prompts (default: true)
                              # Set false to capture learning without affecting live traffic
-  
+
   # Empirical validation tuning
   pruning_config:
     min_sessions: 10         # Minimum sessions before pruning (default: 10)

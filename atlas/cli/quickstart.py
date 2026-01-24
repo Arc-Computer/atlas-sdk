@@ -276,7 +276,7 @@ def _format_final_answer(answer: str, artifact_path: Path | None) -> str:
     except (AttributeError, TypeError) as exc:
         logger.warning("Failed to process answer: %s", exc, exc_info=True)
         return f"[Error formatting answer: {exc}]"
-    
+
     is_json = False
     json_data = None
     try:
@@ -284,7 +284,7 @@ def _format_final_answer(answer: str, artifact_path: Path | None) -> str:
         is_json = True
     except (json.JSONDecodeError, ValueError):
         pass
-    
+
     if is_json and isinstance(json_data, dict):
         def _describe_structure(obj, prefix="", max_depth=MAX_JSON_DEPTH, current_depth=0):
             """Recursively describe JSON structure."""
@@ -292,7 +292,7 @@ def _format_final_answer(answer: str, artifact_path: Path | None) -> str:
                 return "..."
             if current_depth >= max_depth:
                 return "..."
-            
+
             if isinstance(obj, dict):
                 keys = list(obj.keys())
                 if len(keys) == 0:
@@ -328,26 +328,26 @@ def _format_final_answer(answer: str, artifact_path: Path | None) -> str:
                 desc += "]"
                 return desc
             return str(obj)
-        
+
         try:
             structure_desc = _describe_structure(json_data)
             total_keys = len(json_data.keys())
-            
+
             structure_lines = [f"JSON structure ({total_keys} top-level keys):"]
             structure_lines.append(structure_desc)
-            
+
             try:
                 full_json = json.dumps(json_data, indent=2)
                 snippet = full_json[:MAX_JSON_SNIPPET_LENGTH]
                 if len(full_json) > MAX_JSON_SNIPPET_LENGTH:
                     snippet = snippet.rsplit("\n", 1)[0] + "\n  ..."
-                
+
                 structure_lines.append("\nSnippet:")
                 structure_lines.append(snippet)
             except (TypeError, ValueError) as exc:
                 logger.warning("Failed to serialize JSON snippet: %s", exc, exc_info=True)
                 structure_lines.append("\n[Unable to display JSON snippet]")
-            
+
             formatted = "\n".join(structure_lines)
             if artifact_path:
                 formatted += f"\n\n[Full answer available in run artifact: {artifact_path.name}]"
@@ -355,7 +355,7 @@ def _format_final_answer(answer: str, artifact_path: Path | None) -> str:
         except Exception as exc:
             logger.warning("Failed to format JSON structure: %s", exc, exc_info=True)
             is_json = False
-    
+
     try:
         if len(answer) > MAX_TEXT_LENGTH:
             truncated = answer[:MAX_TEXT_LENGTH].rsplit("\n", 1)[0]
@@ -414,7 +414,7 @@ async def _run_task(task: str, task_num: int, config_path: str, atlas_dir: Path)
                 }
         else:
             result_data = _ensure_jsonable(result)
-    
+
     run_payload = {
         "task": task,
         "task_num": task_num,
@@ -563,7 +563,7 @@ async def _cmd_quickstart_async(args: argparse.Namespace) -> int:
             summary = _render_learning_summary(metrics_list[-1].metadata, stream=True)
             if summary:
                 print(f"\n{summary}")
-            
+
             if _has_playbook_entries(metrics_list[-1].metadata):
                 print(f"\n💡 Learning Analysis:")
                 print(f"   Playbook entries saved in artifacts (full structure with cue, action, scope, impact)")
@@ -627,4 +627,3 @@ def register_parser(subparsers: argparse._SubParsersAction[argparse.ArgumentPars
         help="Number of tasks to run (1-3, default: 3).",
     )
     quickstart_parser.set_defaults(handler=_cmd_quickstart)
-

@@ -14,10 +14,10 @@ from atlas.cli.jsonl_writer import ExportSummary
 
 def _make_atlas_core_tree(base: Path) -> Path:
     atlas_core = base / "atlas-core"
-    scripts_dir = atlas_core / "scripts"
-    scripts_dir.mkdir(parents=True)
-    (atlas_core / "train.py").write_text("# stub\n", encoding="utf-8")
-    (scripts_dir / "run_offline_pipeline.py").write_text("# stub\n", encoding="utf-8")
+    cli_dir = atlas_core / "src" / "atlas_core" / "cli"
+    cli_dir.mkdir(parents=True, exist_ok=True)
+    (cli_dir / "train.py").write_text("# stub\n", encoding="utf-8")
+    (cli_dir / "offline_pipeline.py").write_text("# stub\n", encoding="utf-8")
     return atlas_core
 
 
@@ -72,7 +72,7 @@ def test_train_dry_run_invokes_export(monkeypatch: pytest.MonkeyPatch, tmp_path:
 
     assert exit_code == 0
     assert export_calls, "export_sessions_sync should be invoked during dry-run"
-    assert "Atlas Core command (dry-run): python scripts/run_offline_pipeline.py" in captured.out
+    assert "Atlas Core command (dry-run): python -m atlas_core.cli.offline_pipeline" in captured.out
     assert "--config-name baseline" in captured.out
     assert "--override trainer.lr=1e-4" in captured.out
     assert "Dry run enabled; skipping Atlas Core execution." in captured.out
@@ -98,8 +98,8 @@ def test_train_happy_path_default_output(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
     run_calls: list[types.SimpleNamespace] = []
 
-    def fake_run(cmd, cwd=None, check=False):
-        run_calls.append(types.SimpleNamespace(cmd=cmd, cwd=cwd, check=check))
+    def fake_run(cmd, cwd=None, env=None, check=False):
+        run_calls.append(types.SimpleNamespace(cmd=cmd, cwd=cwd, env=env, check=check))
         return types.SimpleNamespace(returncode=0)
 
     monkeypatch.setenv("ATLAS_CORE_PATH", str(atlas_core))
@@ -131,11 +131,11 @@ def test_train_happy_path_default_output(monkeypatch: pytest.MonkeyPatch, tmp_pa
     assert run_calls, "subprocess.run should be invoked"
     run_call = run_calls[0]
     assert run_call.cmd[0] == "python"
-    assert run_call.cmd[1:3] == ["scripts/run_offline_pipeline.py", "--export-path"]
-    assert run_call.cmd[3] == str(expected_output)
+    assert run_call.cmd[1:4] == ["-m", "atlas_core.cli.offline_pipeline", "--export-path"]
+    assert run_call.cmd[4] == str(expected_output)
     assert run_call.cwd == str(atlas_core)
 
-    assert str(atlas_core / "outputs") in captured.out
+    assert str(atlas_core / "results") in captured.out
 
 
 def test_train_sample_dataset(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

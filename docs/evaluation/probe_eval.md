@@ -20,7 +20,7 @@ For each model:
 - Accuracy vs. `expected_mode` (when provided).
 - Average and percentile latency (wall-clock).
 - Failure rate (exceptions/timeouts).
-  
+
 
 ### Procedure
 1. Load the dataset and normalise each record into probe inputs.

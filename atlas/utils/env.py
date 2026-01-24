@@ -27,7 +27,7 @@ def load_dotenv_if_available(dotenv_path: Path | str | None = None) -> bool:
 def is_offline_mode() -> bool:
     """
     Check if Atlas is running in offline mode.
-    
+
     Supports both ATLAS_OFFLINE_MODE (new) and ATLAS_FAKE_LLM (deprecated).
     Returns True if either variable is set to a truthy value.
     """

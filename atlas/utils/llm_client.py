@@ -64,10 +64,10 @@ class LLMClient:
 
     def _is_gemini_model(self, model: str) -> bool:
         """Check if model is a Gemini model.
-        
+
         Args:
             model: Model identifier string
-            
+
         Returns:
             True if model is a Gemini model, False otherwise
         """
@@ -80,7 +80,7 @@ class LLMClient:
         overrides: dict[str, Any] | None,
     ) -> dict[str, Any]:
         import os
-        
+
         params = self._params
         api_key = os.getenv(params.api_key_env)
         if not api_key:

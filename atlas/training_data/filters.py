@@ -50,4 +50,3 @@ def build_session_query_filters(
 
     where_clause = " AND ".join(constraints) if constraints else "TRUE"
     return where_clause, params
-

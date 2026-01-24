@@ -67,4 +67,3 @@ async def test_paginate_sessions_empty_result(mock_database):
         batches.append(batch)
 
     assert len(batches) == 0
-

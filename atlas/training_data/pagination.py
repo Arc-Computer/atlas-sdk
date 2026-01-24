@@ -99,4 +99,3 @@ async def paginate_sessions(
             break
         if len(session_rows) < current_batch_size:
             break
-

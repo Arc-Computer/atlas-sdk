@@ -7,11 +7,11 @@ from typing import Any, Dict
 
 def build_playbook_entry_schema() -> Dict[str, Any]:
     """Build JSON Schema for playbook_entry.v1 structure.
-    
+
     This schema matches the structure defined in atlas/learning/prompts.py
     and is used for Gemini structured outputs to enforce type safety and
     schema validation at the API level.
-    
+
     Returns:
         JSON Schema dictionary compatible with Gemini's response_json_schema format
     """
@@ -139,4 +139,3 @@ def build_playbook_entry_schema() -> Dict[str, Any]:
 
 
 __all__ = ["build_playbook_entry_schema"]
-

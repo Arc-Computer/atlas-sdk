@@ -137,7 +137,6 @@ async def arun(
     execution_context.metadata["learning_inject_few_shot"] = inject_examples
     execution_context.metadata["learning_few_shot_token_budget"] = few_shot_budget
     execution_context.metadata["learning_redaction_patterns"] = redaction_patterns
-    
     # Build learning_key and load learning_state BEFORE Student/Teacher creation
     # so resolve_playbook() can access playbook entries during initialization
     session_meta = execution_context.metadata.setdefault("session_metadata", {})
@@ -146,7 +145,7 @@ async def arun(
     execution_context.metadata["learning_key"] = learning_key
     database = Database(config.storage) if config.storage else None
     session_id: int | None = None
-    
+
     # Load learning_state early before Student/Teacher creation
     # so resolve_playbook() can access playbook entries during initialization
     if test_learning_state is not None:
@@ -212,7 +211,7 @@ async def arun(
     execution_context.metadata["adaptive_default_tags"] = list(getattr(adaptive_teaching_cfg, "default_tags", []) or [])
     execution_context.metadata["learning_usage_config"] = learning_cfg.usage_tracking.model_dump()
     triage_adapter = _load_triage_adapter(getattr(adaptive_teaching_cfg, "triage_adapter", None))
-    
+
     try:
 
         capability_probe_client = CapabilityProbeClient(adaptive_teaching_cfg.probe)
@@ -849,7 +848,7 @@ def _resolve_incident_context(triage: dict[str, Any] | None, context: ExecutionC
     incident_id: str | None = None
     incident_tags: list[str] = []
     task_identifier: str | None = None
-    
+
     # Check session_metadata first (highest priority)
     session_metadata = context.metadata.get("session_metadata") if isinstance(context.metadata, dict) else None
     if isinstance(session_metadata, dict):
@@ -861,7 +860,7 @@ def _resolve_incident_context(triage: dict[str, Any] | None, context: ExecutionC
         tags = session_metadata.get("incident_tags")
         if isinstance(tags, list):
             incident_tags = [str(tag).strip() for tag in tags if isinstance(tag, str) and tag.strip()]
-    
+
     # Fall back to triage metadata if not set in session_metadata
     if incident_id is None and isinstance(triage, dict):
         metadata = triage.get("metadata")

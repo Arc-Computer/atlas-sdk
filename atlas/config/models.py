@@ -207,7 +207,7 @@ class LitellmAdapterConfig(AdapterConfig):
 
 class OpenAIAdapterConfig(AdapterConfig):
     """Deprecated: Use LitellmAdapterConfig instead.
-    
+
     This class is maintained for backward compatibility. New code should use
     LitellmAdapterConfig with type: litellm.
     """

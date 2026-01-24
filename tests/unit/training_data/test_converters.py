@@ -186,4 +186,3 @@ def test_selective_loading():
     assert trace.session_reward is None
     assert trace.student_learning is None
     assert trace.learning_history is None
-

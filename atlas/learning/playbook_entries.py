@@ -379,7 +379,7 @@ def _generality_gate(
     cue = entry.get("cue", {})
     action = entry.get("action", {})
     scope = entry.get("scope", {})
-    
+
     text_segments.extend(
         segment
         for segment in (
@@ -392,31 +392,31 @@ def _generality_gate(
         )
         if isinstance(segment, str)
     )
-    
+
     combined = " ".join(text_segments)
     if not combined:
         return False, "empty_text"
-    
+
     # Check for obvious anti-patterns only
     lower = combined.lower()
-    
+
     # Banned incident tokens (incident, ticket, case, postmortem)
     for token in gates.banned_incident_tokens:
         if token and token in lower:
             return False, f"banned_token:{token}"
-    
+
     # Date patterns (specific dates indicate task-specific overfitting)
     if _DATE_PATTERN.search(combined):
         return False, "contains_date"
-    
+
     # Incident ID patterns (ticket-123, incident-456, case-789)
     if _INCIDENT_PATTERN.search(combined):
         return False, "contains_incident_reference"
-    
+
     # Specific file paths (absolute paths or paths with extensions indicate task-specific)
     if _FILE_PATH_PATTERN.search(combined):
         return False, "contains_specific_file_path"
-    
+
     # All checks passed - entry is provisionally acceptable
     # Proper nouns and length limits are NOT checked - empirical validation will decide
     return True, ""

@@ -149,4 +149,3 @@ def test_validation_output_with_auto_skip(secrl_project, capsys: pytest.CaptureF
     assert "Validation deferred" not in captured.err
     marker_path = project_root / ".atlas" / ".validated"
     assert marker_path.exists()
-

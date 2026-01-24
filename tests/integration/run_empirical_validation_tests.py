@@ -33,7 +33,7 @@ def test_provisional_entry_has_validation_metadata():
             },
         },
     }
-    
+
     assert entry["metadata"]["validation_status"] == "provisional"
     assert isinstance(entry["metadata"]["validation_warnings"], list)
     assert len(entry["metadata"]["validation_warnings"]) > 0
@@ -56,7 +56,7 @@ def test_validated_entry_has_active_lifecycle():
             },
         },
     }
-    
+
     assert entry["metadata"]["validation_status"] == "validated"
     assert entry["provenance"]["status"]["lifecycle"] == "active"
     print("✓ test_validated_entry_has_active_lifecycle")
@@ -78,7 +78,7 @@ def test_impact_initialization():
             "incident_ids": [],
         },
     }
-    
+
     impact = entry.get("impact", {})
     assert isinstance(impact, dict)
     assert "sessions_observed" in impact
@@ -91,7 +91,7 @@ def test_prune_too_specific_entry():
     pruning_config = PlaybookPruningConfig()
     learning_config = LearningConfig(enabled=False, provisional_acceptance=True, pruning_config=pruning_config)
     synthesizer = LearningSynthesizer(config=learning_config, client=None)
-    
+
     entry = {
         "id": "too-specific-entry",
         "impact": {
@@ -111,9 +111,9 @@ def test_prune_too_specific_entry():
             },
         },
     }
-    
+
     result = synthesizer._prune_ineffective_entries([entry])
-    
+
     # Entry should be pruned
     assert len(result) == 0
     assert entry["provenance"]["status"]["lifecycle"] == "pruned"
@@ -126,7 +126,7 @@ def test_prune_harmful_entry():
     pruning_config = PlaybookPruningConfig()
     learning_config = LearningConfig(enabled=False, provisional_acceptance=True, pruning_config=pruning_config)
     synthesizer = LearningSynthesizer(config=learning_config, client=None)
-    
+
     entry = {
         "id": "harmful-entry",
         "impact": {
@@ -146,9 +146,9 @@ def test_prune_harmful_entry():
             },
         },
     }
-    
+
     result = synthesizer._prune_ineffective_entries([entry])
-    
+
     # Entry should be pruned (reward_delta = 0.5 - 0.6 = -0.1 < -0.01)
     assert len(result) == 0
     assert entry["provenance"]["status"]["lifecycle"] == "pruned"
@@ -161,7 +161,7 @@ def test_prune_neutral_entry():
     pruning_config = PlaybookPruningConfig()
     learning_config = LearningConfig(enabled=False, provisional_acceptance=True, pruning_config=pruning_config)
     synthesizer = LearningSynthesizer(config=learning_config, client=None)
-    
+
     entry = {
         "id": "neutral-entry",
         "impact": {
@@ -181,9 +181,9 @@ def test_prune_neutral_entry():
             },
         },
     }
-    
+
     result = synthesizer._prune_ineffective_entries([entry])
-    
+
     # Entry should be pruned (reward_delta = 0.0 < 0.01, adoption_rate = 0.75 > 0.5)
     assert len(result) == 0
     assert entry["provenance"]["status"]["lifecycle"] == "pruned"
@@ -196,7 +196,7 @@ def test_prune_no_transfer_entry():
     pruning_config = PlaybookPruningConfig()
     learning_config = LearningConfig(enabled=False, provisional_acceptance=True, pruning_config=pruning_config)
     synthesizer = LearningSynthesizer(config=learning_config, client=None)
-    
+
     entry = {
         "id": "no-transfer-entry",
         "impact": {
@@ -216,9 +216,9 @@ def test_prune_no_transfer_entry():
             },
         },
     }
-    
+
     result = synthesizer._prune_ineffective_entries([entry])
-    
+
     # Entry should be pruned (only 1 incident, < 2)
     assert len(result) == 0
     assert entry["provenance"]["status"]["lifecycle"] == "pruned"
@@ -231,7 +231,7 @@ def test_keep_good_entry():
     pruning_config = PlaybookPruningConfig()
     learning_config = LearningConfig(enabled=False, provisional_acceptance=True, pruning_config=pruning_config)
     synthesizer = LearningSynthesizer(config=learning_config, client=None)
-    
+
     entry = {
         "id": "good-entry",
         "impact": {
@@ -251,9 +251,9 @@ def test_keep_good_entry():
             },
         },
     }
-    
+
     result = synthesizer._prune_ineffective_entries([entry])
-    
+
     # Entry should be kept
     assert len(result) == 1
     assert result[0]["id"] == "good-entry"
@@ -266,7 +266,7 @@ def test_keep_entry_with_insufficient_data():
     pruning_config = PlaybookPruningConfig()
     learning_config = LearningConfig(enabled=False, provisional_acceptance=True, pruning_config=pruning_config)
     synthesizer = LearningSynthesizer(config=learning_config, client=None)
-    
+
     entry = {
         "id": "new-entry",
         "impact": {
@@ -286,9 +286,9 @@ def test_keep_entry_with_insufficient_data():
             },
         },
     }
-    
+
     result = synthesizer._prune_ineffective_entries([entry])
-    
+
     # Entry should be kept (not enough data to prune)
     assert len(result) == 1
     assert result[0]["id"] == "new-entry"
@@ -303,18 +303,18 @@ def test_transfer_success_detection():
             "incident_ids": ["incident-1", "incident-2"],
         },
     }
-    
+
     incident_ids = entry_with_transfer["impact"].get("incident_ids", [])
     transfer_success = len(incident_ids) >= 2
     assert transfer_success is True
-    
+
     # Entry without transfer success (< 2 incidents)
     entry_without_transfer = {
         "impact": {
             "incident_ids": ["incident-1"],
         },
     }
-    
+
     incident_ids = entry_without_transfer["impact"].get("incident_ids", [])
     transfer_success = len(incident_ids) >= 2
     assert transfer_success is False
@@ -336,23 +336,23 @@ def test_metrics_computation():
             "incident_ids": ["incident-1", "incident-2"],
         },
     }
-    
+
     impact = entry["impact"]
-    
+
     # Cue hit rate
     cue_hit_rate = impact["sessions_with_hits"] / impact["sessions_observed"]
     assert cue_hit_rate == 0.75  # 15 / 20
-    
+
     # Adoption rate
     adoption_rate = impact["successful_adoptions"] / impact["total_cue_hits"]
     assert adoption_rate == 0.8  # 20 / 25
-    
+
     # Reward delta
     reward_with = impact["reward_with_sum"] / impact["reward_with_count"]
     reward_without = impact["reward_without_sum"] / impact["reward_without_count"]
     reward_delta = reward_with - reward_without
     assert reward_delta == 0.25  # 0.75 - 0.5
-    
+
     # Transfer success
     transfer_success = len(impact["incident_ids"]) >= 2
     assert transfer_success is True
@@ -362,7 +362,7 @@ def test_metrics_computation():
 def main():
     """Run all tests."""
     print("Running empirical validation tests...\n")
-    
+
     tests = [
         test_provisional_entry_has_validation_metadata,
         test_validated_entry_has_active_lifecycle,
@@ -376,10 +376,10 @@ def main():
         test_transfer_success_detection,
         test_metrics_computation,
     ]
-    
+
     passed = 0
     failed = 0
-    
+
     for test in tests:
         try:
             test()
@@ -390,14 +390,13 @@ def main():
         except Exception as e:
             print(f"✗ {test.__name__}: {type(e).__name__}: {e}")
             failed += 1
-    
+
     print(f"\n{'='*60}")
     print(f"Tests: {passed} passed, {failed} failed")
     print(f"{'='*60}")
-    
+
     return 0 if failed == 0 else 1
 
 
 if __name__ == "__main__":
     sys.exit(main())
-

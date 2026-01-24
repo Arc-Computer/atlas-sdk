@@ -50,4 +50,3 @@ atlas run --config configs/examples/python_agent.yaml --task "Your task here"
 ## Configuration Reference
 
 For complete configuration documentation, see [Configuration Guide](../../docs/configs/configuration.md).
-

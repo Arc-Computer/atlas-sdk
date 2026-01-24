@@ -106,7 +106,7 @@ class LearningSynthesizer:
         if client is None:
             logger.debug("Learning synthesizer client unavailable; skipping update for %s", learning_key)
             return None
-        
+
         # Build JSON schema for structured outputs (Gemini models)
         json_schema = build_playbook_entry_schema()
         overrides: Dict[str, Any] = {}
@@ -115,7 +115,7 @@ class LearningSynthesizer:
             overrides["extra_body"] = {
                 "response_json_schema": json_schema
             }
-        
+
         try:
             response = await client.acomplete(
                 messages,
@@ -330,13 +330,13 @@ class LearningSynthesizer:
             allow_missing_mapping=handles.get("allow_missing_mapping", False),
         )
         summary["weights"] = self._normalised_weights_map()
-        
+
         # Separate blocking failures (semantic correctness) from non-blocking warnings (generality)
         # Actionability and cue gates are blocking - entries must pass these
         # Generality gate is non-blocking - entries can be accepted provisionally
         blocking_failures: List[Dict[str, Any]] = []
         provisional_warnings: List[Dict[str, Any]] = []
-        
+
         for item in evaluations:
             if not item.passed():
                 gates = item.evaluation.gates
@@ -360,7 +360,7 @@ class LearningSynthesizer:
                             "reasons": item.evaluation.failure_reasons,
                         }
                     )
-        
+
         # Accept if no blocking failures (allow provisional entries)
         accepted = len(blocking_failures) == 0
         summary["accepted"] = accepted
@@ -398,13 +398,13 @@ class LearningSynthesizer:
             seen_ids: set[str] = set()
             # Create mapping of entry IDs to their warnings for provisional entries
             provisional_by_id = {w.get("id"): w for w in provisional_warnings}
-            
+
             for item in evaluations:
                 # Skip only blocking failures - accept entries with provisional warnings
                 gates = item.evaluation.gates
                 if not gates.get("actionability", True) or not gates.get("cue", True):
                     continue
-                    
+
                 entry_payload = item.to_metadata()
                 entry_payload.pop("sequence", None)
                 entry_id = entry_payload.get("id") or stabilise_playbook_entry_id(entry_payload)
@@ -420,7 +420,7 @@ class LearningSynthesizer:
                     category = (prior_scope or {}).get("category") or self._schema.default_scope_category
                     scope["category"] = category
                 entry_payload["rubric"]["weights"] = self._normalised_weights_map()
-                
+
                 # Mark provisional entries with validation status and warnings
                 if entry_id in provisional_by_id:
                     warning = provisional_by_id[entry_id]
@@ -432,7 +432,7 @@ class LearningSynthesizer:
                     entry_metadata = entry_payload.setdefault("metadata", {})
                     entry_metadata["validation_status"] = "validated"
                     lifecycle = "active"
-                
+
                 prior_entry = baseline_entries_by_id.get(entry_id)
                 entry_payload["provenance"] = self._build_provenance(
                     entry_payload,
@@ -460,7 +460,7 @@ class LearningSynthesizer:
             metadata["playbook_entries"] = active_entries
             metadata["playbook_summary"] = summary
             metadata["last_updated_at"] = timestamp
-            
+
             # Filter out pruned entries from final active list
             metadata["playbook_entries"] = [
                 entry for entry in active_entries
@@ -545,7 +545,7 @@ class LearningSynthesizer:
     ) -> List[Dict[str, Any]]:
         """
         Prune entries based on empirical impact metrics.
-        
+
         Pruning criteria:
         1. Too specific: cue_hit_rate < min_cue_hit_rate AND sessions_observed >= min_sessions
         2. Harmful: reward_delta < -min_reward_delta AND sessions_with_hits >= 5
@@ -556,56 +556,56 @@ class LearningSynthesizer:
         min_cue_hit_rate = pruning_config.min_cue_hit_rate
         min_reward_delta = pruning_config.min_reward_delta
         min_transfer_sessions = pruning_config.min_transfer_sessions
-        
+
         pruned = []
         for entry in entries:
             if not isinstance(entry, dict):
                 pruned.append(entry)
                 continue
-                
+
             impact = entry.get("impact", {})
             if not isinstance(impact, dict):
                 pruned.append(entry)  # Keep - no impact data yet
                 continue
-                
+
             sessions_observed = impact.get("sessions_observed", 0)
-            
+
             # Not enough data - keep entry
             if sessions_observed < min_sessions:
                 pruned.append(entry)
                 continue
-                
+
             # Compute metrics
             sessions_with_hits = impact.get("sessions_with_hits", 0)
             cue_hit_rate = sessions_with_hits / sessions_observed if sessions_observed > 0 else 0.0
-            
+
             total_cue_hits = impact.get("total_cue_hits", 0)
             successful_adoptions = impact.get("successful_adoptions", 0)
             adoption_rate = successful_adoptions / total_cue_hits if total_cue_hits > 0 else 0.0
-            
+
             reward_with_sum = impact.get("reward_with_sum", 0.0)
             reward_with_count = impact.get("reward_with_count", 0)
             reward_without_sum = impact.get("reward_without_sum", 0.0)
             reward_without_count = impact.get("reward_without_count", 0)
-            
+
             reward_with = reward_with_sum / reward_with_count if reward_with_count > 0 else None
             reward_without = reward_without_sum / reward_without_count if reward_without_count > 0 else None
             reward_delta = (reward_with - reward_without) if (reward_with is not None and reward_without is not None) else None
-            
+
             incident_ids = impact.get("incident_ids", [])
             transfer_success = len(incident_ids) >= 2 if isinstance(incident_ids, list) else False
-            
+
             # Pruning rules
             prune_reason = None
-            
+
             # 1. Too specific - rarely fires
             if cue_hit_rate < min_cue_hit_rate and sessions_observed >= min_sessions:
                 prune_reason = "too_specific"
-            
+
             # 2. Harmful - negative reward delta
             elif reward_delta is not None and reward_delta < -min_reward_delta and sessions_with_hits >= 5:
                 prune_reason = "harmful"
-            
+
             # 3. Neutral - no improvement despite adoption
             elif (
                 reward_delta is not None
@@ -614,11 +614,11 @@ class LearningSynthesizer:
                 and sessions_with_hits >= 10
             ):
                 prune_reason = "neutral"
-            
+
             # 4. No transfer - only fires in one context
             elif not transfer_success and sessions_observed >= min_transfer_sessions:
                 prune_reason = "no_transfer"
-            
+
             if prune_reason:
                 # Mark as pruned but keep in list for audit trail
                 provenance = entry.get("provenance")
@@ -634,9 +634,9 @@ class LearningSynthesizer:
                 provenance["pruned_at"] = datetime.now(timezone.utc).isoformat()
                 # Don't add to active entries - they'll be filtered out
                 continue
-            
+
             pruned.append(entry)
-        
+
         return pruned
 
     def _build_provenance(
@@ -700,10 +700,10 @@ class LearningSynthesizer:
 
     def _is_gemini_model(self, model: str) -> bool:
         """Check if model is a Gemini model.
-        
+
         Args:
             model: Model identifier string
-            
+
         Returns:
             True if model is a Gemini model, False otherwise
         """

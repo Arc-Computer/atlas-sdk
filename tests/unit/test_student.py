@@ -456,7 +456,7 @@ def test_record_runtime_handles_merges_handles():
     """Test that _record_runtime_handles merges configured tools and additional handles."""
     ExecutionContext.get().reset()
     student = object.__new__(Student)
-    
+
     # Mock tool objects
     tool1 = SimpleNamespace(name="configured_tool")
     tool2 = SimpleNamespace(name="another_tool")
@@ -482,7 +482,7 @@ def test_record_runtime_handles_merges_handles():
 def test_record_student_action_adoption_populates_runtime_handles():
     """Test that _record_student_action_adoption extracts handles from tool calls and populates runtime_handles."""
     ExecutionContext.get().reset()
-    
+
     # Mock tracker
     class MockTracker:
         enabled = True
@@ -491,7 +491,7 @@ def test_record_student_action_adoption_populates_runtime_handles():
 
     student = object.__new__(Student)
     student._tools = []  # Agentic adapter - no configured tools
-    
+
     # Mock the tracker
     from atlas.learning.usage import get_tracker
     original_get_tracker = get_tracker
@@ -499,7 +499,7 @@ def test_record_student_action_adoption_populates_runtime_handles():
         # Replace get_tracker temporarily
         import atlas.personas.student as student_module
         student_module.get_tracker = lambda: MockTracker()
-        
+
         # Create messages with tool calls in the format AIMessage expects (dicts)
         # AIMessage internally converts these to objects with .name attribute
         message = AIMessage(
@@ -509,7 +509,7 @@ def test_record_student_action_adoption_populates_runtime_handles():
                 {"name": "write_file", "args": {"path": "output.txt", "content": "data"}, "id": "call-2", "type": "tool_call"},
             ],
         )
-        
+
         step = Step(id=1, description="Test step", tool=None, tool_params=None)
 
         # Debug: Check message.tool_calls before calling the function

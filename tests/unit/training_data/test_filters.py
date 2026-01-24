@@ -73,4 +73,3 @@ def test_build_filters_empty():
 
     assert where_clause == "TRUE"
     assert params == []
-

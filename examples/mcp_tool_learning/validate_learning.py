@@ -21,18 +21,18 @@ TASKS = [
 
 async def main():
     config_path = Path(__file__).parent / "config.yaml"
-    
+
     print("=" * 80)
     print("MCP Tool Learning Validation (5 tasks)")
     print("=" * 80)
-    
+
     # Change to the mcp_tool_learning directory for proper imports
     original_cwd = Path.cwd()
     mcp_dir = Path(__file__).parent
-    
+
     try:
         os.chdir(mcp_dir)
-        
+
         for idx, task in enumerate(TASKS, 1):
             print(f"\nTask {idx}/5: {task}")
             try:
@@ -51,7 +51,7 @@ async def main():
                 return 1
     finally:
         os.chdir(original_cwd)
-    
+
     print("\n✅ Validation complete!")
     print("   Learning key: mcp-tool-learning-validation")
     print("   Run validation script: python scripts/validate_learning_metrics.py mcp-tool-learning-validation")
@@ -60,4 +60,3 @@ async def main():
 
 if __name__ == "__main__":
     sys.exit(asyncio.run(main()))
-

@@ -261,4 +261,3 @@ async def test_field_preservation_round_trip():
         for step in session_dict["steps"]:
             assert "runtime" in step
             assert "depends_on" in step
-

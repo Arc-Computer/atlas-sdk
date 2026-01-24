@@ -248,4 +248,3 @@ register_adapter(AdapterType.LITELLM, _build_litellm_adapter)
 register_adapter(AdapterType.OPENAI, _build_openai_adapter_deprecated)
 
 __all__ = ["LitellmAdapter"]
-

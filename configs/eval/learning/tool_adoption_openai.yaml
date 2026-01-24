@@ -152,4 +152,3 @@ metadata:
     name: 20251030_tool_adoption_openai
     learning_key: runtime.synthetic.openai.tools
     seed: 20251030
-

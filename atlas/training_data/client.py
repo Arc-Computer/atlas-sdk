@@ -312,4 +312,3 @@ def count_training_sessions(
                 config=config,
             )
         )
-

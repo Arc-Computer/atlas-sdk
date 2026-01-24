@@ -102,8 +102,8 @@ def _ensure_atlas_core_layout(path: Path) -> bool:
 
     if not path.exists() or not path.is_dir():
         return False
-    train_py = path / "train.py"
-    pipeline_script = path / "scripts" / "run_offline_pipeline.py"
+    train_py = path / "src" / "atlas_core" / "cli" / "train.py"
+    pipeline_script = path / "src" / "atlas_core" / "cli" / "offline_pipeline.py"
     return train_py.is_file() and pipeline_script.is_file()
 
 
@@ -117,7 +117,13 @@ def _resolve_database_url(cli_value: str | None) -> str | None:
 
 
 def _build_training_command(args: argparse.Namespace, export_path: Path) -> list[str]:
-    command: list[str] = [sys.executable, "scripts/run_offline_pipeline.py", "--export-path", str(export_path)]
+    command: list[str] = [
+        sys.executable,
+        "-m",
+        "atlas_core.cli.offline_pipeline",
+        "--export-path",
+        str(export_path),
+    ]
     option_map: Sequence[tuple[str, str]] = (
         ("config_name", "--config-name"),
         ("data_config", "--data-config"),
@@ -173,7 +179,11 @@ def _copy_sample_dataset(destination: Path) -> None:
 
 def _run_training(atlas_core_path: Path, command: Sequence[str]) -> int:
     try:
-        result = subprocess.run(command, cwd=str(atlas_core_path), check=False)
+        env = os.environ.copy()
+        src_path = str(atlas_core_path / "src")
+        existing = env.get("PYTHONPATH")
+        env["PYTHONPATH"] = f"{src_path}{os.pathsep}{existing}" if existing else src_path
+        result = subprocess.run(command, cwd=str(atlas_core_path), env=env, check=False)
     except FileNotFoundError as exc:  # pragma: no cover - defensive guard for missing python executable/scripts
         print(f"Failed to launch Atlas Core training: {exc}", file=sys.stderr)
         return 1
@@ -251,7 +261,7 @@ def _cmd_train(args: argparse.Namespace) -> int:
         return exit_code
 
     print(f"Export written to: {export_path}")
-    checkpoints_hint = args.output_dir or (atlas_core_path / "outputs")
+    checkpoints_hint = args.output_dir or (atlas_core_path / "results")
     print(f"Atlas Core checkpoints will appear under: {checkpoints_hint}")
     return 0
 

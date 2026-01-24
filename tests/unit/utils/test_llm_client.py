@@ -95,4 +95,3 @@ def test_offline_mode_not_set(monkeypatch: pytest.MonkeyPatch) -> None:
     client = LLMClient(params)
 
     assert client._mock_mode is False
-

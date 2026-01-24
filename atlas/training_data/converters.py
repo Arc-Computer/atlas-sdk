@@ -165,4 +165,3 @@ def convert_session_dict_to_trace(
         learning_history=learning_history,
         adaptive_summary=adaptive_summary,
     )
-

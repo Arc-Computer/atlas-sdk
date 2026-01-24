@@ -205,13 +205,13 @@ async def test_learning_synthesizer_rejects_on_gate_failure():
 def test_build_playbook_entry_schema():
     """Test that JSON schema is correctly generated."""
     schema = build_playbook_entry_schema()
-    
+
     assert schema["type"] == "object"
     assert "version" in schema["properties"]
     assert schema["properties"]["version"]["const"] == "playbook_entry.v1"
     assert "playbook_entries" in schema["properties"]
     assert schema["properties"]["playbook_entries"]["type"] == "array"
-    
+
     # Check playbook entry structure
     entry_schema = schema["properties"]["playbook_entries"]["items"]
     assert "audience" in entry_schema["properties"]
@@ -240,7 +240,7 @@ async def test_learning_synthesizer_uses_structured_outputs_for_gemini():
         "session_teacher_learning": None,
         "metadata": None
     })
-    
+
     # Test with Gemini model
     client = _StubLLMClient(response_payload, model="gemini/gemini-2.5-flash")
     synthesizer = LearningSynthesizer(cfg, client=client)
@@ -252,7 +252,7 @@ async def test_learning_synthesizer_uses_structured_outputs_for_gemini():
         learning_state={},
         history=None,
     )
-    
+
     assert client.calls == 1
     assert client.response_format == {"type": "json_object"}
     assert client.overrides is not None
@@ -282,7 +282,7 @@ async def test_learning_synthesizer_backward_compatible_non_gemini():
         "session_teacher_learning": None,
         "metadata": None
     })
-    
+
     # Test with OpenAI model
     client = _StubLLMClient(response_payload, model="gpt-4")
     synthesizer = LearningSynthesizer(cfg, client=client)
@@ -294,7 +294,7 @@ async def test_learning_synthesizer_backward_compatible_non_gemini():
         learning_state={},
         history=None,
     )
-    
+
     assert client.calls == 1
     assert client.response_format == {"type": "json_object"}
     # Non-Gemini models should not have structured outputs
@@ -307,7 +307,7 @@ async def test_learning_synthesizer_backward_compatible_non_gemini():
 def test_is_gemini_model_detection():
     """Test Gemini model detection."""
     synthesizer = LearningSynthesizer(LearningConfig(enabled=False))
-    
+
     assert synthesizer._is_gemini_model("gemini/gemini-2.5-flash") is True
     assert synthesizer._is_gemini_model("gemini/gemini-2.5-pro") is True
     assert synthesizer._is_gemini_model("google/gemini-pro") is True
